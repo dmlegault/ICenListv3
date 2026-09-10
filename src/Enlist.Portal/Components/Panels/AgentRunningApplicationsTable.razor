@@ -1,0 +1,199 @@
+@implements IAsyncDisposable
+@inject ControlPlaneApiClient Api
+@inject AgentReportCache Reports
+@inject ISnackbar Snackbar
+
+@if (_loading)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (_policies.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Dense="true">No policy rules currently match this agent.</MudAlert>
+}
+else
+{
+    var rows = BuildRows();
+
+    @if (rows.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true">No status report received from this agent yet.</MudAlert>
+    }
+    else
+    {
+        <MudTable Items="rows" Dense="true" Hover="true" Breakpoint="Breakpoint.Xs" SortLabel="Sort by">
+            @* Fixed widths on every column but the first. Each expanded agent card renders its OWN
+               MudTable, and a MudTable sizes columns to its own content — so without this, two cards on
+               screen at once visibly disagree about where "Qualified via" and "State" start, purely
+               because one of them happens to hold a longer application name or an extra chip. This is the
+               same defect the per-service tables were already fixed for; see UI-UX-Design-Spec.md. *@
+            <HeaderContent>
+                <MudTh><MudTableSortLabel SortBy="new Func<ApplicationRow, object>(r => r.Name)">Application</MudTableSortLabel></MudTh>
+                <MudTh Style="width:280px;">Qualified via</MudTh>
+                <MudTh Style="width:260px;"><MudTableSortLabel SortBy="new Func<ApplicationRow, object>(r => r.State)">State</MudTableSortLabel></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Application">
+                    @context.Name
+                    @if (context.Conflict)
+                    {
+                        <MudTooltip Text="Two or more policy rules match this agent for this application and disagree on what to run — the agent can't resolve which one wins.">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Error" Class="ml-2">conflict</MudChip>
+                        </MudTooltip>
+                    }
+                    else if (context.Version is { } v)
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Default" Class="ml-2">v@(v)</MudChip>
+                    }
+                </MudTd>
+                <MudTd DataLabel="Qualified via" Style="width:280px;">@context.QualifiedVia</MudTd>
+                <MudTd DataLabel="State" Style="width:260px;">
+                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                        <MudChip T="string" Size="Size.Small" Color="@StateColor(context.State)">@context.State</MudChip>
+                        @if (context.IsolationMode == IsolationModes.Container)
+                        {
+                            @* The agent-centric view is where "does this agent run containers, and which of
+                               its applications are containerized?" is actually asked, so the chip belongs here
+                               as much as on the Applications tab. Container only -- process is the default and
+                               a chip on every other row would be noise. *@
+                            <MudTooltip Text="@ContainerTooltip(context)">
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
+                                         Icon="@Icons.Material.Filled.Inventory2">container</MudChip>
+                            </MudTooltip>
+                        }
+                    </MudStack>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public string AgentName { get; set; } = "";
+
+    private bool _loading = true;
+    private List<ApplicationPolicyDto> _policies = [];
+    private AgentDto? _agent;
+    private Dictionary<string, int?> _versionByDigest = new();
+    private AgentStatusSnapshotDto? _status;
+
+    private CancellationTokenSource? _pollCts;
+    private Task? _pollLoop;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _policies = await Api.GetApplicationPoliciesAsync(AgentName);
+
+            var agents = await Api.GetAgentsAsync();
+            _agent = agents.FirstOrDefault(a => a.Name == AgentName);
+
+            var packages = await Api.GetPackagesAsync();
+            _versionByDigest = packages.ToDictionary(p => p.Digest, p => p.VersionNumber);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+
+        await RefreshStatusAsync();
+
+        _pollCts = new CancellationTokenSource();
+        _pollLoop = RunPollLoopAsync(_pollCts.Token);
+    }
+
+    private async Task RefreshStatusAsync()
+    {
+        try
+        {
+            _status = await Reports.GetLatestAsync(AgentName);
+        }
+        catch (ApiException)
+        {
+        }
+    }
+
+    private async Task RunPollLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(3), ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            await RefreshStatusAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private List<ApplicationRow> BuildRows()
+    {
+        if (_agent is null)
+        {
+            return [];
+        }
+
+        var rows = new List<ApplicationRow>();
+        foreach (var group in _policies.GroupBy(p => p.ApplicationName, StringComparer.OrdinalIgnoreCase))
+        {
+            var matching = group.ToList();
+            var conflict = matching.Count > 1 && !PolicyConflictDetector.Agree(matching);
+            var governing = matching[0];
+            var app = _status?.Applications.FirstOrDefault(a => a.Name == group.Key);
+            var version = !conflict && governing.PackageDigest is not null ? _versionByDigest.GetValueOrDefault(governing.PackageDigest) : null;
+            var qualifiedVia = TagSelectorMatcher.DescribeScope(_agent, governing.TagSelector);
+            rows.Add(new ApplicationRow(group.Key, version, conflict, qualifiedVia, app?.State ?? "no report yet", app?.IsolationMode, app?.RuntimeId));
+        }
+
+        return rows;
+    }
+
+    /// <summary>Hands the operator the exact next command. Built in code rather than inline because a nested interpolated string inside a Razor component attribute does not parse.</summary>
+    private static string ContainerTooltip(ApplicationRow row)
+    {
+        if (string.IsNullOrWhiteSpace(row.RuntimeId))
+        {
+            return "Running in a container on this agent.";
+        }
+
+        return "Running in a container on this agent — docker logs " + row.RuntimeId[..Math.Min(12, row.RuntimeId.Length)];
+    }
+
+    private static Color StateColor(string? state) => state switch
+    {
+        "Running" => Color.Success,
+        "Failed" => Color.Error,
+        "Restarting" => Color.Warning,
+        "Stopped" => Color.Default,
+        _ => Color.Default,
+    };
+
+    private sealed record ApplicationRow(string Name, int? Version, bool Conflict, string QualifiedVia, string State, string? IsolationMode = null, string? RuntimeId = null);
+
+    public async ValueTask DisposeAsync()
+    {
+        _pollCts?.Cancel();
+        if (_pollLoop is not null)
+        {
+            try
+            {
+                await _pollLoop;
+            }
+            catch
+            {
+            }
+        }
+
+        _pollCts?.Dispose();
+    }
+}

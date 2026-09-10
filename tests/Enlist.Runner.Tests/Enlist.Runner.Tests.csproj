@@ -1,0 +1,30 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!--
+    Referencing Enlist.Runner directly is fine here even though the runner itself must never be
+    referenced BY a plugin — this is the stub agent side of the runner<->agent boundary, not the
+    plugin contract (see Protocol/RunnerMessage.cs). A real Enlist.Agent project would do the same.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Enlist.Runner\Enlist.Runner.csproj" />
+  </ItemGroup>
+
+</Project>

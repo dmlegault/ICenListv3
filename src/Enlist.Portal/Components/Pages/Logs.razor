@@ -1,0 +1,77 @@
+@page "/logs"
+@inject ControlPlaneApiClient Api
+@inject ISnackbar Snackbar
+
+<PageTitle>Logs</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Class="mb-2" Wrap="Wrap.Wrap">
+    <MudSwitch T="bool" @bind-Value="_tailing" Color="Color.Primary" Label="Live tail" />
+</MudStack>
+
+<MudStack Row="true" Spacing="4" Class="mb-4" Wrap="Wrap.Wrap">
+    <MudSelect T="string" Label="Agent" Value="_selectedAgent" ValueChanged="OnAgentChangedAsync" Disabled="_agents is null">
+        @if (_agents is not null)
+        {
+            @foreach (var agent in _agents)
+            {
+                <MudSelectItem T="string" Value="@agent.Name">@agent.Name</MudSelectItem>
+            }
+        }
+    </MudSelect>
+
+    <MudSelect T="string" Label="Application" Value="_selectedApplication" ValueChanged="OnApplicationChangedAsync" Disabled="_applications.Count == 0">
+        @foreach (var app in _applications)
+        {
+            <MudSelectItem T="string" Value="@app">@app</MudSelectItem>
+        }
+    </MudSelect>
+</MudStack>
+
+@if (_selectedAgent is null || _selectedApplication is null)
+{
+    <MudAlert Severity="Severity.Info">Pick an agent and an application to tail its logs.</MudAlert>
+}
+else
+{
+    <LogTailView AgentName="@_selectedAgent" ApplicationName="@_selectedApplication" Tailing="_tailing" @key="@($"{_selectedAgent}/{_selectedApplication}")" />
+}
+
+@code {
+    private List<AgentDto>? _agents;
+    private string? _selectedAgent;
+    private List<string> _applications = [];
+    private string? _selectedApplication;
+    private bool _tailing = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _agents = await Api.GetAgentsAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _agents = [];
+        }
+    }
+
+    private async Task OnAgentChangedAsync(string agent)
+    {
+        _selectedAgent = agent;
+        _selectedApplication = null;
+        _applications = [];
+
+        try
+        {
+            var policies = await Api.GetApplicationPoliciesAsync(agent);
+            _applications = policies.Select(a => a.ApplicationName).Distinct().OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private void OnApplicationChangedAsync(string application) => _selectedApplication = application;
+}

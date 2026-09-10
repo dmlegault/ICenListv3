@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
+    <!--
+      Lets this host run as a Windows Service (SCM auto-start, a real stop signal) without giving up
+      IIS or `dotnet run` — the same binary serves all three. AddWindowsService() and
+      WindowsServiceHelpers.IsWindowsService() both no-op outside an actual service context, so
+      nothing changes for the other two. See Program.cs and docs/05-operations/Deployment-IaC.md §1.6.
+    -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.0" />
+    <PackageReference Include="System.Reflection.MetadataLoadContext" Version="9.0.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Enlist.ControlPlane.Contracts\Enlist.ControlPlane.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

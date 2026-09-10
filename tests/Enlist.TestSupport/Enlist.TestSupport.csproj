@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!--
+    Not a test project itself — shared infrastructure (spawning real enlist-runner/enlist-agent/
+    Enlist.ControlPlane processes, locating build output, zipping test packages) referenced by both
+    Enlist.ControlPlane.Tests and Enlist.Agent.Tests, so the process-spawning test harnesses aren't
+    duplicated between them.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />
+  </ItemGroup>
+
+</Project>

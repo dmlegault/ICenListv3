@@ -1,0 +1,124 @@
+@implements IAsyncDisposable
+@inject ControlPlaneApiClient Api
+
+@if (!_loadedOnce)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (_entries.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">No log lines recorded yet for @ApplicationName on @AgentName.</MudAlert>
+}
+else
+{
+    <MudPaper Class="pa-3" Outlined="true">
+        <MudStack Spacing="1">
+            @foreach (var entry in _entries)
+            {
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                    <MudText Typo="Typo.caption" Color="Color.Info">@entry.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</MudText>
+                    <MudChip T="string" Size="Size.Small" Color="@LevelColor(entry.Level)" Variant="Variant.Text">@entry.Level</MudChip>
+                    <MudText Typo="Typo.body2">@entry.Source: @entry.Text</MudText>
+                </MudStack>
+            }
+        </MudStack>
+    </MudPaper>
+}
+
+@code {
+    private const int MaxDisplayedLines = 500;
+
+    /// <summary>Set by the parent, keyed with @@key on this component so an agent/application change tears down and recreates it (fresh entries, fresh poll loop) instead of needing OnParametersSetAsync diffing here.</summary>
+    [Parameter, EditorRequired] public string AgentName { get; set; } = "";
+
+    [Parameter, EditorRequired] public string ApplicationName { get; set; } = "";
+
+    /// <summary>Off by default when embedded as a tab — a hidden tab's log view polling every 2 seconds in the background is wasted work; the standalone Logs page passes true since that view IS the point there.</summary>
+    [Parameter] public bool Tailing { get; set; } = true;
+
+    private readonly List<AgentLogEntryDto> _entries = [];
+    private long _sinceId;
+    private bool _loadedOnce;
+
+    private CancellationTokenSource? _pollCts;
+    private Task? _pollLoop;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await FetchNewEntriesAsync();
+
+        _pollCts = new CancellationTokenSource();
+        _pollLoop = RunPollLoopAsync(_pollCts.Token);
+    }
+
+    private async Task RunPollLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            if (Tailing)
+            {
+                await FetchNewEntriesAsync();
+            }
+        }
+    }
+
+    private async Task FetchNewEntriesAsync()
+    {
+        try
+        {
+            var newEntries = await Api.GetLogsAsync(AgentName, ApplicationName, _sinceId);
+            if (newEntries.Count > 0)
+            {
+                _entries.AddRange(newEntries);
+                _sinceId = newEntries[^1].Id;
+
+                if (_entries.Count > MaxDisplayedLines)
+                {
+                    _entries.RemoveRange(0, _entries.Count - MaxDisplayedLines);
+                }
+            }
+
+            _loadedOnce = true;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (ApiException)
+        {
+            // A transient fetch failure during tailing shouldn't spam a snackbar every 2 seconds — the
+            // next successful poll just picks up from _sinceId where this one left off.
+        }
+    }
+
+    private static Color LevelColor(string level) => level switch
+    {
+        "Error" or "Critical" => Color.Error,
+        "Warning" => Color.Warning,
+        "Information" => Color.Info,
+        _ => Color.Default,
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        _pollCts?.Cancel();
+        if (_pollLoop is not null)
+        {
+            try
+            {
+                await _pollLoop;
+            }
+            catch
+            {
+            }
+        }
+
+        _pollCts?.Dispose();
+    }
+}

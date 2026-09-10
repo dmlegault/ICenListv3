@@ -1,0 +1,11 @@
+.enlist-brand ::deep .enlist-section-divider {
+    margin: 0 8px;
+    color: var(--mud-palette-text-secondary);
+    opacity: 0.5;
+    font-weight: 300;
+}
+
+.enlist-brand ::deep .enlist-section-label {
+    color: var(--mud-palette-primary);
+    font-weight: 500;
+}

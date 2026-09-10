@@ -1,0 +1,37 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Enlist.Runner</RootNamespace>
+    <AssemblyName>enlist-runner</AssemblyName>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!--
+    The dev host's line editor is internal, and its editing semantics (cursor arithmetic, history
+    index, which keys must NOT fall through to "insert this character") are exactly the kind of
+    thing that breaks quietly. Console.ReadKey and cursor positioning both need a real console
+    buffer, which no test host has, so the editor is tested through IConsoleSurface instead — which
+    requires the test project to see internals. This is not a package reference; the guard below
+    still holds.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Enlist.Runner.Tests" />
+  </ItemGroup>
+
+  <!--
+    The whole point of this project: it must never acquire a package or framework dependency
+    closure, because that closure is what every hosted plugin would then have to agree with — see
+    docs/03-architecture/enList-v3-Design.md section 1. This is not a style preference, it's the load-bearing
+    constraint, so it is enforced mechanically rather than left to review discipline.
+  -->
+  <Target Name="EnforceZeroPackageReferences" BeforeTargets="Build;Restore">
+    <Error
+      Condition="'@(PackageReference)' != ''"
+      Text="Enlist.Runner must have ZERO PackageReferences (found: @(PackageReference)). The runner's entire reason for existing is to have no dependency closure of its own — see docs/03-architecture/enList-v3-Design.md section 1. If a plugin needs a library, the plugin carries it in its own PluginLoadContext; the runner never does." />
+  </Target>
+
+</Project>

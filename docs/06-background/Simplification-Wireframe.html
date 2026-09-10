@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>enList Simplification — Wireframe</title>
+<style>
+  :root {
+    --ink: #2b2b2b;
+    --line: #8a8a8a;
+    --line-soft: #c7c7c7;
+    --paper: #fbfbf9;
+    --panel: #ffffff;
+    --accent: #3b6ea5;
+    --accent-soft: #e4edf6;
+    --tag: #eef1f4;
+    --tag-border: #9aa5ad;
+    --tag-self: #d9e8ff;
+    --tag-self-border: #3b6ea5;
+    --callout: #fff7e0;
+    --callout-border: #c9a227;
+    --stop: #f6dede;
+    --stop-border: #c96a6a;
+    --stop-text: #8a2f2f;
+    --expand: #f4f7fa;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    padding: 32px 40px 80px;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .subtitle { color: #666; font-size: 14px; margin: 0 0 28px; }
+  h2.screen-title {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #777;
+    margin: 44px 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h2.screen-title::after {
+    content: "";
+    flex: 1;
+    border-top: 1px dashed var(--line-soft);
+  }
+  .frame {
+    border: 1.5px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    padding: 18px 20px;
+    position: relative;
+  }
+  .frame-label {
+    position: absolute;
+    top: -11px;
+    left: 14px;
+    background: var(--paper);
+    padding: 0 8px;
+    font-size: 11px;
+    color: #888;
+    letter-spacing: 0.04em;
+  }
+  .browser-chrome { display: flex; gap: 6px; margin-bottom: 14px; }
+  .browser-chrome span { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--line-soft); display: inline-block; }
+  .nav-row {
+    display: flex; gap: 18px; font-size: 13px; color: #999;
+    border-bottom: 1px solid var(--line-soft); padding-bottom: 10px; margin-bottom: 16px;
+  }
+  .nav-row .active { color: var(--ink); font-weight: 600; border-bottom: 2px solid var(--accent); padding-bottom: 9px; }
+  table.wire { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.wire th {
+    text-align: left; font-weight: 600; color: #888; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.04em; padding: 6px 10px; border-bottom: 1px solid var(--line-soft);
+  }
+  table.wire td { padding: 10px 10px; border-bottom: 1px solid #ececec; vertical-align: middle; }
+  table.wire tr.dim td { opacity: .45; }
+  table.wire tr.expanded-row td { border-bottom: none; }
+  table.sortable th[data-sort] { cursor: pointer; user-select: none; }
+  table.sortable th[data-sort]:hover { color: var(--accent); }
+  .agent-name { font-weight: 600; }
+  .chip {
+    display: inline-block; font-size: 11px; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--tag-border); background: var(--tag); color: #444; margin: 2px 3px 2px 0;
+  }
+  .chip.self { border-color: var(--tag-self-border); background: var(--tag-self); color: #1d4c85; font-weight: 600; }
+  .status { font-size: 11px; padding: 3px 8px; border-radius: 999px; }
+  .status.online, .status.running { background: #e4f5e6; color: #1e7a30; border: 1px solid #a8d9ae; }
+  .status.offline { background: #f2f2f2; color: #888; border: 1px solid #ddd; }
+  .status.stopped { background: var(--stop); color: var(--stop-text); border: 1px solid var(--stop-border); }
+
+  .steps { display: flex; gap: 16px; align-items: stretch; }
+  .step {
+    flex: 1; border: 1px solid var(--line-soft); border-radius: 6px; padding: 14px;
+    background: #fdfdfc; display: flex; flex-direction: column; gap: 10px;
+  }
+  .step-num {
+    width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff;
+    font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .step-title { font-size: 13px; font-weight: 600; }
+  .field-label { font-size: 11px; color: #888; margin-bottom: 3px; }
+  .field { border: 1px solid var(--line-soft); border-radius: 4px; padding: 8px 10px; font-size: 13px; color: #555; background: #fff; }
+  .tag-input {
+    border: 1px solid var(--line-soft); border-radius: 4px; padding: 8px 10px; background: #fff;
+    display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-height: 20px;
+  }
+  .tag-input .caret { color: #bbb; font-size: 13px; }
+  .suggest-hint { font-size: 10.5px; color: #999; margin-top: 4px; }
+  .match-box {
+    border: 1px dashed var(--accent); background: var(--accent-soft); border-radius: 5px;
+    padding: 10px 12px; font-size: 12px; color: #2c5580;
+  }
+  .match-box b { color: #1d4c85; }
+  .btn { display: inline-block; text-align: center; border-radius: 5px; padding: 9px 14px; font-size: 13px; font-weight: 600; border: 1px solid transparent; }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.ghost { background: #fff; border-color: var(--line-soft); color: #666; }
+  .btn.danger { background: var(--stop-border); color: #fff; }
+  .btn.small { padding: 5px 10px; font-size: 11px; }
+  .btn.disabled { background: #eee; color: #aaa; border-color: #ddd; cursor: not-allowed; }
+  .arrow { align-self: center; color: #bbb; font-size: 20px; }
+  .row-actions { display: flex; gap: 10px; justify-content: flex-end; align-items: center; font-size: 11.5px; }
+  .row-actions .link { color: var(--accent); font-weight: 600; cursor: default; }
+
+  .callouts { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .callout { background: var(--callout); border: 1px solid var(--callout-border); border-radius: 5px; padding: 10px 12px; font-size: 12.5px; line-height: 1.5; }
+  .callout b { display: block; font-size: 12px; margin-bottom: 3px; }
+
+  .legend { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line-soft); font-size: 12px; color: #777; }
+  .legend b { color: var(--ink); }
+
+  /* --- flow strip --- */
+  .flow-strip { display: flex; gap: 14px; margin-bottom: 8px; }
+  .flow-step {
+    flex: 1; border: 1.5px solid var(--line); border-radius: 8px; background: var(--panel);
+    padding: 14px; display: flex; flex-direction: column; gap: 8px; position: relative;
+  }
+  .flow-step .num {
+    width: 24px; height: 24px; border-radius: 50%; background: var(--ink); color: #fff;
+    font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .flow-step .title { font-size: 13px; font-weight: 700; }
+  .flow-step .desc { font-size: 11.5px; color: #666; line-height: 1.45; flex: 1; }
+  .flow-step .jump { font-size: 10.5px; color: var(--accent); font-weight: 600; }
+  .flow-arrow { align-self: center; color: #bbb; font-size: 22px; }
+  .terminal {
+    background: #1e1e1e; color: #d8d8d8; border-radius: 5px; padding: 9px 11px;
+    font-family: "SF Mono", Consolas, monospace; font-size: 11px; line-height: 1.5;
+  }
+  .terminal .prompt { color: #7ec699; }
+  .terminal .comment { color: #888; }
+
+  /* --- expandable running panel --- */
+  .expand-panel {
+    background: var(--expand); border: 1px solid var(--line-soft); border-top: none;
+    border-radius: 0 0 6px 6px; padding: 12px 14px 14px;
+  }
+</style>
+</head>
+<body>
+
+<h1>enList Portal — Simplification Wireframe</h1>
+<p class="subtitle">Low-fidelity mockup — layout &amp; concepts only, not final visual design. Everything about one application — its policy rules, where it's running, its old package versions — lives under that application. Only Applications, Agents, and Logs remain as top-level tabs.</p>
+
+<h2 class="screen-title">The End-to-End Flow</h2>
+<div class="flow-strip">
+  <div class="flow-step">
+    <div class="num">1</div>
+    <div class="title">Deploy — no target</div>
+    <div class="terminal"><span class="prompt">$</span> enlist-deploy --app OrderProcessor --source ./bin/Release<br><span class="comment"># uploaded. not running anywhere yet.</span></div>
+    <div class="desc">The CLI's only job is publishing a package. It no longer takes <code>--machines</code>, <code>--tags</code>, or <code>--desired-state</code> — those don't exist yet at this point.</div>
+    <div class="jump">↓ Screen 1, Applications</div>
+  </div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">
+    <div class="num">2</div>
+    <div class="title">Declare an Application Policy</div>
+    <div class="desc">In the portal, separately: "OrderProcessor's policy is <code>env=test2</code> — any agent that qualifies runs it." This is the <i>only</i> place "which agents can run this" gets decided.</div>
+    <div class="jump">↓ Screen 3, OrderProcessor's policy</div>
+  </div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">
+    <div class="num">3</div>
+    <div class="title">Watch it run</div>
+    <div class="desc">Expand the application's own row right on the Applications tab to see every agent it's running on, live — no separate tab to go find.</div>
+    <div class="jump">↓ Screen 1, Applications (expanded)</div>
+  </div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">
+    <div class="num">4</div>
+    <div class="title">Disable it → it stops</div>
+    <div class="desc">Go back to that policy rule and disable it. The application isn't just "marked disabled" somewhere — it actually stops running, everywhere that rule qualified.</div>
+    <div class="jump">↓ Before / After, below</div>
+  </div>
+</div>
+
+<h2 class="screen-title">Screen 1 — Applications (OrderProcessor's row expanded)</h2>
+<div class="frame">
+  <span class="frame-label">enlist portal · /applications</span>
+  <div class="browser-chrome"><span></span><span></span><span></span></div>
+  <div class="nav-row"><span class="active">Applications</span><span>Agents</span><span>Logs</span></div>
+  <table class="wire">
+    <tr><th>Application</th><th>Latest version</th><th>Application policy</th><th>Currently running</th></tr>
+    <tr class="expanded-row">
+      <td><span class="agent-name">▾ OrderProcessor</span><br><span style="color:#999; font-size:11.5px;">Processes incoming customer orders</span></td>
+      <td>v2 &middot; 9/3</td>
+      <td><div class="row-actions" style="justify-content:flex-start;">2 rules <span class="link">✎ policy</span></div></td>
+      <td><span class="status running">2 agents</span></td>
+    </tr>
+    <tr class="expanded-row"><td colspan="4" style="padding:0;">
+      <div class="expand-panel">
+        <div style="margin-bottom:10px;">
+          <span style="font-size:11px; color:#888; margin-right:6px;">Logs:</span>
+          <span class="chip self" style="cursor:default;">📄 DEMO-SERVER-01</span>
+          <span class="chip self" style="cursor:default;">📄 DEMO-SERVER-02</span>
+        </div>
+        <table class="wire sortable" style="background:#fff;" id="svc-job-table">
+          <thead><tr><th data-sort="0">Name</th><th data-sort="1">Type</th><th data-sort="2">Agent</th><th>Qualified via</th><th data-sort="4">State</th><th></th></tr></thead>
+          <tbody>
+          <tr>
+            <td>Order Intake Listener</td><td><span class="chip">Service</span></td><td>DEMO-SERVER-01</td>
+            <td><span class="chip self">agent: DEMO-SERVER-01</span></td><td><span class="status running">Running</span></td>
+            <td style="text-align:right;"><span class="btn danger small">Stop</span></td>
+          </tr>
+          <tr>
+            <td>Order Intake Listener</td><td><span class="chip">Service</span></td><td>DEMO-SERVER-02</td>
+            <td><span class="chip">env=test2</span></td><td><span class="status running">Running</span></td>
+            <td style="text-align:right;"><span class="btn danger small">Stop</span></td>
+          </tr>
+          <tr>
+            <td>Payment Gateway Bridge</td><td><span class="chip">Service</span></td><td>DEMO-SERVER-01</td>
+            <td><span class="chip self">agent: DEMO-SERVER-01</span></td><td><span class="status running">Running</span></td>
+            <td style="text-align:right;"><span class="btn danger small">Stop</span></td>
+          </tr>
+          <tr>
+            <td>Payment Gateway Bridge</td><td><span class="chip">Service</span></td><td>DEMO-SERVER-02</td>
+            <td><span class="chip">env=test2</span></td><td><span class="status running">Running</span></td>
+            <td style="text-align:right;"><span class="btn danger small">Stop</span></td>
+          </tr>
+          <tr>
+            <td>Nightly Reconciliation</td><td><span class="chip">Job</span></td><td>DEMO-SERVER-01</td>
+            <td><span class="chip self">agent: DEMO-SERVER-01</span></td><td>cron 0 0 3 * * ?</td>
+            <td style="text-align:right;"><span class="btn ghost small">Pause</span></td>
+          </tr>
+          <tr>
+            <td>Nightly Reconciliation</td><td><span class="chip">Job</span></td><td>DEMO-SERVER-02</td>
+            <td><span class="chip">env=test2</span></td><td>cron 0 0 3 * * ?</td>
+            <td style="text-align:right;"><span class="btn ghost small">Pause</span></td>
+          </tr>
+          </tbody>
+        </table>
+        <div class="suggest-hint" style="margin-top:8px;">Name, Type, Agent, and State column headers are sortable — click one to try it. Logs live at the application level, one stream per agent it's running on (top) — not per service or job, since that's not how the real log stream is scoped either. Stop (a service) and Pause (a job) act on that one running instance immediately — real, scoped actions, same as the portal has today. They're not the same kind of action as disabling a policy rule or an agent, though: those act at a different level and stay on their own screens (Screen 3 for a rule, the Agent's own screen for an agent) — this table only ever manages what's already running, never whether it should be.</div>
+      </div>
+    </td></tr>
+    <tr>
+      <td><span class="agent-name">▸ DataPipeline</span><br><span style="color:#999; font-size:11.5px;">Streaming ETL pipeline</span></td>
+      <td>v1 &middot; 9/3</td>
+      <td><div class="row-actions" style="justify-content:flex-start;">2 rules <span class="link">✎ policy</span></div></td>
+      <td><span class="status running">2 agents</span></td>
+    </tr>
+    <tr>
+      <td><span class="agent-name">▸ SampleService</span><br><span style="color:#999; font-size:11.5px;">Heartbeat service and a nightly job</span></td>
+      <td>v1 &middot; 9/3</td>
+      <td><div class="row-actions" style="justify-content:flex-start;">2 rules <span class="link">✎ policy</span></div></td>
+      <td><span class="status running">2 agents</span></td>
+    </tr>
+    <tr class="dim">
+      <td><span class="agent-name">▸ CheckoutService</span><br><span style="color:#999; font-size:11.5px;">Just deployed — no Application Policy yet</span></td>
+      <td>v1 &middot; 9/3</td>
+      <td><div class="row-actions" style="justify-content:flex-start;">none <span class="link">✎ policy</span></div></td>
+      <td><span class="status offline">not running</span></td>
+    </tr>
+  </table>
+  <div class="suggest-hint" style="margin-top:10px;">Click a row (or its ▸) to expand it in place — no navigation, no separate Running tab. "✎ policy" is the only other exit from this screen, and it leads to everything else about that one application (Screen 3) — there's nothing about an application that lives anywhere else.</div>
+</div>
+
+<h2 class="screen-title">Screen 2 — Agents (DEMO-SERVER-01's row expanded)</h2>
+<div class="frame">
+  <span class="frame-label">enlist portal · /agents</span>
+  <div class="browser-chrome"><span></span><span></span><span></span></div>
+  <div class="nav-row"><span>Applications</span><span class="active">Agents</span><span>Logs</span></div>
+  <table class="wire">
+    <tr><th>Agent</th><th>Tags</th><th>Apps</th><th>Status</th><th>Scheduling</th><th></th></tr>
+    <tr class="expanded-row">
+      <td><span class="agent-name">▾ DEMO-SERVER-01</span></td><td><span class="chip self">agent: DEMO-SERVER-01</span><span class="chip">env=test2</span></td><td>4</td>
+      <td><span class="status online">Online</span></td><td><span class="status running">Included</span></td>
+      <td style="text-align:right;"><span class="btn danger small">Disable</span></td>
+    </tr>
+    <tr class="expanded-row"><td colspan="6" style="padding:0;">
+      <div class="expand-panel">
+        <table class="wire sortable" style="background:#fff;" id="agent-apps-table">
+          <thead><tr><th data-sort="0">Application</th><th>Qualified via</th><th data-sort="2">State</th></tr></thead>
+          <tbody>
+          <tr><td class="agent-name">OrderProcessor <span style="color:#999; font-weight:400; font-size:11.5px;">v2</span></td><td><span class="chip self">agent: DEMO-SERVER-01</span></td><td><span class="status running">Running</span></td></tr>
+          <tr><td class="agent-name">DataPipeline <span style="color:#999; font-weight:400; font-size:11.5px;">v1</span></td><td><span class="chip self">agent: DEMO-SERVER-01</span></td><td><span class="status running">Running</span></td></tr>
+          <tr><td class="agent-name">SampleService <span style="color:#999; font-weight:400; font-size:11.5px;">v1</span></td><td><span class="chip self">agent: DEMO-SERVER-01</span></td><td><span class="status running">Running</span></td></tr>
+          <tr><td class="agent-name">LegacySample <span style="color:#999; font-weight:400; font-size:11.5px;">v1</span></td><td><span class="chip self">agent: DEMO-SERVER-01</span></td><td><span class="status running">Running</span></td></tr>
+          </tbody>
+        </table>
+        <div class="suggest-hint" style="margin-top:8px;">Application and State column headers are sortable — click one to try it. Purely observational otherwise — no action controls here, on purpose. To stop or pause something, go to that application's own screen (Screen 1's expanded panel), where the actions actually live.</div>
+      </div>
+    </td></tr>
+    <tr>
+      <td><span class="agent-name">▸ DEMO-SERVER-02</span></td><td><span class="chip self">agent: DEMO-SERVER-02</span><span class="chip">env=test2</span></td><td>3</td>
+      <td><span class="status online">Online</span></td><td><span class="status running">Included</span></td>
+      <td style="text-align:right;"><span class="btn danger small">Disable</span></td>
+    </tr>
+    <tr class="dim">
+      <td><span class="agent-name">▸ WAREHOUSE-03</span></td><td><span class="chip self">agent: WAREHOUSE-03</span><span class="chip">region=east</span></td><td>0</td>
+      <td><span class="status offline">Offline</span></td><td><span class="status stopped">Excluded</span></td>
+      <td style="text-align:right;"><span class="btn ghost small">Enable</span></td>
+    </tr>
+  </table>
+  <div class="suggest-hint" style="margin-top:10px;">Same expand-in-place pattern as Applications, mirrored: click a row to see what's running on it. Excluding an agent takes it out of consideration entirely — every rule that currently qualifies it (its own name-tag included) stops applying to <i>this agent specifically</i>, so whatever it was running stops, same real effect as disabling those rules would have, just scoped to one agent instead of one rule. Other agents matching the same rules are untouched. Useful for maintenance or decommissioning a box without editing every Application Policy that happens to match it.</div>
+</div>
+
+<h2 class="screen-title">Screen 3 — OrderProcessor's Application Policy (Step 2 of the flow)</h2>
+<div class="frame">
+  <span class="frame-label">enlist portal · /applications/OrderProcessor/policy</span>
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+    <div style="font-size:13px; color:#888;">← Applications &nbsp;&middot;&nbsp; OrderProcessor</div>
+    <span class="chip self" style="cursor:default;">📦 Manage Packages</span>
+  </div>
+  <div class="suggest-hint" style="margin-bottom:10px;">Reached by clicking &ldquo;✎ policy&rdquo; on the Applications tab (Screen 1) — there's no separate, disconnected &ldquo;Application Policies&rdquo; tab. Every rule governing OrderProcessor lives here, on OrderProcessor's own screen.</div>
+
+  <table class="wire" style="margin-bottom:10px;">
+    <tr><th>Tags</th><th>Version</th><th>State</th><th></th></tr>
+    <tr><td><span class="chip">env=test2</span></td><td>v2 &middot; 9/3</td><td><span class="status online">Enabled</span></td><td style="text-align:right;">✎ 🗑</td></tr>
+    <tr><td><span class="chip self">agent: DEMO-SERVER-01</span></td><td>v2 &middot; 9/3</td><td><span class="status online">Enabled</span></td><td style="text-align:right;">✎ 🗑</td></tr>
+  </table>
+  <div style="text-align:right; margin-bottom:16px;"><span class="btn ghost small">+ Add rule</span></div>
+
+  <div class="suggest-hint" style="font-weight:700; color:#777; margin-bottom:8px;">EDITING RULE — TAGGED env=test2 (✎ clicked above)</div>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-title">What</div>
+      <div class="field-label">Application</div>
+      <div class="field">OrderProcessor ▾</div>
+      <div class="field-label" style="margin-top:6px;">Version</div>
+      <div class="field">v2 &middot; uploaded 9/3, 9:58 AM ▾</div>
+      <div class="suggest-hint">Only shows packages already uploaded via <code>enlist-deploy</code> — Step 1.</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-title">Which agents qualify — tags</div>
+      <div class="field-label">Tags</div>
+      <div class="tag-input"><span class="chip">env=test2</span><span class="caret">|</span></div>
+      <div class="suggest-hint">Suggested: <span class="chip self" style="margin:2px 3px 0 4px;">agent: DEMO-SERVER-01</span>(qualifies just that one agent) &middot; env=test2 &middot; region=east</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-title">Confirm</div>
+      <div class="match-box">Qualifies <b>2 agents</b> right now:<br>DEMO-SERVER-01, DEMO-SERVER-02<br><span style="opacity:.75;">Any agent tagged env=test2 later joins automatically.</span></div>
+      <div style="flex:1;"></div>
+      <div style="display:flex; gap:8px;"><span class="btn ghost">Cancel</span><span class="btn primary">Save Rule</span></div>
+    </div>
+  </div>
+  <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line-soft); display:flex; align-items:center; justify-content:space-between;">
+    <div>
+      <div style="font-size:12px; font-weight:600;">State (this rule)</div>
+      <div class="status online" style="margin-top:4px;">Enabled</div>
+    </div>
+    <span class="btn danger">Disable This Rule</span>
+  </div>
+  <div class="suggest-hint" style="margin-top:8px;">Disabling only happens here, on the rule itself — same as the expanded panel on Applications no longer offering it, and the same principle you'd expect for disabling an agent: go to the thing, not a shortcut three screens away. Each rule has its own State, so one rule can be off while another stays on.</div>
+</div>
+
+<h2 class="screen-title">Screen 3c — Manage Packages (reached from Screen 3's &ldquo;📦 Manage Packages&rdquo;)</h2>
+<div class="frame">
+  <span class="frame-label">enlist portal · /applications/OrderProcessor/packages</span>
+  <div style="font-size:13px; color:#888; margin-bottom:10px;">← OrderProcessor policy &nbsp;&middot;&nbsp; Packages</div>
+  <table class="wire">
+    <tr><th>Version</th><th>Uploaded</th><th>Used by</th><th></th></tr>
+    <tr>
+      <td class="agent-name">v2</td>
+      <td>9/3/2026 9:58 AM</td>
+      <td><span class="status running">2 policy rules</span></td>
+      <td style="text-align:right;"><span class="btn small disabled">Delete</span></td>
+    </tr>
+    <tr>
+      <td class="agent-name">v1</td>
+      <td>9/2/2026 4:10 PM</td>
+      <td><span class="status offline">not in use</span></td>
+      <td style="text-align:right;"><span class="btn danger small">Delete</span></td>
+    </tr>
+  </table>
+  <div class="suggest-hint" style="margin-top:10px;">Scoped to one application — no cross-application Packages tab. v2 can't be deleted while a rule still points at it; v1 has nothing referencing it anymore, so it's safe to clean up.</div>
+</div>
+
+<h2 class="screen-title">Before / After — disabling a policy rule (Step 4 of the flow)</h2>
+<div class="frame">
+  <span class="frame-label">enlist portal · /applications/OrderProcessor/policy</span>
+  <div class="browser-chrome"><span></span><span></span><span></span></div>
+  <div style="font-size:13px; color:#888; margin-bottom:10px;">← Applications &nbsp;&middot;&nbsp; OrderProcessor &middot; rule: agent: DEMO-SERVER-01</div>
+  <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border:1px solid var(--line-soft); border-radius:6px; margin-bottom:14px;">
+    <div>
+      <div style="font-size:12px; font-weight:600;">State (this rule)</div>
+      <div class="status online" style="margin-top:4px;">Enabled</div>
+    </div>
+    <span class="btn danger">Disable This Rule</span>
+  </div>
+  <div class="suggest-hint" style="margin-bottom:10px;">Same panel as Screen 3 — this <i>is</i> where Step 4 happens, not a shortcut from a list row. The env=test2 rule is untouched; only the rule targeting DEMO-SERVER-01 explicitly is being disabled here.</div>
+  <div style="display:flex; gap:18px;">
+    <div style="flex:1;">
+      <div class="suggest-hint" style="font-weight:700; color:#777; margin-bottom:6px;">APPLICATIONS ROW, EXPANDED — BEFORE</div>
+      <table class="wire">
+        <tr><th>Name</th><th>Agent</th><th>State</th></tr>
+        <tr><td>Order Intake Listener</td><td>DEMO-SERVER-01</td><td><span class="status running">Running</span></td></tr>
+        <tr><td>Order Intake Listener</td><td>DEMO-SERVER-02</td><td><span class="status running">Running</span></td></tr>
+      </table>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div style="flex:1;">
+      <div class="suggest-hint" style="font-weight:700; color:#777; margin-bottom:6px;">APPLICATIONS ROW, EXPANDED — AFTER</div>
+      <table class="wire">
+        <tr><th>Name</th><th>Agent</th><th>State</th></tr>
+        <tr class="dim"><td>Order Intake Listener</td><td>DEMO-SERVER-01</td><td><span class="status stopped">Stopped</span></td></tr>
+        <tr><td>Order Intake Listener</td><td>DEMO-SERVER-02</td><td><span class="status running">Running</span></td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="suggest-hint" style="margin-top:12px;">This is real, existing behavior, not new: disabling a rule sets its DesiredState to Stopped, the affected agent's reconciliation loop picks that up and actually stops the process. DEMO-SERVER-02 stays running because it's covered by the OTHER (still-enabled) rule, env=test2 — proof that per-rule State, not one on/off switch for the whole application, is the right model.</div>
+</div>
+
+<h2 class="screen-title">Screen 4 — Logs (enList's own system logs only)</h2>
+<div class="frame">
+  <span class="frame-label">enlist portal · /logs &middot; portal, control plane, agents — not application output</span>
+  <div class="browser-chrome"><span></span><span></span><span></span></div>
+  <div class="nav-row"><span>Applications</span><span>Agents</span><span class="active">Logs</span></div>
+  <div style="display:flex; gap:6px; margin-bottom:12px;">
+    <span class="chip self">All</span><span class="chip">Portal</span><span class="chip">Control Plane</span><span class="chip">Agent: DEMO-SERVER-01</span><span class="chip">Agent: DEMO-SERVER-02</span>
+  </div>
+  <table class="wire">
+    <tr><th>Time</th><th>Component</th><th>Message</th></tr>
+    <tr><td>17:38:39</td><td><span class="chip">Control Plane</span></td><td>Machine 'DEMO-SERVER-01' labels updated: env=test2</td></tr>
+    <tr><td>17:38:40</td><td><span class="chip">Agent: DEMO-SERVER-01</span></td><td>Reconciling — 4 applications assigned</td></tr>
+    <tr><td>17:38:41</td><td><span class="chip">Agent: DEMO-SERVER-01</span></td><td>OrderProcessor: requires runtime flavor 'net472' — not starting</td></tr>
+    <tr><td>17:41:02</td><td><span class="chip">Portal</span></td><td>GET /api/agents/DEMO-SERVER-01/report/latest — 200</td></tr>
+  </table>
+  <div class="suggest-hint" style="margin-top:10px;">These are enList's OWN operating logs — the software's health, not any application's behavior. "OrderProcessor: requires runtime flavor..." above is the AGENT logging about its own reconciliation failure, which is fair game here; "Legacy Service: heartbeat 42" (something OrderProcessor itself printed) is not — that lives on the Applications tab now (📄 logs on its expanded panel, Screen 1), scoped to the one application and agent it came from.</div>
+</div>
+
+<div class="callouts">
+  <div class="callout">
+    <b>No separate Running tab</b>
+    Folded into Applications instead: click a row (Screen 1) and it expands in place to show every agent currently running that application, live. One fewer top-level concept, and "where does this run" has exactly one home.
+  </div>
+  <div class="callout">
+    <b>Excluding an agent — new</b>
+    A genuinely new capability, not something the shipped app has today: "Included/Excluded" on Screen 2, independent of Online/Offline (an agent can be online but excluded, or offline but still included). It's the one exception to "everything lives on the application" — this action is agent-scoped, not application-scoped, because it needs to apply across every rule that happens to reach this one box at once, without editing each of them.
+  </div>
+  <div class="callout">
+    <b>No separate Application Policies tab either</b>
+    Same reasoning again: a policy rule belongs to one application, so it lives on that application's own screen (Screen 3), which now shows ALL of that app's rules as a list — not just one wizard for one rule. An application can have several rules (env=test2 AND a specific agent, say), each independently enabled or disabled.
+  </div>
+  <div class="callout">
+    <b>Packages aren't first-class either</b>
+    A package is CLI plumbing (Step 1's output), not something worth a fleet-wide browsing tab. What's left of package management — deleting old versions nothing references — lives one click off the application's own screen (Screen 3c).
+  </div>
+  <div class="callout">
+    <b>Agent vs. Machine</b>
+    "Agent" replaces "Machine" everywhere in the UI — it already matches the running component's real name (Enlist.Agent), so the vocabulary the user sees now matches the vocabulary in logs, error messages, and this documentation.
+  </div>
+  <div class="callout">
+    <b>Application Policy, not Agent Policy</b>
+    "Agent Policy" reads ambiguously — it sounds like configuration that lives <i>on</i> an agent, not a rule about what an application does. "Application Policy" puts the right noun in front: it's OrderProcessor's policy, and its content happens to be agent-matching tags.
+  </div>
+  <div class="callout">
+    <b>Logs stays a tab — but only for enList itself</b>
+    Unlike Running/Policies/Packages, Logs earns its place in the main nav: it's genuinely cross-cutting — Portal, Control Plane, and every Agent's own health, none of which belongs to one application. What an application prints (a service's heartbeat, a job's output) is that application's own data, so it moved to the Applications tab (📄 logs on the expanded panel, Screen 1) — the same consolidation as everything else here, just landing on the opposite side of one genuinely real boundary.
+  </div>
+</div>
+
+<div class="legend">
+  <b>Reading this wireframe:</b> boxes and spacing are illustrative, not pixel-accurate. Blue elements are the primary path; gray/dashed elements are supporting detail; red marks a stop/disable action. Nothing here is implemented yet — this is a discussion draft. Nav is now just three tabs: Applications, Agents, Logs.
+</div>
+
+<script>
+  // Real, working column sort for the two annotated wireframe tables (Screen 1's service/job
+  // table, Screen 2's per-agent running-applications table) — click a header with a data-sort
+  // index to sort by that column; click again to reverse. Everything else in this file stays a
+  // static illustration; this is the one piece worth actually trying rather than just describing.
+  function makeSortable(tableId) {
+    var table = document.getElementById(tableId);
+    if (!table) return;
+    var headerCells = table.tHead.rows[0].cells;
+    var tbody = table.tBodies[0];
+    Array.prototype.forEach.call(headerCells, function (th) {
+      if (th.dataset.sort === undefined) return;
+      var colIndex = parseInt(th.dataset.sort, 10);
+      var baseLabel = th.textContent;
+      th.addEventListener('click', function () {
+        var dir = th.dataset.dir === 'asc' ? 'desc' : 'asc';
+        Array.prototype.forEach.call(headerCells, function (c) {
+          if (c.dataset.sort !== undefined) { c.dataset.dir = ''; c.textContent = c.textContent.replace(/ [▲▼]$/, ''); }
+        });
+        th.dataset.dir = dir;
+        th.textContent = baseLabel + (dir === 'asc' ? ' ▲' : ' ▼');
+        var rows = Array.prototype.slice.call(tbody.rows);
+        rows.sort(function (a, b) {
+          var av = a.cells[colIndex].innerText.trim();
+          var bv = b.cells[colIndex].innerText.trim();
+          var cmp = av.localeCompare(bv, undefined, { numeric: true });
+          return dir === 'asc' ? cmp : -cmp;
+        });
+        rows.forEach(function (r) { tbody.appendChild(r); });
+      });
+    });
+  }
+  makeSortable('svc-job-table');
+  makeSortable('agent-apps-table');
+</script>
+
+</body>
+</html>

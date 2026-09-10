@@ -1,0 +1,237 @@
+@page "/applications/{AppName}/policy"
+@inject ControlPlaneApiClient Api
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject ApplicationPolicyStateToggler Toggler
+@inject NavigationManager Nav
+
+<PageTitle>@AppName policy</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-1" Wrap="Wrap.Wrap">
+    <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="@(() => Nav.NavigateTo("/"))" title="Back to Applications" />
+    <MudText Typo="Typo.h4">@AppName — Application Policy</MudText>
+</MudStack>
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4" Wrap="Wrap.Wrap">
+    <MudSpacer />
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Inventory2" OnClick="@(() => Nav.NavigateTo($"/applications/{Uri.EscapeDataString(AppName)}/packages"))">Manage Packages</MudButton>
+    <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" title="Refresh" />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="CreateAsync">New policy rule</MudButton>
+</MudStack>
+
+@if (_policies is null)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (_policies.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">No policy rules yet for this application — add one to declare where it runs.</MudAlert>
+}
+else
+{
+    <MudTable Items="_policies" Breakpoint="Breakpoint.Sm" Hover="true">
+        <HeaderContent>
+            <MudTh>Target</MudTh>
+            <MudTh>Source</MudTh>
+            <MudTh>State</MudTh>
+            <MudTh>Updated</MudTh>
+            <MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Target">
+                @if (OnlyAgentValue(context.TagSelector) is { } onlyAgent)
+                {
+                    <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Dns" Color="Color.Info">@onlyAgent</MudChip>
+                }
+                else if (context.TagSelector.Count > 0)
+                {
+                    <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                        @foreach (var tag in context.TagSelector)
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@tag.Key=@tag.Value</MudChip>
+                        }
+                    </MudStack>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning">every agent</MudChip>
+                }
+            </MudTd>
+            <MudTd DataLabel="Source">@(context.PackageDigest is not null ? $"package {context.PackageDigest[..Math.Min(12, context.PackageDigest.Length)]}…" : context.Path)</MudTd>
+            <MudTd DataLabel="State">
+                @{
+                    var rowEnabled = context.DesiredState == DesiredStates.Running;
+                    var conflictAgents = ConflictingAgents(context);
+                }
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                    <MudSwitch T="bool" Value="rowEnabled" Color="Color.Success" Disabled="_statePending"
+                               ValueChanged="@(_ => ToggleDesiredStateAsync(context, rowEnabled ? DesiredStates.Stopped : DesiredStates.Running))" />
+                    <MudChip T="string" Size="Size.Small" Color="@(rowEnabled ? Color.Success : Color.Default)">@DesiredStateLabel(context.DesiredState)</MudChip>
+                    @if (context.Isolation?.IsContainer == true)
+                    {
+                        @* Shown only for container, not as a redundant "process" chip on every existing rule --
+                           process is the default and the overwhelming majority, so a chip there would be noise. *@
+                        <MudTooltip Text="Runs inside a container on each qualifying agent. Requires an agent configured with a container engine.">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
+                                     Icon="@Icons.Material.Filled.Inventory2">container</MudChip>
+                        </MudTooltip>
+                    }
+                    @if (conflictAgents.Count > 0)
+                    {
+                        <MudTooltip Text="@($"Disagrees with another enabled rule already matching {string.Join(", ", conflictAgents)} — {(conflictAgents.Count == 1 ? "that agent" : "those agents")} will report Failed instead of resolving cleanly.")">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Error">conflict</MudChip>
+                        </MudTooltip>
+                    }
+                    @{ var portCollisions = PortCollisionsFor(context); }
+                    @if (portCollisions.Count > 0)
+                    {
+                        @* A distinct chip from "conflict" above, deliberately: that one means two rules for
+                           THIS application disagree; this means a DIFFERENT application already holds the
+                           port. Different cause, different fix. *@
+                        <MudTooltip Text="@string.Join("; ", portCollisions.Select(c => $"{c.AgentName}: port {c.HostPort}/{c.Protocol} also claimed by {c.OtherApplication}"))">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Error">port collision</MudChip>
+                        </MudTooltip>
+                    }
+                </MudStack>
+            </MudTd>
+            <MudTd DataLabel="Updated">@context.UpdatedAtUtc.ToLocalTime()</MudTd>
+            <MudTd>
+                <MudStack Row="true" Spacing="1" Justify="Justify.FlexEnd">
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="@(() => EditAsync(context))" title="Edit" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" title="Delete" />
+                </MudStack>
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    [Parameter] public string AppName { get; set; } = "";
+
+    private List<ApplicationPolicyDto>? _policies;
+    private List<AgentDto> _agents = [];
+    private Dictionary<string, List<ApplicationPolicyDto>> _conflictsByAgent = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, List<PortCollision>> _portCollisionsByAgent = new(StringComparer.OrdinalIgnoreCase);
+    private bool _statePending;
+
+    /// <summary>A policy rule is a declarative binding, not a process — it can't literally "run" the way an ApplicationState reported by an agent can. Displaying its DesiredState as Enabled/Disabled rather than Running/Stopped keeps that distinct from the (identically-worded, but observed) app/service/job state shown elsewhere in the portal. The wire value itself stays DesiredStates.Running/DesiredStates.Stopped — this is a display-only relabeling.</summary>
+    private static string DesiredStateLabel(string desiredState) => desiredState == DesiredStates.Running ? "Enabled" : "Disabled";
+
+    /// <summary>Null unless selector is EXACTLY the self-tag shape {"agent": name} — "target this one agent" collapsed down to its most specific possible tag selector (see ApplicationPolicyDto.TagSelector). Used purely to decide how to display the Target column; there's no separate targeting mode on the wire.</summary>
+    private static string? OnlyAgentValue(IReadOnlyDictionary<string, string> selector) =>
+        selector.Count == 1 && selector.TryGetValue("agent", out var value) ? value : null;
+
+    /// <summary>Every currently-registered agent where this rule is one of two-or-more disagreeing rules
+    /// (see PolicyConflictDetector) — empty for a rule that's fine on its own or that only ever matches
+    /// agents alongside rules it agrees with.</summary>
+    private List<string> ConflictingAgents(ApplicationPolicyDto policy) =>
+        _conflictsByAgent
+            .Where(kv => kv.Value.Contains(policy))
+            .Select(kv => kv.Key)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    /// <summary>Port collisions this rule is party to. A separate list from ConflictingAgents because it is a separate KIND of problem with a different fix — change the port, rather than reconcile two rules.</summary>
+    private List<PortCollision> PortCollisionsFor(ApplicationPolicyDto policy)
+    {
+        var wanted = (policy.Isolation?.Ports ?? [])
+            .Where(p => p.HostPort is not null)
+            .Select(p => p.HostPort!.Value)
+            .ToHashSet();
+
+        return wanted.Count == 0
+            ? []
+            : _portCollisionsByAgent.SelectMany(kv => kv.Value).Where(c => wanted.Contains(c.HostPort)).Distinct().ToList();
+    }
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _policies = null;
+        StateHasChanged();
+
+        try
+        {
+            _agents = await Api.GetAgentsAsync();
+
+            // ALL policies, not just this application's: a port collision is between DIFFERENT
+            // applications, so filtering first would make it undetectable here.
+            var allPolicies = await Api.GetApplicationPoliciesAsync();
+            _policies = allPolicies.Where(p => p.ApplicationName == AppName).ToList();
+            _conflictsByAgent = PolicyConflictDetector.FindConflictsByAgent(_agents, _policies);
+            _portCollisionsByAgent = PolicyConflictDetector.FindPortCollisionsByAgent(_agents, AppName, allPolicies);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _policies = [];
+            _conflictsByAgent = new(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        var parameters = new DialogParameters<ApplicationPolicyWizardDialog> { { d => d.ApplicationName, AppName } };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<ApplicationPolicyWizardDialog>("New policy rule", parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task EditAsync(ApplicationPolicyDto policy)
+    {
+        var parameters = new DialogParameters<ApplicationPolicyEditDialog> { { d => d.Existing, policy } };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<ApplicationPolicyEditDialog>($"Edit {policy.ApplicationName}", parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task ToggleDesiredStateAsync(ApplicationPolicyDto policy, string newState)
+    {
+        _statePending = true;
+        try
+        {
+            if (await Toggler.ToggleAsync(policy, newState))
+            {
+                await LoadAsync();
+            }
+        }
+        finally
+        {
+            _statePending = false;
+        }
+    }
+
+    private async Task DeleteAsync(ApplicationPolicyDto policy)
+    {
+        var target = OnlyAgentValue(policy.TagSelector) ?? "its tag selector target";
+        var confirmed = await DialogService.ShowMessageBox(
+            "Delete policy rule",
+            $"Stop and remove '{policy.ApplicationName}' from {target}?",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        try
+        {
+            await Api.DeleteApplicationPolicyAsync(policy.Id);
+            Snackbar.Add("Policy rule deleted.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

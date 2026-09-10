@@ -1,0 +1,401 @@
+@page "/"
+@page "/applications"
+@inject ControlPlaneApiClient Api
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+@inject IDialogService DialogService
+
+<PageTitle>Applications</PageTitle>
+
+@if (_applications is null)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (_applications.Count == 0)
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Class="mb-2">
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" title="Refresh" />
+    </MudStack>
+    <MudAlert Severity="Severity.Info">
+        No applications yet — an application appears here as soon as a package has been uploaded for it
+        (enlist-deploy), even before it has a policy rule declaring where it runs.
+    </MudAlert>
+}
+else
+{
+    <div class="app-list-wrap">
+        <MudTextField T="string" Value="_filter" ValueChanged="@(v => _filter = v)" Immediate="true"
+                      Placeholder="Search applications, services, jobs..." Variant="Variant.Outlined" Margin="Margin.Dense"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="app-search" />
+        <MudStack Row="true" Spacing="2" Class="app-toolbar-right">
+            <MudFab Color="Color.Default" StartIcon="@Icons.Material.Filled.CloudUpload" Size="Size.Medium"
+                    OnClick="ShowUploadDialogAsync" title="Upload a package" />
+            <MudFab Color="Color.Default" StartIcon="@Icons.Material.Filled.Refresh" Size="Size.Medium"
+                    OnClick="LoadAsync" title="Refresh" />
+        </MudStack>
+        <div class="app-list">
+        @{
+            var filtered = _applications.Where(a =>
+                string.IsNullOrWhiteSpace(_filter) ||
+                a.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase) ||
+                a.InstanceNames.Any(n => n.Contains(_filter, StringComparison.OrdinalIgnoreCase))).ToList();
+        }
+        @if (filtered.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info">No applications match "@_filter".</MudAlert>
+        }
+        @foreach (var app in filtered)
+        {
+            var expanded = app.IsExpanded || !string.IsNullOrWhiteSpace(_filter);
+            <div class="app-card">
+                <div class="app-card-row">
+                    <MudIconButton Icon="@(expanded ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                   Size="Size.Small" OnClick="@(() => ToggleExpand(app))" />
+                    <div>
+                        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                            <MudHighlighter Text="@app.Name" HighlightedText="@_filter" />
+                            @foreach (var version in app.Versions)
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Default">v@(version)</MudChip>
+                            }
+                            <MudIconButton Icon="@Icons.Material.Filled.ListAlt" Size="Size.Small"
+                                           OnClick="@(() => ShowContentsAsync(app))" title="Services & jobs" />
+                        </MudStack>
+                        @if (!string.IsNullOrWhiteSpace(app.Description))
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Info">@app.Description</MudText>
+                        }
+                    </div>
+                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                        @if (app.Policies.Count == 0)
+                        {
+                            <MudTooltip Text="No policy rules — this application will never run anywhere until one is added.">
+                                <MudIcon Icon="@Icons.Material.Filled.WarningAmber" Color="Color.Warning" Size="Size.Small" />
+                            </MudTooltip>
+                            <MudText Color="Color.Warning">0 rules</MudText>
+                        }
+                        else
+                        {
+                            <MudText>@app.Policies.Count rule@(app.Policies.Count == 1 ? "" : "s")</MudText>
+                            @if (app.ConflictsByAgent.Count > 0)
+                            {
+                                var conflictAgents = app.ConflictsByAgent.Keys.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+                                <MudTooltip Text="@($"Two or more enabled rules disagree for {string.Join(", ", conflictAgents)} — {(conflictAgents.Count == 1 ? "that agent" : "those agents")} will report Failed instead of resolving cleanly.")">
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Error">conflict</MudChip>
+                                </MudTooltip>
+                            }
+                            @if (app.PortCollisionsByAgent.Count > 0)
+                            {
+                                @* Separate from "conflict": that is two rules for THIS application
+                                   disagreeing; this is another application holding the same host port. *@
+                                <MudTooltip Text="@string.Join("; ", app.PortCollisionsByAgent.SelectMany(kv => kv.Value).Distinct().Select(c => $"{c.AgentName}: port {c.HostPort}/{c.Protocol} also claimed by {c.OtherApplication}"))">
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Error">port collision</MudChip>
+                                </MudTooltip>
+                            }
+                        }
+                        <MudIconButton Icon="@Icons.Material.Filled.EditNote" Size="Size.Small"
+                                       OnClick="@(() => Nav.NavigateTo($"/applications/{Uri.EscapeDataString(app.Name)}/policy"))" title="Edit policy" />
+                    </MudStack>
+                    <div>
+                        @if (app.AgentNames.Count == 0)
+                        {
+                            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                <MudTooltip Text="No agent currently qualifies for this application's policy rule(s) — it isn't running anywhere.">
+                                    <MudIcon Icon="@Icons.Material.Filled.WarningAmber" Color="Color.Warning" Size="Size.Small" />
+                                </MudTooltip>
+                                <MudText Color="Color.Warning">0 agents</MudText>
+                            </MudStack>
+                        }
+                        else
+                        {
+                            <text>@app.AgentNames.Count agent@(app.AgentNames.Count == 1 ? "" : "s")</text>
+                        }
+                    </div>
+                </div>
+                @if (expanded)
+                {
+                    <div class="app-card-expanded">
+                        <RunningInstancesTable ApplicationName="@app.Name" AgentNames="@app.AgentNames" Agents="@_agents"
+                                                 Policies="@app.Policies" Filter="@_filter" @key="@app.Name" />
+                    </div>
+                }
+            </div>
+        }
+        </div>
+    </div>
+}
+
+@code {
+    private List<AgentDto> _agents = [];
+    private List<ApplicationSummary>? _applications;
+    private string _filter = "";
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var previouslyExpanded = _applications?.Where(a => a.IsExpanded).Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        _applications = null;
+        StateHasChanged();
+
+        List<ApplicationPolicyDto> policies;
+        List<PackageInfo> packages;
+        try
+        {
+            _agents = await Api.GetAgentsAsync();
+            policies = await Api.GetApplicationPoliciesAsync();
+            packages = await Api.GetPackagesAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _agents = [];
+            policies = [];
+            packages = [];
+        }
+
+        var policiesByApp = policies.GroupBy(a => a.ApplicationName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+
+        // A freshly-deployed package with no policy rule yet still needs to show up here — otherwise
+        // there'd be no way to reach the wizard and declare its first rule at all (the policy screen is
+        // only reachable by clicking into an existing row), and an application whose LAST rule just got
+        // deleted would vanish from view along with its "add a new one" entry point.
+        var appNames = policiesByApp.Keys
+            .Concat(packages.Where(p => p.ApplicationName is not null).Select(p => p.ApplicationName!))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        var versionByDigest = packages.ToDictionary(p => p.Digest, p => p.VersionNumber);
+
+        // The most recently uploaded package per application, independent of whether any CURRENT policy
+        // still points at it — needed so ResolveInstanceDetailsAsync has something to scan for an
+        // application like LegacySample: package uploaded, every policy rule since deleted, so there's
+        // no PackageDigest left in Policies to look at, only this.
+        var latestDigestByApp = packages
+            .Where(p => p.ApplicationName is not null)
+            .GroupBy(p => p.ApplicationName!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(p => p.VersionNumber ?? 0).First().Digest, StringComparer.OrdinalIgnoreCase);
+
+        var summaries = appNames
+            .Select(name =>
+            {
+                var appPolicies = policiesByApp.GetValueOrDefault(name) ?? [];
+                return new ApplicationSummary(name, appPolicies, ResolveAgentNames(appPolicies))
+                {
+                    IsExpanded = previouslyExpanded.Contains(name),
+                    Versions = ResolveVersions(appPolicies, versionByDigest),
+                    ConflictsByAgent = PolicyConflictDetector.FindConflictsByAgent(_agents, appPolicies),
+
+                    // Computed from ALL policies, not appPolicies: a port collision is between
+                    // different applications and is invisible to any per-application check.
+                    PortCollisionsByAgent = PolicyConflictDetector.FindPortCollisionsByAgent(_agents, name, policies),
+                };
+            })
+            .OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        await ResolveInstanceDetailsAsync(summaries, latestDigestByApp, versionByDigest);
+        _applications = summaries;
+    }
+
+    private void ToggleExpand(ApplicationSummary application) => application.IsExpanded = !application.IsExpanded;
+
+    private async Task ShowUploadDialogAsync()
+    {
+        var parameters = new DialogParameters<UploadPackageDialog>
+        {
+            { d => d.ExistingApplicationNames, _applications?.Select(a => a.Name).ToList() ?? [] },
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<UploadPackageDialog>("Upload a package", parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            await LoadAsync();
+        }
+    }
+
+    private Task ShowContentsAsync(ApplicationSummary app)
+    {
+        var parameters = new DialogParameters<ApplicationContentsDialog>
+        {
+            { d => d.ApplicationName, app.Name },
+            { d => d.Manifests, app.Manifests },
+        };
+        return DialogService.ShowAsync<ApplicationContentsDialog>($"{app.Name} — Services & Jobs", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+    }
+
+    /// <summary>Every policy rule's TagSelector fans out to every CURRENTLY registered agent matching it (see TagSelectorMatcher, which also handles the "target this one agent" self-tag shape) — a live resolution, not stored anywhere, so it moves as agents register or their tags change.</summary>
+    private List<string> ResolveAgentNames(List<ApplicationPolicyDto> policies)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var policy in policies)
+        {
+            foreach (var name in TagSelectorMatcher.ResolveAgentNames(_agents, policy.TagSelector))
+            {
+                names.Add(name);
+            }
+        }
+
+        return names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>Distinct version numbers across this application's rules — usually one, but a canary
+    /// alongside a fallback rule can legitimately name two. A rule with no PackageDigest (a Path-based
+    /// rule, running from a local folder rather than an uploaded package) contributes no version.</summary>
+    private static List<int> ResolveVersions(List<ApplicationPolicyDto> policies, Dictionary<string, int?> versionByDigest) =>
+        policies
+            .Where(p => p.PackageDigest is not null)
+            .Select(p => versionByDigest.GetValueOrDefault(p.PackageDigest!))
+            .Where(v => v is not null)
+            .Select(v => v!.Value)
+            .Distinct()
+            .OrderBy(v => v)
+            .ToList();
+
+    /// <summary>Primary source is the STATIC per-package manifest (a metadata-only scan of the uploaded
+    /// blob — see PackageManifestScanner) keyed by each policy's PackageDigest, fetched at most once per
+    /// digest regardless of how many applications/policies share it. This is what makes the "Services &
+    /// Jobs" dialog and the search box work for an application with zero currently-matching agents (or
+    /// zero policy rules at all) — the old approach of reading live agent status reports had nothing to
+    /// show until something was actually running.
+    ///
+    /// Kept as one VersionManifest PER DIGEST rather than flattened into a single merged list — an
+    /// application with two currently-referenced versions (a canary and a fallback, say) can legitimately
+    /// define different services/jobs, or the same name with a changed description; silently merging
+    /// them (last digest scanned wins) would hide exactly that difference instead of showing it.
+    ///
+    /// Live agent reports are still consulted as a fallback, but only to fill in a name NONE of the
+    /// scanned manifests found at all — purely for a Path-based policy (no uploaded package, so no
+    /// digest to scan) or a digest the scan couldn't read. Those go in their own unlabeled group since
+    /// there's no digest to attribute them to a specific version.</summary>
+    private async Task ResolveInstanceDetailsAsync(List<ApplicationSummary> summaries, Dictionary<string, string> latestDigestByApp, Dictionary<string, int?> versionByDigest)
+    {
+        var manifestByDigest = new Dictionary<string, PackageManifestDto?>();
+        var reportsByAgent = new Dictionary<string, AgentStatusSnapshotDto?>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var summary in summaries)
+        {
+            string? description = null;
+            var versionManifests = new List<VersionManifest>();
+            var allNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var digests = summary.Policies.Select(p => p.PackageDigest).Where(d => d is not null).Select(d => d!).Distinct().ToList();
+            if (latestDigestByApp.TryGetValue(summary.Name, out var latestDigest) && !digests.Contains(latestDigest))
+            {
+                digests.Add(latestDigest);
+            }
+
+            foreach (var digest in digests)
+            {
+                if (!manifestByDigest.TryGetValue(digest, out var manifest))
+                {
+                    try
+                    {
+                        manifest = await Api.GetPackageManifestAsync(digest);
+                    }
+                    catch (ApiException)
+                    {
+                        manifest = null;
+                    }
+
+                    manifestByDigest[digest] = manifest;
+                }
+
+                if (manifest is null)
+                {
+                    continue;
+                }
+
+                description ??= manifest.ApplicationDescription;
+                var entries = manifest.Entries
+                    .Select(e => new InstanceInfo(e.Name, e.Type, e.Description))
+                    .OrderBy(i => i.Type)
+                    .ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                versionManifests.Add(new VersionManifest(versionByDigest.GetValueOrDefault(digest), digest, entries));
+                foreach (var entry in entries)
+                {
+                    allNames.Add(entry.Name);
+                }
+            }
+
+            var liveOnly = new Dictionary<(string Name, string Type), string?>();
+            foreach (var agentName in summary.AgentNames)
+            {
+                if (!reportsByAgent.TryGetValue(agentName, out var report))
+                {
+                    try
+                    {
+                        report = await Api.GetLatestReportAsync(agentName);
+                    }
+                    catch (ApiException)
+                    {
+                        report = null;
+                    }
+
+                    reportsByAgent[agentName] = report;
+                }
+
+                var app = report?.Applications.FirstOrDefault(a => a.Name == summary.Name);
+                if (app is null)
+                {
+                    continue;
+                }
+
+                description ??= app.Description;
+                foreach (var service in app.Services)
+                {
+                    if (!allNames.Contains(service.Name))
+                    {
+                        liveOnly[(service.Name, "Service")] = service.Description;
+                    }
+                }
+
+                foreach (var job in app.Jobs)
+                {
+                    if (!allNames.Contains(job.Name))
+                    {
+                        liveOnly[(job.Name, "Job")] = job.Description;
+                    }
+                }
+            }
+
+            if (liveOnly.Count > 0)
+            {
+                var entries = liveOnly
+                    .Select(kv => new InstanceInfo(kv.Key.Name, kv.Key.Type, kv.Value))
+                    .OrderBy(i => i.Type)
+                    .ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                versionManifests.Add(new VersionManifest(null, "", entries));
+                foreach (var entry in entries)
+                {
+                    allNames.Add(entry.Name);
+                }
+            }
+
+            summary.Description = description;
+            summary.Manifests = versionManifests;
+            summary.InstanceNames = allNames.ToList();
+        }
+    }
+
+    private sealed class ApplicationSummary(string Name, List<ApplicationPolicyDto> Policies, List<string> AgentNames)
+    {
+        public string Name { get; } = Name;
+        public List<ApplicationPolicyDto> Policies { get; } = Policies;
+        public List<string> AgentNames { get; } = AgentNames;
+        public List<int> Versions { get; set; } = [];
+        public List<string> InstanceNames { get; set; } = [];
+        public List<VersionManifest> Manifests { get; set; } = [];
+        public Dictionary<string, List<ApplicationPolicyDto>> ConflictsByAgent { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public Dictionary<string, List<PortCollision>> PortCollisionsByAgent { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public string? Description { get; set; }
+        public bool IsExpanded { get; set; }
+    }
+}

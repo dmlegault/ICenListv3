@@ -1,0 +1,294 @@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="4">
+            <MudText Typo="Typo.subtitle2">Target (fixed at creation — see the wizard to create a new rule instead)</MudText>
+            @if (_targetAgent is not null && TagSelectorMatcher.IsSelfTargeted(_targetAgent, Existing.TagSelector))
+            {
+                <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Dns" Color="Color.Info">@_targetAgent.Name</MudChip>
+            }
+            else if (Existing.TagSelector.Count > 0)
+            {
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                    @foreach (var tag in Existing.TagSelector)
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@tag.Key=@tag.Value</MudChip>
+                    }
+                </MudStack>
+            }
+            else
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning">every agent</MudChip>
+            }
+
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.subtitle2">Package</MudText>
+                <MudAutocomplete T="string" @bind-Value="_packageDigest" Label="Package" SearchFunc="SearchPackagesAsync" ToStringFunc="DescribePackage" CoerceValue="true" Required="true"
+                                  HelperText="@(_packages.Count == 0 ? "No packages uploaded yet — publish one with enlist-deploy first." : null)" />
+            </MudStack>
+
+            <MudSelect T="string" @bind-Value="_desiredState" Label="State">
+                <MudSelectItem T="string" Value="@DesiredStates.Running">Enabled</MudSelectItem>
+                <MudSelectItem T="string" Value="@DesiredStates.Stopped">Disabled</MudSelectItem>
+            </MudSelect>
+
+            <MudSelect T="string" @bind-Value="_isolationMode" Label="Runs as"
+                       HelperText="Container isolation needs an agent configured with a container engine. The package itself is identical either way -- nothing is rebuilt.">
+                <MudSelectItem T="string" Value="@IsolationModes.Process">Process on the agent</MudSelectItem>
+                <MudSelectItem T="string" Value="@IsolationModes.Container">Container</MudSelectItem>
+            </MudSelect>
+
+            @if (_containerDetails is not null)
+            {
+                @* Set by the wizard at creation and not editable here — but they have to be visible, or a save
+                   looks as if it touches only what this dialog shows. *@
+                <MudText Typo="Typo.caption" Color="@(_isolationMode == IsolationModes.Container ? Color.Default : Color.Warning)">
+                    @(_isolationMode == IsolationModes.Container
+                        ? $"Container settings from creation, kept on save: {_containerDetails}"
+                        : $"Switching to a process discards the container settings from creation ({_containerDetails}) — to get them back, create a new rule with the wizard.")
+                </MudText>
+            }
+
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.subtitle2">Cron overrides</MudText>
+                @for (var i = 0; i < _cronRows.Count; i++)
+                {
+                    var index = i;
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                        <MudAutocomplete T="string" Value="_cronRows[index].JobName" ValueChanged="@(value => OnJobNameChanged(index, value))" SearchFunc="SearchJobNamesAsync" Label="Job name" CoerceValue="true" Immediate="true" />
+                        <MudTextField T="string" @bind-Value="_cronRows[index].Cron" Label="Cron expression" Immediate="true"
+                                                        Error="@(CronError(_cronRows[index].Cron) is not null)" ErrorText="@CronError(_cronRows[index].Cron)" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" OnClick="@(() => _cronRows.RemoveAt(index))" />
+                    </MudStack>
+                }
+                @if (_knownJobs.Count == 0)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Info">
+                        @* Read once in OnInitializedAsync and never refreshed, so the wording must not promise
+                           otherwise — it would send someone to wait at a dialog that will never update. *@
+                        No agent matching this rule had reported this application when this dialog opened, so there
+                        are no job names to suggest. This list is read once on open and does not refresh — if an
+                        agent has reported since, close and reopen. Either way, you can type a job name directly.
+                    </MudText>
+                }
+                <MudButton StartIcon="@Icons.Material.Filled.Add" Variant="Variant.Text" OnClick="@(() => _cronRows.Add(new CronRow()))">Add cron override</MudButton>
+            </MudStack>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync" Disabled="_saving">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    /// <summary>Targeting isn't editable here — the API doesn't support changing WHICH agents an existing policy rule targets, only what it runs and its desired state. Use the wizard to create a differently-targeted rule instead.</summary>
+    [Parameter, EditorRequired] public ApplicationPolicyDto Existing { get; set; } = null!;
+
+    [Inject] private ControlPlaneApiClient Api { get; set; } = null!;
+    [Inject] private ISnackbar Snackbar { get; set; } = null!;
+
+    private string _packageDigest = "";
+    private string _desiredState = DesiredStates.Running;
+    private string _isolationMode = IsolationModes.Process;
+    private string? _containerDetails;
+    private List<CronRow> _cronRows = [];
+
+    private List<PackageInfo> _packages = [];
+    private AgentDto? _targetAgent;
+    private bool _saving;
+
+    /// <summary>(Name, currently-effective Cron) for every job reported for this application — sourced from a live status snapshot, not from CronOverrides, so it reflects the DEFAULT cron too, not just already-overridden jobs. There's no single agent to ask for a tag-selector rule, so this comes from whichever CURRENTLY-matching agent is first found to have actually reported this application — stays empty if none of today's matches have reported it yet.</summary>
+    private List<(string Name, string Cron)> _knownJobs = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _packages = await Api.GetPackagesAsync();
+        }
+        catch (ApiException)
+        {
+            // Non-fatal — the digest field still accepts free text, it just has fewer suggestions.
+        }
+
+        // A Path-sourced policy rule (only ever possible via direct API use — enlist-deploy always sets
+        // PackageDigest, never Path) is left blank here rather than shown, forcing a real package to be
+        // picked before this dialog can save it — see the portal's own "only the CLI deploys, the
+        // portal only manages placement/state" posture this exists to enforce.
+        _packageDigest = Existing.PackageDigest ?? "";
+        _desiredState = Existing.DesiredState;
+        _isolationMode = Existing.Isolation?.Mode ?? IsolationModes.Process;
+        _containerDetails = DescribeContainerDetails(Existing.Isolation);
+        _cronRows = Existing.CronOverrides.Select(kv => new CronRow { JobName = kv.Key, Cron = kv.Value }).ToList();
+
+        try
+        {
+            var agents = await Api.GetAgentsAsync();
+            _targetAgent = agents.FirstOrDefault(a => TagSelectorMatcher.IsSelfTargeted(a, Existing.TagSelector));
+
+            foreach (var agentName in TagSelectorMatcher.ResolveAgentNames(agents, Existing.TagSelector))
+            {
+                await TryLoadKnownJobsAsync(agentName, Existing.ApplicationName);
+                if (_knownJobs.Count > 0)
+                {
+                    break;
+                }
+            }
+        }
+        catch (ApiException)
+        {
+            // Non-fatal — same "type it directly" fallback as no currently-matching agent having reported yet.
+        }
+    }
+
+    /// <summary>Best-effort: populates _knownJobs from one agent's latest report if it has one for applicationName. Swallows a fetch failure for that single agent rather than aborting the whole dialog — one unreachable agent just gets skipped in favor of the next match, not treated as "nothing is known."</summary>
+    private async Task TryLoadKnownJobsAsync(string agentName, string applicationName)
+    {
+        try
+        {
+            var report = await Api.GetLatestReportAsync(agentName);
+            var app = report?.Applications.FirstOrDefault(a => a.Name == applicationName);
+            if (app is not null)
+            {
+                _knownJobs = app.Jobs.Where(j => j.Cron is not null).Select(j => (j.Name, j.Cron!)).ToList();
+            }
+        }
+        catch (ApiException)
+        {
+            // Non-fatal — the job-name field still accepts free text, it just has fewer suggestions and no auto-fill.
+        }
+    }
+
+    private Task<IEnumerable<string>> SearchJobNamesAsync(string? value, CancellationToken ct)
+    {
+        var names = _knownJobs.Select(j => j.Name);
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            names = names.Where(n => n.Contains(value, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return Task.FromResult(names);
+    }
+
+    /// <summary>Auto-fills this row's cron with what's currently in effect — but only while the row's own cron is still blank, so picking a job never clobbers a value already typed (including one pre-filled from an existing override).</summary>
+    private void OnJobNameChanged(int index, string value)
+    {
+        _cronRows[index].JobName = value;
+
+        if (string.IsNullOrWhiteSpace(_cronRows[index].Cron))
+        {
+            var known = _knownJobs.FirstOrDefault(j => j.Name == value);
+            if (known.Name is not null)
+            {
+                _cronRows[index].Cron = known.Cron;
+            }
+        }
+    }
+
+    private Task<IEnumerable<string>> SearchPackagesAsync(string? value, CancellationToken ct)
+    {
+        var candidates = _packages.Where(p => p.ApplicationName == Existing.ApplicationName).OrderByDescending(p => p.UploadedAtUtc).AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            candidates = candidates.Where(p => p.Digest.Contains(value, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return Task.FromResult(candidates.Select(p => p.Digest));
+    }
+
+    /// <summary>What the autocomplete actually shows for a digest — a bare hex string tells you nothing about which build it is. Version number plus upload time is what distinguishes one from another; the digest suffix stays visible for exact traceability.</summary>
+    private string DescribePackage(string digest)
+    {
+        var package = _packages.FirstOrDefault(p => p.Digest == digest);
+        var shortDigest = digest.Length > 12 ? digest[..12] + "…" : digest;
+
+        if (package is null)
+        {
+            return shortDigest;
+        }
+
+        var version = package.VersionNumber is { } v ? $"v{v}" : "unversioned";
+        return $"{version} — {package.UploadedAtUtc.ToLocalTime():g} — {shortDigest}";
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_packageDigest))
+        {
+            Snackbar.Add("Pick a package — publish one with enlist-deploy first if none exist yet.", Severity.Warning);
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            var cronOverrides = _cronRows
+                .Where(r => !string.IsNullOrWhiteSpace(r.JobName))
+                .ToDictionary(r => r.JobName, r => r.Cron);
+
+            var request = new UpdateApplicationPolicyRequest(
+                Path: null,
+                DesiredState: _desiredState,
+                CronOverrides: cronOverrides,
+                PackageDigest: _packageDigest,
+                // Restated on what the rule already carries: a spec built from the mode alone would save a
+                // container rule without its ports, and the agent would restart the application unreachable.
+                Isolation: (Existing.Isolation ?? IsolationSpec.ProcessDefault).WithMode(_isolationMode));
+            await Api.UpdateApplicationPolicyAsync(Existing.Id, request);
+
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    /// <summary>One line naming the container-only settings a rule carries (image, ports, networks, env), or null when it carries none — "Container" in the select alone gives no hint that ports sit behind it.</summary>
+    private static string? DescribeContainerDetails(IsolationSpec? isolation)
+    {
+        if (isolation is null)
+        {
+            return null;
+        }
+
+        var parts = new List<string>();
+        if (isolation.Image is not null)
+        {
+            parts.Add($"image {isolation.Image}");
+        }
+
+        if (isolation.Ports is { Count: > 0 } ports)
+        {
+            parts.Add("ports " + string.Join(", ", ports.Select(p =>
+                $"{p.ContainerPort}→{p.HostPort?.ToString() ?? "auto"}/{p.Protocol}{(p.Name is null ? "" : $" ({p.Name})")}")));
+        }
+
+        if (isolation.Networks is { Count: > 0 } networks)
+        {
+            parts.Add("networks " + string.Join(", ", networks));
+        }
+
+        if (isolation.Env is { Count: > 0 } env)
+        {
+            parts.Add("env " + string.Join(", ", env.Select(kv => $"{kv.Key}={kv.Value}")));
+        }
+
+        return parts.Count == 0 ? null : string.Join(" · ", parts);
+    }
+
+    /// <summary>The same rule the control plane applies (CronExpressions), so a typo is red here rather than a 400 after Save.</summary>
+    private static string? CronError(string? cron) => string.IsNullOrWhiteSpace(cron) ? null : CronExpressions.Validate(cron);
+
+    private sealed class CronRow
+    {
+        public string JobName { get; set; } = "";
+        public string Cron { get; set; } = "";
+    }
+}

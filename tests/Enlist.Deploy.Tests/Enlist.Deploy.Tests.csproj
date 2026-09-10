@@ -1,0 +1,39 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!--
+    Enlist.Agent is referenced directly because one test proves the full pipeline (enlist-deploy
+    uploads and assigns -> a real AgentHost picks it up and runs it), not just the CLI's own API
+    calls — that's still testing enlist-deploy's correctness (a tool that uploaded garbage or created
+    a broken assignment would fail this), just verified by running what it enables.
+    Enlist.ControlPlane.Contracts comes along transitively via Enlist.Agent's own reference.
+
+    Deliberately NOT a ProjectReference to Enlist.Deploy or Enlist.ControlPlane themselves (both need
+    to be spawned as real external processes anyway, and Enlist.ControlPlane's Sdk.Web framework
+    references conflict with privately-copied packages elsewhere in the graph — see
+    Enlist.Agent.Tests' note on this). ControlPlaneTestServer and RepoPaths (in Enlist.TestSupport)
+    locate both built dlls by path instead.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Enlist.TestSupport\Enlist.TestSupport.csproj" />
+    <ProjectReference Include="..\..\src\Enlist.Agent\Enlist.Agent.csproj" />
+  </ItemGroup>
+
+</Project>

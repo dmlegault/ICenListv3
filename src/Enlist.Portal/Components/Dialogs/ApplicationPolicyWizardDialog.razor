@@ -1,0 +1,450 @@
+@inject ControlPlaneApiClient Api
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="4" Style="min-height: 360px;">
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Justify="Justify.Center">
+                @for (var i = 0; i < StepTitles.Length; i++)
+                {
+                    var index = i;
+                    <MudChip T="string" Size="Size.Small" Variant="@(index == _step ? Variant.Filled : Variant.Outlined)"
+                             Color="@(index == _step ? Color.Primary : (index < _step ? Color.Success : Color.Default))">
+                        @(index + 1). @StepTitles[index]
+                    </MudChip>
+                    @if (index < StepTitles.Length - 1)
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" Color="Color.Default" />
+                    }
+                }
+            </MudStack>
+
+            @if (_step == 0)
+            {
+                <MudText Typo="Typo.subtitle2">Application</MudText>
+                <MudText Typo="Typo.body1">@ApplicationName</MudText>
+
+                <MudAutocomplete T="string" @bind-Value="_packageDigest" Label="Package" SearchFunc="SearchPackagesAsync" ToStringFunc="DescribePackage" CoerceValue="true" Required="true"
+                                  HelperText="@(_packages.Count == 0 ? "No packages uploaded yet — publish one with enlist-deploy first." : null)" />
+
+                <MudSelect T="string" @bind-Value="_desiredState" Label="State">
+                    <MudSelectItem T="string" Value="@DesiredStates.Running">Enabled</MudSelectItem>
+                    <MudSelectItem T="string" Value="@DesiredStates.Stopped">Disabled</MudSelectItem>
+                </MudSelect>
+
+                <MudSelect T="string" @bind-Value="_isolationMode" Label="Runs as"
+                           HelperText="Container isolation needs an agent configured with a container engine. The package is identical either way -- nothing is rebuilt.">
+                    <MudSelectItem T="string" Value="@IsolationModes.Process">Process on the agent</MudSelectItem>
+                    <MudSelectItem T="string" Value="@IsolationModes.Container">Container</MudSelectItem>
+                </MudSelect>
+
+                @if (_isolationMode == IsolationModes.Container)
+                {
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Baseline">
+                        <MudTextField T="string" @bind-Value="_containerPort" Label="Container port" Immediate="true"
+                                      DebounceInterval="400" OnDebounceIntervalElapsed="ResolvePreviewAsync"
+                                      HelperText="The port the app listens on inside the container. Leave blank to publish nothing." />
+                        <MudTextField T="string" @bind-Value="_hostPort" Label="Host port (optional)" Immediate="true"
+                                      DebounceInterval="400" OnDebounceIntervalElapsed="ResolvePreviewAsync"
+                                      HelperText="Blank lets the engine pick a free one -- the right default unless something outside enList already points at a fixed port." />
+                        <MudTextField T="string" @bind-Value="_portName" Label="Label (optional)" Immediate="true"
+                                      HelperText="e.g. http" />
+                    </MudStack>
+                }
+
+                <MudStack Spacing="2">
+                    <MudText Typo="Typo.subtitle2">Cron overrides</MudText>
+                    @for (var i = 0; i < _cronRows.Count; i++)
+                    {
+                        var index = i;
+                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                            <MudTextField T="string" @bind-Value="_cronRows[index].JobName" Label="Job name" Immediate="true" />
+                            <MudTextField T="string" @bind-Value="_cronRows[index].Cron" Label="Cron expression" Immediate="true"
+                                                        Error="@(CronError(_cronRows[index].Cron) is not null)" ErrorText="@CronError(_cronRows[index].Cron)" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" OnClick="@(() => _cronRows.RemoveAt(index))" />
+                        </MudStack>
+                    }
+                    <MudButton StartIcon="@Icons.Material.Filled.Add" Variant="Variant.Text" OnClick="@(() => _cronRows.Add(new CronRow()))">Add cron override</MudButton>
+                </MudStack>
+            }
+            else if (_step == 1)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Info">
+                    Every agent whose tags contain ALL of these key/value pairs qualifies. Every agent also carries an
+                    implicit "agent" tag equal to its own name — leave the key below as "agent" and fill in a name to
+                    target one specific agent, or change it (and add more rows) to target by tag instead. No rows at
+                    all matches EVERY agent.
+                </MudText>
+
+                @for (var i = 0; i < _tagRows.Count; i++)
+                {
+                    var index = i;
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                        <MudTextField T="string" @bind-Value="_tagRows[index].Key" Label="Key" Immediate="true" />
+                        <MudTextField T="string" @bind-Value="_tagRows[index].Value" Label="Value" Immediate="true" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" OnClick="@(() => _tagRows.RemoveAt(index))" />
+                    </MudStack>
+                }
+                <MudButton StartIcon="@Icons.Material.Filled.Add" Variant="Variant.Text" OnClick="@(() => _tagRows.Add(new TagRow()))">Add tag</MudButton>
+            }
+            else
+            {
+                <MudText Typo="Typo.subtitle2">Summary</MudText>
+                <MudList T="string" Dense="true">
+                    <MudListItem T="string">Application: @ApplicationName</MudListItem>
+                    <MudListItem T="string">Source: @DescribePackage(_packageDigest)</MudListItem>
+                    <MudListItem T="string">State: @(_desiredState == DesiredStates.Running ? "Enabled" : "Disabled")</MudListItem>
+                    <MudListItem T="string">Runs as: @(_isolationMode == IsolationModes.Container ? "Container" : "Process on the agent")</MudListItem>
+                </MudList>
+
+                @if (CurrentSelector.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true">
+                        No tags at all — this rule targets EVERY agent, present and future.
+                    </MudAlert>
+                }
+                else
+                {
+                    <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                        @foreach (var tag in CurrentSelector)
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@tag.Key=@tag.Value</MudChip>
+                        }
+                    </MudStack>
+                }
+
+                @if (_resolvingPreview)
+                {
+                    <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                }
+                else if (_matchingAgents.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">Qualifies 0 agents right now.</MudAlert>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2">Qualifies @_matchingAgents.Count agent(s) right now:</MudText>
+                    <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                        @foreach (var name in _matchingAgents)
+                        {
+                            <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Dns">@name</MudChip>
+                        }
+                    </MudStack>
+
+                    @if (!_resolvingPreview && _portCollisions.Count > 0)
+                    {
+                        @* A DIFFERENT failure from the conflict below: that one is two rules for THIS
+                           application disagreeing; this is a different application already holding the
+                           host port. Kept as its own alert because the fix is different too -- change the
+                           port, or clear it and let the engine allocate. *@
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                            <div>Another application already claims this host port on @_portCollisions.Select(c => c.AgentName).Distinct().Count() of those agent(s) -- both sides would report Failed:</div>
+                            <ul style="margin:6px 0 0 20px;">
+                                @foreach (var collision in _portCollisions.DistinctBy(c => (c.AgentName, c.HostPort, c.OtherApplication)))
+                                {
+                                    <li><b>@collision.AgentName</b> -- port @collision.HostPort/@collision.Protocol is already claimed by <b>@collision.OtherApplication</b></li>
+                                }
+                            </ul>
+                            <div style="margin-top:6px;">Clear the host port to let the engine allocate a free one instead.</div>
+                        </MudAlert>
+                    }
+
+                    @if (!_resolvingPreview && _conflicts.Count > 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true">
+                            <div>This disagrees with an existing rule already matching @_conflicts.Select(c => c.AgentName).Distinct().Count() of those agent(s) — saving will make them report Failed instead of resolving cleanly:</div>
+                            <ul style="margin:6px 0 0 20px;">
+                                @foreach (var conflict in _conflicts.DistinctBy(c => c.AgentName))
+                                {
+                                    <li>
+                                        <b>@conflict.AgentName</b> — already governed by a rule on @DescribePackage(conflict.ExistingPolicy.PackageDigest ?? "")
+                                        (@(conflict.ExistingPolicy.DesiredState == DesiredStates.Running ? "enabled" : "disabled"))
+                                    </li>
+                                }
+                            </ul>
+                        </MudAlert>
+                    }
+                }
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        @if (_step > 0)
+        {
+            <MudButton OnClick="Back">Back</MudButton>
+        }
+        @if (_step < 2)
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Next" Disabled="@(!CanAdvance())">Next</MudButton>
+        }
+        else
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync" Disabled="_saving">Save</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter, EditorRequired] public string ApplicationName { get; set; } = "";
+
+    private static readonly string[] StepTitles = ["What", "Which agents qualify", "Confirm"];
+
+    private int _step;
+    private string _packageDigest = "";
+    private string _desiredState = DesiredStates.Running;
+    private string _isolationMode = IsolationModes.Process;
+    private List<CronRow> _cronRows = [];
+    private List<TagRow> _tagRows = [new() { Key = "agent" }];
+
+    private List<PackageInfo> _packages = [];
+    private List<AgentDto> _agents = [];
+    private List<ApplicationPolicyDto> _existingPolicies = [];
+    private List<string> _matchingAgents = [];
+    private List<(string AgentName, ApplicationPolicyDto ExistingPolicy)> _conflicts = [];
+
+    /// <summary>Every rule in the system, not just this application's — a port collision is between DIFFERENT applications, so the same-application list the conflict check uses cannot see it.</summary>
+    private List<ApplicationPolicyDto> _allPolicies = [];
+    private List<PortCollision> _portCollisions = [];
+
+    /// <summary>Container port and optional static host port, as typed. Kept as strings so a half-entered value does not throw while the operator is still typing.</summary>
+    private string _containerPort = "";
+    private string _hostPort = "";
+    private string _portName = "";
+    private bool _resolvingPreview;
+    private bool _saving;
+
+    private Dictionary<string, string> CurrentSelector =>
+        _tagRows.Where(r => !string.IsNullOrWhiteSpace(r.Key)).ToDictionary(r => r.Key, r => r.Value);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _packages = await Api.GetPackagesAsync();
+            _allPolicies = await Api.GetApplicationPoliciesAsync();
+            _existingPolicies = _allPolicies.Where(p => p.ApplicationName == ApplicationName).ToList();
+        }
+        catch (ApiException)
+        {
+            // Non-fatal — the digest field still accepts free text and the conflict check just skips
+            // (nothing to compare against), same "degrade, don't block" posture as the packages fetch.
+        }
+    }
+
+    private bool CanAdvance() => _step != 0 || !string.IsNullOrWhiteSpace(_packageDigest);
+
+    private void Back() => _step--;
+
+    private async Task Next()
+    {
+        _step++;
+        if (_step == 2)
+        {
+            await ResolvePreviewAsync();
+        }
+    }
+
+    private async Task ResolvePreviewAsync()
+    {
+        _resolvingPreview = true;
+        try
+        {
+            _agents = await Api.GetAgentsAsync();
+            _matchingAgents = TagSelectorMatcher.ResolveAgentNames(_agents, CurrentSelector)
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            _conflicts = FindConflicts();
+            _portCollisions = PolicyConflictDetector.FindPortCollisions(
+                _agents, _matchingAgents, ApplicationName, BuildIsolation(), _allPolicies);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _matchingAgents = [];
+            _conflicts = [];
+            _portCollisions = [];
+        }
+        finally
+        {
+            _resolvingPreview = false;
+        }
+    }
+
+    /// <summary>Catches the conflicts detectable RIGHT NOW, among agents already registered and tagged as
+    /// they currently stand — it can't catch a conflict that only appears later because an agent's tags
+    /// change (a rule that's clean today can still collide with this one tomorrow), so the reactive
+    /// "conflict" chip on the Applications tab (RunningInstancesTable, via PolicyConflictDetector) stays
+    /// the real safety net regardless. This is the early warning, not a substitute for it.</summary>
+    private List<(string AgentName, ApplicationPolicyDto ExistingPolicy)> FindConflicts()
+    {
+        // Id/ApplicationName/TagSelector/etc. don't matter here — PolicyConflictDetector.Agree only
+        // compares Path/PackageDigest/DesiredState/CronOverrides, which is all this hypothetical rule
+        // needs to carry.
+        var hypothetical = new ApplicationPolicyDto(Guid.Empty, ApplicationName, null, _desiredState, BuildCronOverrides(), default, new Dictionary<string, string>(), _packageDigest);
+        var conflicts = new List<(string, ApplicationPolicyDto)>();
+
+        foreach (var agentName in _matchingAgents)
+        {
+            var agent = _agents.FirstOrDefault(a => a.Name == agentName);
+            if (agent is null)
+            {
+                continue;
+            }
+
+            foreach (var existing in _existingPolicies)
+            {
+                if (!TagSelectorMatcher.Matches(agent, existing.TagSelector))
+                {
+                    continue;
+                }
+
+                if (!PolicyConflictDetector.Agree([hypothetical, existing]))
+                {
+                    conflicts.Add((agentName, existing));
+                }
+            }
+        }
+
+        return conflicts;
+    }
+
+    private Dictionary<string, string> BuildCronOverrides() =>
+        _cronRows
+            .Where(r => !string.IsNullOrWhiteSpace(r.JobName))
+            .ToDictionary(r => r.JobName, r => r.Cron);
+
+    private Task<IEnumerable<string>> SearchPackagesAsync(string? value, CancellationToken ct)
+    {
+        var candidates = _packages.Where(p => p.ApplicationName == ApplicationName).OrderByDescending(p => p.UploadedAtUtc).AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            candidates = candidates.Where(p => p.Digest.Contains(value, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return Task.FromResult(candidates.Select(p => p.Digest));
+    }
+
+    /// <summary>What the autocomplete/summary actually shows for a digest — a bare hex string tells you nothing about which build it is. Version number plus upload time is what distinguishes one from another; the digest suffix stays visible for exact traceability.</summary>
+    private string DescribePackage(string digest)
+    {
+        if (string.IsNullOrEmpty(digest))
+        {
+            return "";
+        }
+
+        var package = _packages.FirstOrDefault(p => p.Digest == digest);
+        var shortDigest = digest.Length > 12 ? digest[..12] + "…" : digest;
+
+        if (package is null)
+        {
+            return shortDigest;
+        }
+
+        var version = package.VersionNumber is { } v ? $"v{v}" : "unversioned";
+        return $"{version} — {package.UploadedAtUtc.ToLocalTime():g} — {shortDigest}";
+    }
+
+    /// <summary>
+    /// The isolation the wizard is currently describing. One place, used by both the collision preview and
+    /// the save — a preview computed from a different shape than the thing saved would be worse than no
+    /// preview at all.
+    /// </summary>
+    private IsolationSpec BuildIsolation()
+    {
+        if (_isolationMode != IsolationModes.Container || !int.TryParse(_containerPort, out var containerPort))
+        {
+            return new IsolationSpec(_isolationMode);
+        }
+
+        // Blank host port is not an error — it is the DEFAULT and the recommended choice, meaning
+        // "let the engine allocate".
+        int? hostPort = int.TryParse(_hostPort, out var parsed) ? parsed : null;
+
+        return new IsolationSpec(
+            _isolationMode,
+            Ports: [new PortMapping(containerPort, hostPort, "tcp", string.IsNullOrWhiteSpace(_portName) ? null : _portName.Trim())]);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_portCollisions.Count > 0)
+        {
+            var byAgent = _portCollisions.DistinctBy(c => (c.AgentName, c.HostPort, c.OtherApplication)).ToList();
+            var detail = string.Join("; ", byAgent.Select(c => $"{c.AgentName}: port {c.HostPort}/{c.Protocol} held by {c.OtherApplication}"));
+
+            var confirmedPort = await DialogService.ShowMessageBox(
+                "Save despite port collision?",
+                $"Another application already claims this host port -- {detail}. Both sides will report Failed. " +
+                "Clearing the host port lets the engine allocate a free one instead. Save anyway?",
+                yesText: "Save anyway",
+                cancelText: "Cancel");
+
+            if (confirmedPort != true)
+            {
+                return;
+            }
+        }
+
+        if (_conflicts.Count > 0)
+        {
+            var names = string.Join(", ", _conflicts.Select(c => c.AgentName).Distinct());
+            var plural = _conflicts.Select(c => c.AgentName).Distinct().Count() > 1;
+            var confirmed = await DialogService.ShowMessageBox(
+                "Save despite conflict?",
+                $"This disagrees with an existing rule already matching {names} — saving will make " +
+                $"{(plural ? "those agents" : "that agent")} report Failed instead of resolving cleanly. Save anyway?",
+                yesText: "Save anyway",
+                cancelText: "Cancel");
+
+            if (confirmed != true)
+            {
+                return;
+            }
+        }
+
+        _saving = true;
+        try
+        {
+            var cronOverrides = BuildCronOverrides();
+
+            var request = new CreateApplicationPolicyRequest(
+                ApplicationName: ApplicationName,
+                Path: null,
+                DesiredState: _desiredState,
+                CronOverrides: cronOverrides,
+                TagSelector: CurrentSelector,
+                PackageDigest: _packageDigest,
+                Isolation: BuildIsolation());
+            await Api.CreateApplicationPolicyAsync(request);
+
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private sealed class TagRow
+    {
+        public string Key { get; set; } = "";
+        public string Value { get; set; } = "";
+    }
+
+    /// <summary>The same rule the control plane applies (CronExpressions), so a typo is red here rather than a 400 after Save.</summary>
+    private static string? CronError(string? cron) => string.IsNullOrWhiteSpace(cron) ? null : CronExpressions.Validate(cron);
+
+    private sealed class CronRow
+    {
+        public string JobName { get; set; } = "";
+        public string Cron { get; set; } = "";
+    }
+}

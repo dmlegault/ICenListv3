@@ -1,0 +1,79 @@
+@{
+    RenderFragment<VersionManifest> table = manifest => @<text>
+        @if (manifest.Instances.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">No services or jobs found in this build.</MudAlert>
+        }
+        else
+        {
+            <MudSimpleTable Dense="true" Hover="true">
+                <thead>
+                    <tr>
+                        <th style="width:130px;">Type</th>
+                        <th>Name</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var instance in manifest.Instances)
+                    {
+                        <tr>
+                            <td><InstanceTypeBadge Type="@instance.Type" /></td>
+                            <td>@instance.Name</td>
+                            <td>@instance.Description</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+    </text>;
+}
+
+<MudDialog>
+    <DialogContent>
+        @if (Manifests.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">
+                No status report has described @ApplicationName's services or jobs yet — check back once an
+                agent running it has reported in.
+            </MudAlert>
+        }
+        else if (Manifests.Count == 1)
+        {
+            @table(Manifests[0])
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Color="Color.Primary" Class="mb-2">
+                @ApplicationName currently has @Manifests.Count versions in play — shown separately since a
+                canary and a fallback build can legitimately differ.
+            </MudText>
+            <MudTabs Rounded="true">
+                @foreach (var manifest in Manifests)
+                {
+                    <MudTabPanel Text="@TabLabel(manifest)">
+                        @table(manifest)
+                    </MudTabPanel>
+                }
+            </MudTabs>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter, EditorRequired] public string ApplicationName { get; set; } = "";
+
+    /// <summary>Set by the caller from ApplicationSummary.Manifests — this dialog is a pure display, it
+    /// doesn't fetch anything of its own. One entry per distinct package version currently referenced.</summary>
+    [Parameter, EditorRequired] public List<VersionManifest> Manifests { get; set; } = [];
+
+    private static string TabLabel(VersionManifest manifest) =>
+        manifest.VersionNumber is { } v ? $"v{v}" : (manifest.Digest.Length > 0 ? "unversioned" : "live report");
+
+    private void Close() => MudDialog.Close(DialogResult.Ok(true));
+}

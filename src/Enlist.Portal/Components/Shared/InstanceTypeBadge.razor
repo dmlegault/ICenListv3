@@ -1,0 +1,57 @@
+@* One badge answering "is this a service or a job?", shared by every surface that lists both.
+
+   Centralized rather than written per call site because these surfaces had already drifted: the
+   Services & Jobs dialog showed a colored chip while the Applications tab showed bare text, so the
+   same distinction looked like two different things depending on where you read it.
+
+   The icons carry the actual semantic difference, which the words alone don't make obvious to
+   someone new: a service runs CONTINUOUSLY (Autorenew — the looping arrows), a job runs ON A
+   SCHEDULE and is idle in between (Schedule — a clock). That distinction is exactly the one behind
+   the Running/Enabled state split elsewhere in this table, so the icon reinforces it rather than
+   introducing a new idea. *@
+
+@if (Icon is null)
+{
+    @* Not a service or a job — e.g. the "Policy conflict" pseudo-row's em dash. A badge would imply
+       a real instance kind that this row doesn't have. *@
+    <span>@Type</span>
+}
+else
+{
+    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Icon="@Icon" Color="@Color" Style="@Style">@Type</MudChip>
+}
+
+@code {
+    /// <summary>"Service" or "Job". Anything else renders as plain text — see above.</summary>
+    [Parameter, EditorRequired] public string Type { get; set; } = "";
+
+    private string? Icon => Type switch
+    {
+        "Service" => Icons.Material.Filled.Autorenew,
+        "Job" => Icons.Material.Filled.Schedule,
+        _ => null,
+    };
+
+    // Service takes Primary (the IronCanary blue); a job takes Info's lighter blue-cyan. Both are
+    // deliberately not Secondary, which is the harsh pink in this palette, and job moved off Tertiary's
+    // mint because it sat too close to the green "Enabled" state chip three columns along.
+    private Color Color => Type == "Service" ? MudBlazor.Color.Primary : MudBlazor.Color.Info;
+
+    /// <summary>
+    /// MudBlazor's Color enum only exposes the base swatch — there is no Color.InfoLighten — so the
+    /// lighter blue-cyan has to come from the palette's own CSS variable. Reading the variable rather
+    /// than hardcoding rgb(92,173,255) keeps the badge tied to the theme: restyle Info in MainLayout and
+    /// this follows automatically.
+    ///
+    /// Both properties are needed because the chip is Outlined: `color` paints the label and (via
+    /// currentColor on the SVG) the icon, `border-color` paints the ring. Inline style beats MudChip's
+    /// own class rules on specificity.
+    ///
+    /// Safe against the theme's dark ground because this portal is dark-only (MainLayout hardcodes
+    /// IsDarkMode="true"); a light mint on a light surface would be the risky direction, and can't
+    /// arise here.
+    /// </summary>
+    private string? Style => Type == "Job"
+        ? "color: var(--mud-palette-info-lighten); border-color: var(--mud-palette-info-lighten);"
+        : null;
+}

@@ -1,0 +1,47 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Enlist.Agent</RootNamespace>
+    <AssemblyName>enlist-agent</AssemblyName>
+  </PropertyGroup>
+
+  <!--
+    Unlike Enlist.Runner, the agent is a normal application and MAY have dependencies — see
+    docs/03-architecture/enList-v3-Design.md section 2 ("Why the scheduler lives in the agent"). Cronos does cron
+    math only (next-occurrence calculation), not a full scheduling engine — the agent's own timer
+    loop owns "when," Cronos only answers "when is next."
+  -->
+  <ItemGroup>
+    <PackageReference Include="Cronos" Version="0.11.0" />
+    <!--
+      Gives the agent real SCM integration (auto-start on boot, a proper stop signal routed to
+      AgentHost.StopAsync instead of relying on someone being logged in to hit Ctrl+C) without
+      hand-rolling the Windows service control dispatcher. Safe on non-Windows and when run
+      interactively — AddWindowsService()/IsWindowsService() no-op outside an actual Windows service
+      context, so `dotnet run` in a terminal still behaves like a normal console app.
+    -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0" />
+    <!-- Client for Enlist.ControlPlane's ApplicationPolicyHub — design doc section 6: agents dial OUT, never accept inbound connections. -->
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.0" />
+  </ItemGroup>
+
+  <!--
+    Referencing Enlist.Runner is fine here even though the runner must never be referenced BY a
+    plugin — the agent sits on the agent<->runner side of that boundary, the same as the stub test
+    harness in Enlist.Runner.Tests (see Protocol/RunnerMessage.cs). This pulls in the Protocol types
+    (RunnerMessage/AgentCommand/MessageChannel) so the wire format is defined exactly once.
+
+    Enlist.ControlPlane.Contracts is likewise fine to share as a compiled assembly — the agent and
+    the control plane are both parts of the same system, not a plugin boundary (see
+    ApplicationPolicyDto.cs).
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Enlist.Runner\Enlist.Runner.csproj" />
+    <ProjectReference Include="..\Enlist.ControlPlane.Contracts\Enlist.ControlPlane.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

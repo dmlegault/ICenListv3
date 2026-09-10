@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Design doc section 11, step 5: "Legacy runner. net472, same attribute contract, no shared
+    assembly." See docs/03-architecture/SAD.md §9 for what this closes and what it still doesn't (real AppDomain
+    isolation between co-hosted legacy plugins — see Hosting/LegacyPluginLoadContext.cs).
+
+    The two PackageReferences below (System.Text.Json, System.Threading.Channels) are a deliberate,
+    narrow exception to the runner's own zero-PackageReference rule — that rule exists so a PLUGIN
+    never has anything of the runner's to version-collide against (contracts/EnlistAttributes.cs's own
+    header comment). Neither package here is visible to, or loaded into the same resolution scope as,
+    any plugin assembly: both are used exclusively by this project's own runner<->agent wire protocol
+    (Protocol/), which plugin code never touches. On net10.0 both are already part of the BCL, which is
+    why the modern Enlist.Runner needs neither reference at all — net472 simply doesn't ship them.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!--
+      Deliberately the SAME canonical name the modern Enlist.Runner uses ("enlist-runner"), not a
+      "-legacy"-suffixed one: RunnerStaging (Enlist.Agent) looks for exactly "enlist-runner.exe" in
+      whichever runner-bin directory it's given (the one named by enlist-agent's runner-bin or
+      legacy-runner-bin argument); which flavor an agent gets is already determined entirely by WHICH
+      directory it's pointed at (a separate, non-colliding path per flavor), so the exe within it
+      doesn't need its own flavor-specific name too.
+    -->
+    <AssemblyName>enlist-runner</AssemblyName>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Enlist.Runner.Legacy</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="10.0.0" />
+    <PackageReference Include="System.Threading.Channels" Version="10.0.0" />
+  </ItemGroup>
+
+</Project>

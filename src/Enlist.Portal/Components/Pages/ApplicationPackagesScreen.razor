@@ -1,0 +1,154 @@
+@page "/applications/{AppName}/packages"
+@inject ControlPlaneApiClient Api
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>@AppName packages</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4" Wrap="Wrap.Wrap">
+    <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="@(() => Nav.NavigateTo($"/applications/{Uri.EscapeDataString(AppName)}/policy"))" title="Back to policy" />
+    <MudText Typo="Typo.h4">@AppName — Packages</MudText>
+    <MudSpacer />
+    <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" title="Refresh" />
+</MudStack>
+
+@if (_packages is null)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (_packages.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">
+        No packages uploaded yet for this application — publish one with the enlist-deploy CLI.
+    </MudAlert>
+}
+else
+{
+    <MudTable Items="_packages" Breakpoint="Breakpoint.Sm" Hover="true">
+        <HeaderContent>
+            <MudTh>Version</MudTh>
+            <MudTh>Digest</MudTh>
+            <MudTh>Size</MudTh>
+            <MudTh>Uploaded</MudTh>
+            <MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Version">
+                @if (context.VersionNumber is { } version)
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Default">v@(version)</MudChip>
+                }
+            </MudTd>
+            <MudTd DataLabel="Digest">@context.Digest</MudTd>
+            <MudTd DataLabel="Size">@FormatSize(context.SizeBytes)</MudTd>
+            <MudTd DataLabel="Uploaded">@context.UploadedAtUtc.ToLocalTime()</MudTd>
+            <MudTd>
+                <MudTooltip Text="@DeleteTooltip(context.Digest)">
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error"
+                                   Disabled="@(_deletePending || _referencedBy.ContainsKey(context.Digest))"
+                                   OnClick="@(() => DeleteAsync(context))" />
+                </MudTooltip>
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    [Parameter] public string AppName { get; set; } = "";
+
+    private List<PackageInfo>? _packages;
+
+    /// <summary>Digest -> application names of every policy rule currently pointing at it (Running or Stopped alike — Stopped still means "this is what runs if flipped back on"). Delete is disabled whenever a digest has an entry here, matching the same rule the DELETE endpoint enforces server-side.</summary>
+    private Dictionary<string, List<string>> _referencedBy = [];
+
+    private bool _deletePending;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _packages = null;
+        StateHasChanged();
+
+        try
+        {
+            _packages = (await Api.GetPackagesAsync())
+                .Where(p => p.ApplicationName == AppName)
+                .ToList();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _packages = [];
+        }
+
+        try
+        {
+            var policies = await Api.GetApplicationPoliciesAsync();
+            _referencedBy = policies
+                .Where(a => a.PackageDigest is not null)
+                .GroupBy(a => a.PackageDigest!)
+                .ToDictionary(g => g.Key, g => g.Select(a => a.ApplicationName).ToList());
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private string DeleteTooltip(string digest)
+    {
+        if (!_referencedBy.TryGetValue(digest, out var apps))
+        {
+            return "Delete package";
+        }
+
+        return $"In use by {string.Join(", ", apps)} — repoint or delete {(apps.Count == 1 ? "that policy rule" : "those policy rules")} first";
+    }
+
+    private async Task DeleteAsync(PackageInfo package)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Delete package",
+            $"Permanently delete '{AppName}'{(package.VersionNumber is { } v ? $" v{v}" : "")} " +
+            $"({package.Digest[..12]}…)? This cannot be undone — there's no policy rule currently referencing it, so nothing will break, but if you need it again later you'll have to re-upload the same build.",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        _deletePending = true;
+        try
+        {
+            await Api.DeletePackageAsync(package.Digest);
+            Snackbar.Add("Package deleted.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _deletePending = false;
+        }
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB"];
+        double size = bytes;
+        var unit = 0;
+        while (size >= 1024 && unit < units.Length - 1)
+        {
+            size /= 1024;
+            unit++;
+        }
+
+        return $"{size:0.#} {units[unit]}";
+    }
+}

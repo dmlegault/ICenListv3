@@ -1,0 +1,107 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject NavigationManager Nav
+
+<MudThemeProvider Theme="_theme" IsDarkMode="true" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1">
+        <MudImage Src="media/iron-canary-logo.png" Height="36" Width="78" ObjectFit="ObjectFit.Contain" />
+        <div class="enlist-brand d-flex align-center ml-2">
+            <MudText Typo="Typo.h6">enList Portal</MudText>
+            @if (!string.IsNullOrEmpty(_section))
+            {
+                <MudText Typo="Typo.h6" Class="enlist-section-divider">/</MudText>
+                <MudText Typo="Typo.h6" Class="enlist-section-label">@_section</MudText>
+            }
+        </div>
+        <MudSpacer />
+        <MudHidden Breakpoint="Breakpoint.SmAndDown">
+            <NavMenu />
+        </MudHidden>
+        <MudHidden Breakpoint="Breakpoint.SmAndDown" Invert="true">
+            <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                <ActivatorContent>
+                    <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" />
+                </ActivatorContent>
+                <ChildContent>
+                    <NavMenu Vertical="true" />
+                </ChildContent>
+            </MudMenu>
+        </MudHidden>
+    </MudAppBar>
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="my-4 px-2">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+<div id="blazor-error-ui" data-nosnippet>
+    <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Square="true">
+        An unhandled error has occurred.
+        <MudButton Href="." Variant="Variant.Text" Color="Color.Inherit" Size="Size.Small">Reload</MudButton>
+    </MudAlert>
+</div>
+
+@code {
+    private string? _section;
+
+    protected override void OnInitialized()
+    {
+        Nav.LocationChanged += OnLocationChanged;
+        _section = SectionFor(Nav.Uri);
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        _section = SectionFor(e.Location);
+        InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Mirrors NavMenu's own three routes — a drill-down page like "/applications/{name}/policy"
+    /// still reads as "Applications" here, same section the user clicked into it from.</summary>
+    private string? SectionFor(string uri)
+    {
+        var segments = Nav.ToBaseRelativePath(uri).Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments switch
+        {
+            [] or ["applications", ..] => "Applications",
+            ["agents", ..] => "Agents",
+            ["logs", ..] => "Logs",
+            _ => null,
+        };
+    }
+
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+
+    /// <summary>
+    /// Typography and shadows stay MudBlazor's own default. AppbarBackground is #1c1c28 — not a guess,
+    /// that's v2's own exact value (enList_v2's
+    /// MainLayout.razor), chosen there specifically because it's the only background that keeps BOTH
+    /// colors baked into the logo PNG legible at once: the blue mark (~rgb(0,128,192), measured 4.07:1
+    /// contrast against this color) and the gray wordmark (~rgb(160,160,160), measured 6.75:1).
+    /// Primary is #0088D0 — sampled directly from the logo PNG's own dominant blue pixel value (not the
+    /// approximate one quoted above), so buttons/selected-nav/tab-underlines/switches now pick up the
+    /// same blue as the "iron" mark instead of MudBlazor's stock purple.
+    /// </summary>
+    private readonly MudTheme _theme = new()
+    {
+        PaletteDark = new PaletteDark
+        {
+            Background = "#1a1a27",
+            Surface = "#242435",
+            AppbarBackground = "#1c1c28",
+            Primary = "#0088D0",
+            TextPrimary = "#f5f5f7",
+            TextSecondary = "#9a9ab0",
+        },
+        LayoutProperties = new LayoutProperties
+        {
+            DefaultBorderRadius = "12px",
+        },
+    };
+}

@@ -1,0 +1,14 @@
+<!--
+  Import this from a plugin's .csproj to pull in the Enlist attribute contract as SOURCE:
+
+    <Import Project="..\..\contracts\Enlist.Contracts.props" />
+
+  This is deliberately a .props file with a single Compile item, not a project or a packable
+  assembly. Nothing here ever produces an Enlist.Contracts.dll — see EnlistAttributes.cs for why
+  that matters (matching by attribute name, not by type identity).
+-->
+<Project>
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)EnlistAttributes.cs" Link="Enlist\EnlistAttributes.cs" />
+  </ItemGroup>
+</Project>

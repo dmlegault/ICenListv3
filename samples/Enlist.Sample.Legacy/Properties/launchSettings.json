@@ -1,0 +1,22 @@
+{
+  "profiles": {
+    "enList dev host (log window)": {
+      "commandName": "Executable",
+      "executablePath": "../../src/Enlist.Runner.Legacy/bin/Debug/net472/enlist-runner.exe",
+      "commandLineArgs": "--dev --log-window --app ../../deploy/LegacySample",
+      "workingDirectory": "."
+    },
+    "enList dev host (single window)": {
+      "commandName": "Executable",
+      "executablePath": "../../src/Enlist.Runner.Legacy/bin/Debug/net472/enlist-runner.exe",
+      "commandLineArgs": "--dev --app ../../deploy/LegacySample",
+      "workingDirectory": "."
+    },
+    "enList check (discovery only)": {
+      "commandName": "Executable",
+      "executablePath": "../../src/Enlist.Runner.Legacy/bin/Debug/net472/enlist-runner.exe",
+      "commandLineArgs": "--check --app ../../deploy/LegacySample",
+      "workingDirectory": "."
+    }
+  }
+}

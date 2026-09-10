@@ -1,0 +1,68 @@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            @for (var i = 0; i < _rows.Count; i++)
+            {
+                var index = i;
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                    <MudTextField T="string" @bind-Value="_rows[index].Key" Label="Key" Immediate="true" />
+                    <MudTextField T="string" @bind-Value="_rows[index].Value" Label="Value" Immediate="true" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" OnClick="@(() => _rows.RemoveAt(index))" />
+                </MudStack>
+            }
+            <MudButton StartIcon="@Icons.Material.Filled.Add" OnClick="AddRow" Variant="Variant.Text">Add tag</MudButton>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync" Disabled="_saving">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public string AgentName { get; set; } = "";
+    [Parameter] public IReadOnlyDictionary<string, string> CurrentTags { get; set; } = new Dictionary<string, string>();
+
+    [Inject] private ControlPlaneApiClient Api { get; set; } = null!;
+    [Inject] private ISnackbar Snackbar { get; set; } = null!;
+
+    private List<TagRow> _rows = [];
+    private bool _saving;
+
+    protected override void OnInitialized()
+    {
+        _rows = CurrentTags.Select(kv => new TagRow { Key = kv.Key, Value = kv.Value }).ToList();
+    }
+
+    private void AddRow() => _rows.Add(new TagRow());
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        try
+        {
+            var tags = _rows
+                .Where(r => !string.IsNullOrWhiteSpace(r.Key))
+                .ToDictionary(r => r.Key, r => r.Value);
+            await Api.SetAgentTagsAsync(AgentName, tags);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private sealed class TagRow
+    {
+        public string Key { get; set; } = "";
+        public string Value { get; set; } = "";
+    }
+}

@@ -1,0 +1,22 @@
+{
+  "profiles": {
+    "enList dev host (log window)": {
+      "commandName": "Executable",
+      "executablePath": "../../src/Enlist.Runner/bin/Debug/net10.0/enlist-runner.exe",
+      "commandLineArgs": "--dev --log-window --app ../../deploy/DataPipeline",
+      "workingDirectory": "."
+    },
+    "enList dev host (single window)": {
+      "commandName": "Executable",
+      "executablePath": "../../src/Enlist.Runner/bin/Debug/net10.0/enlist-runner.exe",
+      "commandLineArgs": "--dev --app ../../deploy/DataPipeline",
+      "workingDirectory": "."
+    },
+    "enList check (discovery only)": {
+      "commandName": "Executable",
+      "executablePath": "../../src/Enlist.Runner/bin/Debug/net10.0/enlist-runner.exe",
+      "commandLineArgs": "--check --app ../../deploy/DataPipeline",
+      "workingDirectory": "."
+    }
+  }
+}

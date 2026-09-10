@@ -1,0 +1,158 @@
+@inject ControlPlaneApiClient Api
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudTextField T="string" @bind-Value="_applicationName" Label="Application name" Required="true"
+                          Immediate="true" HelperText="Whatever this package's own [EnlistApplication] name is, or any name you want it tracked under."
+                          Error="@NameIsInvalid" ErrorText="Letters, digits, '-', '_' and '.', starting with a letter or digit — this becomes a folder and a process name on every agent." />
+
+            @if (NameAlreadyExists)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true">
+                    "@_applicationName" already has package(s) uploaded — this adds another version alongside
+                    them. No existing policy rule changes automatically; edit one afterward (or add a new
+                    rule) to point it at this version.
+                </MudAlert>
+            }
+
+            <InputFile OnChange="OnFileSelected" accept=".zip" />
+            @if (_selectedFile is not null)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Info">@_selectedFile.Name — @FormatSize(_selectedFile.Size)</MudText>
+            }
+            @if (_fileError is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true">@_fileError</MudAlert>
+            }
+
+            @if (_uploading)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="UploadAsync" Disabled="@(!CanUpload())">Upload</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    /// <summary>Existing application names, purely to decide whether to show the "adds another version"
+    /// hint above — this dialog doesn't fetch its own package list.</summary>
+    [Parameter] public List<string> ExistingApplicationNames { get; set; } = [];
+
+    private string _applicationName = "";
+    private IBrowserFile? _selectedFile;
+    private string? _fileError;
+    private bool _uploading;
+
+    private bool NameAlreadyExists =>
+        !string.IsNullOrWhiteSpace(_applicationName) &&
+        ExistingApplicationNames.Contains(_applicationName.Trim(), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The same rule the control plane applies (ApplicationNames), so the dialog says no before the server has to.</summary>
+    private bool NameIsInvalid => !string.IsNullOrWhiteSpace(_applicationName) && !ApplicationNames.IsValid(_applicationName.Trim());
+
+    private bool CanUpload() => !_uploading && !string.IsNullOrWhiteSpace(_applicationName) && !NameIsInvalid && _selectedFile is not null && _fileError is null;
+
+    /// <summary>The browser's file picker only SUGGESTS .zip via the accept attribute — it doesn't
+    /// enforce it (a user can still pick "All Files" and choose anything). This is the actual check,
+    /// by extension only; the content itself isn't opened here, that's still on the control plane.</summary>
+    private void OnFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (!file.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            _selectedFile = null;
+            _fileError = $"'{file.Name}' isn't a .zip file — enlist-deploy packages are always a zip of the build output.";
+            return;
+        }
+
+        _fileError = null;
+        _selectedFile = file;
+    }
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
+        _ => $"{bytes / (1024.0 * 1024.0):F1} MB",
+    };
+
+    private async Task UploadAsync()
+    {
+        if (_selectedFile is null)
+        {
+            return;
+        }
+
+        _uploading = true;
+        try
+        {
+            await using var stream = _selectedFile.OpenReadStream(maxAllowedSize: 500 * 1024 * 1024);
+            var result = await Api.UploadPackageAsync(_applicationName.Trim(), stream);
+
+            if (result.AlreadyExisted)
+            {
+                // Content-addressed — this exact build was already on the control plane before this
+                // action, possibly already referenced by a policy. Not this dialog's place to judge
+                // whether IT was useless; only a digest freshly created BY this upload is safe to
+                // second-guess and remove again.
+                Snackbar.Add($"'{_applicationName}' — this exact build is already on the control plane, nothing new to do.", Severity.Success);
+                MudDialog.Close(DialogResult.Ok(true));
+                return;
+            }
+
+            // The upload endpoint stores content-addressed bytes and nothing else — it never checks
+            // what's inside. This is the "did we just store something useless" check, done AFTER the
+            // fact by asking the same scan the "Services & Jobs" dialog uses. Nothing could possibly
+            // reference a digest that didn't exist a moment ago, so deleting it right back out is
+            // completely safe — no second trip to the Packages screen needed.
+            PackageManifestDto? manifest;
+            try
+            {
+                manifest = await Api.GetPackageManifestAsync(result.Digest);
+            }
+            catch (ApiException)
+            {
+                manifest = null;
+            }
+
+            if (manifest is { Entries.Count: 0, ApplicationDescription: null })
+            {
+                try
+                {
+                    await Api.DeletePackageAsync(result.Digest);
+                }
+                catch (ApiException)
+                {
+                    // Best-effort — worst case it's an orphaned, never-referenced digest that the
+                    // existing PackageRetentionSweepService cleans up on its own after its grace period.
+                }
+
+                Snackbar.Add(
+                    $"'{_applicationName}' was discarded — the scan found no [EnlistService]/[EnlistJob] types in it, " +
+                    "so nothing was added to the package store.",
+                    Severity.Warning);
+                _selectedFile = null;
+                return;
+            }
+
+            Snackbar.Add($"'{_applicationName}' uploaded ({FormatSize(result.SizeBytes)}, {result.RuntimeFlavor}).", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _uploading = false;
+        }
+    }
+}

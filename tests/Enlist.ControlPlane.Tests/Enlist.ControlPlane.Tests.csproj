@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!--
+    Deliberately NOT a ProjectReference to Enlist.ControlPlane itself (an ASP.NET Core / Sdk.Web
+    project) — see Enlist.Agent.Tests' own note on this: mixing a Sdk.Web project's framework-supplied
+    dependencies into a project that also needs privately-copied ones from elsewhere silently drops
+    the private copies from THIS project's own output. ControlPlaneTestServer (in Enlist.TestSupport)
+    locates the already-built Enlist.ControlPlane.dll by path instead.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Enlist.TestSupport\Enlist.TestSupport.csproj" />
+    <ProjectReference Include="..\..\src\Enlist.ControlPlane.Contracts\Enlist.ControlPlane.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

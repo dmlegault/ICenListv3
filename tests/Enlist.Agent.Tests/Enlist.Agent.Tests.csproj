@@ -1,0 +1,39 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <!-- Only so the container tests report as SKIPPED rather than passing silently on a machine with no Docker. -->
+    <PackageReference Include="Xunit.SkippableFact" Version="1.5.23" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!--
+    Deliberately NOT a ProjectReference to Enlist.ControlPlane (an ASP.NET Core / Sdk.Web project,
+    framework-supplied Microsoft.Extensions.Hosting) alongside Enlist.Agent (a console app with its
+    own private copy of the same assembly, via Microsoft.Extensions.Hosting.WindowsServices): having
+    both in one project's dependency graph made MSBuild's conflict resolution drop the private copy
+    from this project's own output entirely, silently breaking every OTHER spawned enlist-agent.exe
+    test (FileNotFoundException at runtime, nothing at compile time). ControlPlaneTestServer instead
+    locates the already-built Enlist.ControlPlane.dll by path (RepoPaths-style), the same way
+    RunnerBinDirectory() already does for Enlist.Runner — get the artifact without joining its build
+    graph.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Enlist.Agent\Enlist.Agent.csproj" />
+    <ProjectReference Include="..\Enlist.TestSupport\Enlist.TestSupport.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,404 @@
+@implements IAsyncDisposable
+@inject ControlPlaneApiClient Api
+@inject AgentReportCache Reports
+@inject ISnackbar Snackbar
+
+@if (Policies.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Dense="true">
+        No policy rule exists yet for this application — use the policy screen ("✎ policy" above) to
+        declare where it runs.
+    </MudAlert>
+}
+else if (AgentNames.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Dense="true">
+        This application's policy rule(s) don't currently resolve to any registered agent — a tag
+        selector with no current match, most likely.
+    </MudAlert>
+}
+else
+{
+    var rows = BuildRows();
+
+    @if (rows.Count > 0)
+    {
+        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-2">
+            <MudText Typo="Typo.body2" Color="Color.Info">Logs:</MudText>
+            @foreach (var agentName in AgentNames)
+            {
+                <MudChip T="string" Size="Size.Small"
+                         Variant="@(_selectedLogAgent == agentName ? Variant.Filled : Variant.Outlined)"
+                         Color="@(_selectedLogAgent == agentName ? Color.Primary : Color.Default)"
+                         OnClick="@(() => ToggleLogAgent(agentName))">@agentName</MudChip>
+            }
+        </MudStack>
+
+        @if (_selectedLogAgent is not null)
+        {
+            <LogTailView AgentName="@_selectedLogAgent" ApplicationName="@ApplicationName" Tailing="true" @key="@($"{_selectedLogAgent}/{ApplicationName}")" />
+            <MudDivider Class="my-2" />
+        }
+    }
+
+    @if (rows.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true">No status report received from any matching agent yet.</MudAlert>
+    }
+    else
+    {
+        <MudTable Items="rows" Dense="true" Hover="true" Breakpoint="Breakpoint.Xs" SortLabel="Sort by">
+            <HeaderContent>
+                <MudTh><MudTableSortLabel SortBy="new Func<InstanceRow, object>(r => r.Name)">Name</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<InstanceRow, object>(r => r.Type)">Type</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<InstanceRow, object>(r => r.AgentName)">Agent</MudTableSortLabel></MudTh>
+                <MudTh>Qualified via</MudTh>
+                <MudTh>Endpoint</MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<InstanceRow, object>(r => r.State)">State</MudTableSortLabel></MudTh>
+                <MudTh Style="width:110px;"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Name">
+                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                        <MudHighlighter Text="@context.Name" HighlightedText="@Filter" />
+                        @if (context.Version is { } v)
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Default">v@(v)</MudChip>
+                        }
+                    </MudStack>
+                    @if (!string.IsNullOrWhiteSpace(context.Description))
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Info">@context.Description</MudText>
+                    }
+                </MudTd>
+                <MudTd DataLabel="Type"><InstanceTypeBadge Type="@context.Type" /></MudTd>
+                <MudTd DataLabel="Agent">
+                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                        @context.AgentName
+                        @if (context.Stale)
+                        {
+                            <MudTooltip Text="No recent report from this agent — treat this status as presumed stopped, not current.">
+                                <MudIcon Icon="@Icons.Material.Filled.WarningAmber" Color="Color.Warning" Size="Size.Small" />
+                            </MudTooltip>
+                        }
+                        @if (context.IsolationMode == IsolationModes.Container)
+                        {
+                            @* Container only. A "process" chip on every other row would be noise -- process is
+                               the default and the overwhelming majority. The tooltip carries the container id
+                               because that is the one thing an operator needs next: docker logs <id>. *@
+                            <MudTooltip Text="@ContainerTooltip(context)">
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
+                                         Icon="@Icons.Material.Filled.Inventory2">container</MudChip>
+                            </MudTooltip>
+                        }
+                    </MudStack>
+                </MudTd>
+                <MudTd DataLabel="Qualified via">@context.QualifiedVia</MudTd>
+                <MudTd DataLabel="Endpoint">
+                    @if (context.Endpoints is { Count: > 0 } endpoints)
+                    {
+                        <MudStack Spacing="0">
+                            @foreach (var e in endpoints)
+                            {
+                                @* Host address first, because that is the part someone pastes into a browser
+                                   or a curl. The container port and name follow as context. *@
+                                <MudText Typo="Typo.caption" Style="font-variant-numeric: tabular-nums;">
+                                    @e.HostAddress:@e.HostPort → @e.ContainerPort/@e.Protocol@(string.IsNullOrWhiteSpace(e.Name) ? "" : $" ({e.Name})")
+                                </MudText>
+                            }
+                        </MudStack>
+                    }
+                    else
+                    {
+                        @* An em dash, not blank: "enList published nothing here" is a real answer, and the
+                           common one — most jobs and services never expose a port at all. *@
+                        <MudText Typo="Typo.caption" Color="Color.Info">—</MudText>
+                    }
+                </MudTd>
+                <MudTd DataLabel="State">
+                    <MudChip T="string" Size="Size.Small" Color="@StateColor(context.State)">@context.State</MudChip>
+                </MudTd>
+                <MudTd Style="width:110px;">
+                    <MudStack Row="true" Justify="Justify.FlexEnd">
+                        @if (context.Type != "Conflict")
+                        {
+                            <MudTooltip Text="@CommandDisabledReason(context)" Disabled="@(!CommandsDisabled(context))">
+                                <MudButton Size="Size.Small" Variant="Variant.Filled" Style="width:84px;"
+                                           Color="@(context.Type == "Service" ? (context.State == "Running" ? Color.Error : Color.Success) : (context.Paused ? Color.Success : Color.Warning))"
+                                           Disabled="@(_commandPending || CommandsDisabled(context))"
+                                           OnClick="@(() => SendCommandAsync(context))">
+                                    @(context.Type == "Service" ? (context.State == "Running" ? "Stop" : "Start") : (context.Paused ? "Enable" : "Disable"))
+                                </MudButton>
+                            </MudTooltip>
+                        }
+                    </MudStack>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+}
+
+@code {
+    /// <summary>Set by the parent, keyed with @@key so a fresh instance (fresh poll loop) is created whenever the selected application changes.</summary>
+    [Parameter, EditorRequired] public string ApplicationName { get; set; } = "";
+
+    /// <summary>Resolved by the parent (every tag-selector rule matched against the current agent registry) — this panel doesn't re-derive placement, it just renders it.</summary>
+    [Parameter, EditorRequired] public List<string> AgentNames { get; set; } = [];
+
+    /// <summary>Seeds _liveAgents below — used only as a first paint before the poll loop's own fetch lands, never read directly afterward. See _liveAgents for why.</summary>
+    [Parameter, EditorRequired] public List<AgentDto> Agents { get; set; } = [];
+
+    /// <summary>This application's own policy rules — used to find which one governs a given agent, for the "Qualified via" column.</summary>
+    [Parameter, EditorRequired] public List<ApplicationPolicyDto> Policies { get; set; } = [];
+
+    /// <summary>The Applications page's own search box text — narrows rows to services/jobs whose name
+    /// matches, falling back to showing everything if nothing here matches (the panel was expanded
+    /// because the APPLICATION name matched, not any one instance, so there's nothing to narrow to).</summary>
+    [Parameter] public string? Filter { get; set; }
+
+    private readonly Dictionary<string, AgentStatusSnapshotDto?> _statusByAgent = new();
+    private Dictionary<string, int?> _versionByDigest = new();
+
+    /// <summary>Keyed by name, refreshed on the same poll tick as _statusByAgent. The Agents PARAMETER is
+    /// just a one-time snapshot from whenever the parent page last loaded — using it directly for the
+    /// Stale check meant LastSeenUtc grew further behind DateTimeOffset.UtcNow the longer this panel sat
+    /// expanded, eventually reading "stale" for an agent that was actually still checking in fine (a
+    /// manual page refresh "fixed" it only by taking a fresh snapshot). This dictionary stays current on
+    /// its own instead.</summary>
+    private Dictionary<string, AgentDto> _liveAgents = new();
+
+    private string? _selectedLogAgent;
+    private bool _commandPending;
+
+    private CancellationTokenSource? _pollCts;
+    private Task? _pollLoop;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Seeded from the parameter so a failed refresh still has something to render, then immediately
+        // replaced with a live read.
+        _liveAgents = Agents.ToDictionary(a => a.Name, StringComparer.OrdinalIgnoreCase);
+
+        // BEFORE the first row is built, not on the poll loop's first tick three seconds later. That
+        // parameter is whatever the parent page last loaded — on a page left open a while, every agent
+        // in it reads as stale, so expanding an application flashed a staleness warning on healthy
+        // agents and then cleared it once the poll caught up. A warning that appears and then retracts
+        // itself is worse than none: it teaches an operator to ignore the one that matters.
+        await RefreshAgentsAsync();
+
+        try
+        {
+            var packages = await Api.GetPackagesAsync();
+            _versionByDigest = packages.ToDictionary(p => p.Digest, p => p.VersionNumber);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        await Task.WhenAll(AgentNames.Select(RefreshStatusOnlyAsync));
+
+        _pollCts = new CancellationTokenSource();
+        _pollLoop = RunPollLoopAsync(_pollCts.Token);
+    }
+
+    private async Task RunPollLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(3), ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            await RefreshAgentsAsync();
+            await Task.WhenAll(AgentNames.Select(RefreshStatusOnlyAsync));
+        }
+    }
+
+    private async Task RefreshAgentsAsync()
+    {
+        try
+        {
+            var agents = await Api.GetAgentsAsync();
+            _liveAgents = agents.ToDictionary(a => a.Name, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (ApiException)
+        {
+        }
+    }
+
+    private async Task RefreshStatusOnlyAsync(string agentName)
+    {
+        try
+        {
+            _statusByAgent[agentName] = await Reports.GetLatestAsync(agentName);
+        }
+        catch (ApiException)
+        {
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleLogAgent(string agentName) =>
+        _selectedLogAgent = _selectedLogAgent == agentName ? null : agentName;
+
+    private List<InstanceRow> BuildRows()
+    {
+        var rows = new List<InstanceRow>();
+
+        foreach (var agentName in AgentNames)
+        {
+            var agent = _liveAgents.GetValueOrDefault(agentName);
+            var app = _statusByAgent.GetValueOrDefault(agentName)?.Applications.FirstOrDefault(a => a.Name == ApplicationName);
+            if (app is null || agent is null)
+            {
+                continue;
+            }
+
+            var matching = Policies.Where(p => TagSelectorMatcher.Matches(agent, p.TagSelector)).ToList();
+            var conflict = matching.Count > 1 && !PolicyConflictDetector.Agree(matching);
+            var governing = matching.FirstOrDefault();
+            var qualifiedVia = governing is null ? "-" : TagSelectorMatcher.DescribeScope(agent, governing.TagSelector);
+            var version = !conflict && governing?.PackageDigest is not null ? _versionByDigest.GetValueOrDefault(governing.PackageDigest) : null;
+            var stale = !IsOnline(agent.LastSeenUtc);
+
+            if (conflict)
+            {
+                // AgentHost.StartApplicationAsync returns before ever staging the runner on a conflict —
+                // it never clears whatever this agent's app.Services/app.Jobs held from a PRIOR successful
+                // run (only the success path does that), so those can be stale leftovers rather than
+                // anything true right now. Rather than list them as if they were live — a job still
+                // showing "Enabled" from before the conflicting rule was added, say — show one line that
+                // says plainly why nothing here can be trusted, and skip the rest of this agent's rows.
+                rows.Add(new InstanceRow(
+                    "Policy conflict",
+                    "—",
+                    agentName,
+                    "multiple rules match",
+                    null,
+                    "Failed",
+                    "Two or more enabled policy rules disagree for this agent — resolve on the policy screen before it can start. Any services/jobs listed here would be stale, from before the conflict.",
+                    false,
+                    stale));
+                continue;
+            }
+
+            foreach (var service in app.Services)
+            {
+                rows.Add(new InstanceRow(service.Name, "Service", agentName, qualifiedVia, version, service.State, service.Description, false, stale, app.IsolationMode, app.RuntimeId, app.Endpoints));
+            }
+
+            foreach (var job in app.Jobs)
+            {
+                // A job doesn't "run" continuously like a service — it fires on its cron schedule and is
+                // idle the rest of the time. Enabled/Disabled reflects the actual on/off setting; "Running"
+                // would wrongly suggest a process is active right now. Also counts as Disabled whenever the
+                // application itself isn't Running (its policy disabled, say) — a job that can't fire reads
+                // as disabled regardless of which of the two settings caused that.
+                var jobEnabled = !job.Paused && app.State == "Running";
+                rows.Add(new InstanceRow(job.Name, "Job", agentName, qualifiedVia, version, jobEnabled ? "Enabled" : "Disabled", job.Description, job.Paused, stale, app.IsolationMode, app.RuntimeId));
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(Filter))
+        {
+            var matching = rows.Where(r => r.Name.Contains(Filter, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (matching.Count > 0)
+            {
+                return matching;
+            }
+        }
+
+        return rows;
+    }
+
+    /// <summary>Per-service/job imperative commands go to the RUNNER PROCESS for this app, relayed through the agent — if the app itself isn't Running there, that process doesn't exist, so there's nowhere for the command to go.</summary>
+    private bool CommandsDisabled(InstanceRow row) =>
+        row.Stale || (_statusByAgent.GetValueOrDefault(row.AgentName)?.Applications.FirstOrDefault(a => a.Name == ApplicationName)?.State != "Running");
+
+    private string CommandDisabledReason(InstanceRow row) =>
+        row.Stale
+            ? "This agent hasn't reported recently — a command sent now has nowhere to go and would silently do nothing."
+            : "This application isn't running on this agent, so there's no process to send a command to.";
+
+    /// <summary>Fire-and-forget from the control plane's own point of view — the command is delivered to the agent's hub connection, not necessarily acted on by the time this returns.</summary>
+    private async Task SendCommandAsync(InstanceRow row)
+    {
+        var targetKind = row.Type == "Service" ? AgentCommandRequest.Service : AgentCommandRequest.Job;
+        var action = row.Type == "Service"
+            ? (row.State == "Running" ? AgentCommandRequest.Stop : AgentCommandRequest.Start)
+            : (row.Paused ? AgentCommandRequest.Start : AgentCommandRequest.Stop);
+
+        // The wire-protocol verb (Start/Stop) stays Start/Stop — the agent/runner contract doesn't have an
+        // "Enable/Disable" concept. Only the label shown to the user follows the Job/Service framing.
+        var actionLabel = row.Type == "Service" ? action : (row.Paused ? "Enable" : "Disable");
+
+        _commandPending = true;
+        try
+        {
+            await Api.SendCommandAsync(row.AgentName, new AgentCommandRequest(ApplicationName, targetKind, row.Name, action));
+            Snackbar.Add($"{actionLabel} requested for {targetKind.ToLowerInvariant()} '{row.Name}' on {row.AgentName}.", Severity.Info);
+
+            await Task.Delay(800);
+            await RefreshStatusOnlyAsync(row.AgentName);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _commandPending = false;
+        }
+    }
+
+    /// <summary>The container id is the one thing an operator needs next, so the tooltip hands them the exact command. Built here rather than inline because a nested interpolated string inside a Razor attribute does not parse.</summary>
+    private static string ContainerTooltip(InstanceRow row)
+    {
+        if (string.IsNullOrWhiteSpace(row.RuntimeId))
+        {
+            return "Running in a container on this agent.";
+        }
+
+        var shortId = row.RuntimeId[..Math.Min(12, row.RuntimeId.Length)];
+        return "Running in a container on this agent — docker logs " + shortId;
+    }
+
+    private static bool IsOnline(DateTimeOffset lastSeenUtc) => DateTimeOffset.UtcNow - lastSeenUtc < TimeSpan.FromMinutes(5);
+
+    private static Color StateColor(string? state) => state switch
+    {
+        "Running" => Color.Success,
+        "Enabled" => Color.Success,
+        "Failed" => Color.Error,
+        "Restarting" => Color.Warning,
+        "Disabled" => Color.Warning,
+        "Stopped" => Color.Default,
+        _ => Color.Default,
+    };
+
+    private sealed record InstanceRow(string Name, string Type, string AgentName, string QualifiedVia, int? Version, string State, string? Description, bool Paused, bool Stale, string? IsolationMode = null, string? RuntimeId = null, List<ResolvedEndpointDto>? Endpoints = null);
+
+    public async ValueTask DisposeAsync()
+    {
+        _pollCts?.Cancel();
+        if (_pollLoop is not null)
+        {
+            try
+            {
+                await _pollLoop;
+            }
+            catch
+            {
+            }
+        }
+
+        _pollCts?.Dispose();
+    }
+}

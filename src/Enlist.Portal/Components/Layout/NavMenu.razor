@@ -1,0 +1,20 @@
+<nav class="enlist-nav @(Vertical ? "enlist-nav--vertical" : "enlist-nav--horizontal")">
+    <NavLink class="enlist-nav-link" href="/" Match="NavLinkMatch.All">
+        <MudIcon Icon="@Icons.Material.Filled.Apps" Size="Size.Small" Class="enlist-nav-icon" />
+        <span>Applications</span>
+    </NavLink>
+    <NavLink class="enlist-nav-link" href="/agents">
+        <MudIcon Icon="@Icons.Material.Filled.Dns" Size="Size.Small" Class="enlist-nav-icon" />
+        <span>Agents</span>
+    </NavLink>
+    <NavLink class="enlist-nav-link" href="/logs">
+        <MudIcon Icon="@Icons.Material.Filled.Article" Size="Size.Small" Class="enlist-nav-icon" />
+        <span>Logs</span>
+    </NavLink>
+</nav>
+
+@code {
+    /// <summary>False (default) renders the row that sits in MainLayout's MudAppBar. True renders the
+    /// same three links stacked, for the narrow-viewport fallback inside MainLayout's MudMenu.</summary>
+    [Parameter] public bool Vertical { get; set; }
+}

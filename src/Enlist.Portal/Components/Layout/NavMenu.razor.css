@@ -1,0 +1,59 @@
+.enlist-nav {
+    display: flex;
+    height: 100%;
+}
+
+.enlist-nav--vertical {
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px;
+    min-width: 200px;
+}
+
+.enlist-nav ::deep .enlist-nav-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 16px;
+    color: var(--mud-palette-text-secondary);
+    text-decoration: none;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    position: relative;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.enlist-nav--horizontal ::deep .enlist-nav-link {
+    height: 100%;
+}
+
+.enlist-nav--vertical ::deep .enlist-nav-link {
+    height: auto;
+    padding: 10px 14px;
+    border-radius: 8px;
+}
+
+.enlist-nav ::deep .enlist-nav-link:hover {
+    color: var(--mud-palette-text-primary);
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+.enlist-nav ::deep .enlist-nav-link.active {
+    color: var(--mud-palette-text-primary);
+    background-color: rgba(var(--mud-palette-primary-rgb), 0.16);
+}
+
+.enlist-nav--horizontal ::deep .enlist-nav-link.active::after {
+    content: "";
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    bottom: 0;
+    height: 3px;
+    border-radius: 3px 3px 0 0;
+    background-color: var(--mud-palette-primary);
+}
+
+.enlist-nav ::deep .enlist-nav-icon {
+    flex-shrink: 0;
+}

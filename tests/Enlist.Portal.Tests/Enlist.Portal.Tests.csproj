@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!--
+    References Enlist.Portal directly: what is tested here (Services/TagSelectorMatcher,
+    Services/PolicyConflictDetector) are pure functions over contract DTOs compiled into the portal
+    assembly - the copies the portal keeps of decisions the control plane makes, which is exactly why
+    they need pinning. No bUnit and no browser: component rendering is still verified by hand
+    (docs/05-operations/Test-Plan.md, section 5). The Sdk.Web caveat in Enlist.Agent.Tests does not
+    apply here - nothing else in this graph carries a private copy of a framework-supplied assembly.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Enlist.Portal\Enlist.Portal.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Enlist.Sample.OrderProcessor</RootNamespace>
+
+    <!-- Drops straight into a directory shaped like an already-deployed application, so
+         enlist-deploy can zip it straight off disk with zero copying. -->
+    <OutputPath>..\..\deploy\OrderProcessor\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <!-- Pulls in the Enlist attribute contract as SOURCE, not as a compiled assembly — see
+       contracts/EnlistAttributes.cs for why that's the whole point of the design. -->
+  <Import Project="..\..\contracts\Enlist.Contracts.props" />
+
+</Project>

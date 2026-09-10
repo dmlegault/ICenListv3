@@ -1,0 +1,25 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/Enlist.Sample.Service/Enlist.Sample.Service.csproj" />
+    <Project Path="samples/Enlist.Sample.OrderProcessor/Enlist.Sample.OrderProcessor.csproj" />
+    <Project Path="samples/Enlist.Sample.DataPipeline/Enlist.Sample.DataPipeline.csproj" />
+    <Project Path="samples/Enlist.Sample.Legacy/Enlist.Sample.Legacy.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Enlist.Agent/Enlist.Agent.csproj" />
+    <Project Path="src/Enlist.ControlPlane.Contracts/Enlist.ControlPlane.Contracts.csproj" />
+    <Project Path="src/Enlist.ControlPlane/Enlist.ControlPlane.csproj" />
+    <Project Path="src/Enlist.Deploy/Enlist.Deploy.csproj" />
+    <Project Path="src/Enlist.Portal/Enlist.Portal.csproj" />
+    <Project Path="src/Enlist.Runner/Enlist.Runner.csproj" />
+    <Project Path="src/Enlist.Runner.Legacy/Enlist.Runner.Legacy.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Enlist.Agent.Tests/Enlist.Agent.Tests.csproj" />
+    <Project Path="tests/Enlist.ControlPlane.Tests/Enlist.ControlPlane.Tests.csproj" />
+    <Project Path="tests/Enlist.Deploy.Tests/Enlist.Deploy.Tests.csproj" />
+    <Project Path="tests/Enlist.Portal.Tests/Enlist.Portal.Tests.csproj" />
+    <Project Path="tests/Enlist.Runner.Tests/Enlist.Runner.Tests.csproj" />
+    <Project Path="tests/Enlist.TestSupport/Enlist.TestSupport.csproj" />
+  </Folder>
+</Solution>

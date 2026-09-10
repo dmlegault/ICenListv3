@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Enlist.Sample.Legacy</RootNamespace>
+
+    <!-- Drops straight into a directory shaped like an already-deployed application, matching every
+         other samples/ project — enlist-deploy zips this straight off disk. -->
+    <OutputPath>..\..\deploy\LegacySample\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <!-- Same attribute contract every other plugin uses, pulled in as SOURCE — a net472 plugin and a
+       net10.0 plugin share this identically, zero shared binary, per design doc section 3 ("One
+       contract across both runtimes"). -->
+  <Import Project="..\..\contracts\Enlist.Contracts.props" />
+
+</Project>

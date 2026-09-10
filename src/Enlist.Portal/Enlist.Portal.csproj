@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MudBlazor" Version="8.6.0" />
+    <!--
+      Lets this host run as a Windows Service without giving up IIS or `dotnet run` — see Program.cs
+      and docs/05-operations/Deployment-IaC.md §1.6. The content-root handling in Program.cs matters MORE here than
+      for the control plane: this app serves static assets, and a wrong content root breaks them
+      silently (the page loads unstyled with no error — see Runbook.md).
+    -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0" />
+  </ItemGroup>
+
+  <!-- Design doc section 8: "The portal never talks to an agent" — only the control plane's DTOs are needed here, same reasoning as Enlist.Deploy referencing this and nothing else. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Enlist.ControlPlane.Contracts\Enlist.ControlPlane.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>
