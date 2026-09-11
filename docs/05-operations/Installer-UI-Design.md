@@ -233,6 +233,8 @@ Three different things get called a login on an installer page. Only two of them
 
 So for requirement 2's "provide a login for the portal / control plane if they are installed as a service": that is the **service logon account**, and it is designed in. An *initial administrator* page is reserved in the flow (between Database and Portal) and appears only once C2 is implemented; until then the Finish page carries the trusted-network warning verbatim from Deployment-IaC. The installer should be one of the reasons to resolve C2, not a way of papering over it.
 
+**Update, 2026-09-11 - C2 is designed** ([Authentication-Design.md](../03-architecture/Authentication-Design.md) section 14 lists the page changes). In short: the reserved initial-administrator page is not needed at all, because operators authenticate with Windows and the Portal page asks for the Operators and Viewers group names instead of any password; the Agent page gains a Join token field (`AGENT_JOINTOKEN`), which the installer exchanges for the agent credential before the service is created; the Control Plane and Portal pages gain a TLS certificate, because authentication that is required off loopback refuses plain HTTP; and the installer creates the management key the portal uses with the control plane CLI verb and stores it DPAPI-protected.
+
 ---
 
 ## 9. Install paths and on-disk layout

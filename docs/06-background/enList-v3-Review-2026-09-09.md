@@ -71,6 +71,8 @@ Credit first, because it is earned and because it frames what follows: the defec
 
 ### 3.2 Security boundary (C2)
 
+> **Design decided 2026-09-11:** [Authentication-Design.md](../03-architecture/Authentication-Design.md) - Windows authentication for operators, join-token enrollment for agents, TLS at Kestrel, and authentication that can only be off on loopback. C2 stays open until it is implemented.
+
 The documents are consistent: no authentication anywhere, assumed to run inside a trusted network. What the documents do not spell out is what that assumption is carrying. Concretely, any host that can reach the control plane's port can:
 
 - `POST /api/packages` an arbitrary zip and `POST /api/application-policies` with an empty selector — **every agent in the fleet will download it and execute it** as whatever account the agent runs under, typically `LocalSystem`.
