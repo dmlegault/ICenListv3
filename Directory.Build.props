@@ -1,0 +1,15 @@
+<Project>
+
+  <!--
+    One product version for every assembly in the tree - the control plane, portal, agent, both
+    runners, the deploy CLI, the contracts and the samples - so that GET /health, the portal, the
+    installer and any "which build is this?" question all answer the same thing. Set here, once,
+    rather than per project, so nothing can drift. The SDK derives AssemblyVersion, FileVersion and
+    InformationalVersion from it; in a git checkout the SDK also appends the commit hash to
+    InformationalVersion ("3.0.0+abc123"), which /health strips before reporting.
+  -->
+  <PropertyGroup>
+    <Version>3.0.0</Version>
+  </PropertyGroup>
+
+</Project>

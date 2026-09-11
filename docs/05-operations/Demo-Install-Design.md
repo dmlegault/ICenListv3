@@ -197,7 +197,7 @@ The scripts are the specification of the launcher's behaviour and stay the refer
 4. **Bundle the runner image (203 MB)?** **Yes.** A demo that pulls from a registry is a demo that fails on hotel Wi-Fi.
 5. **Bind to `localhost` only?** **Yes**, with the per-session opt-in in §8. Not negotiable while C2 is open.
 6. **Seed content.** The current four samples, as they are. A purpose-built "storyline" application (one that visibly does something an audience recognises) is worth writing later; it is content, not installer work.
-7. **Product version.** Same gap as the main installer: the version badge, `/health` and the demo guide all report `1.0.0` until a `<Version>` is set.
+7. **Product version.** **Done (2026-09-11):** `3.0.0`, set once in `Directory.Build.props` at the repository root, so every assembly, `/health` and the demo guide agree.
 
 ---
 
