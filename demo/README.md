@@ -11,7 +11,7 @@ The fleet it brings up:
 | Piece | Where | Started by |
 |---|---|---|
 | SQL Server (`EnlistControlPlane` database) | `127.0.0.1,14330` | `demo/sql-server/demo-db.ps1` (via `start-demo.ps1`) |
-| Control plane | `http://localhost:5293` | `start-demo.ps1` |
+| Control plane | `http://localhost:5293` | `start-demo.ps1`, with authentication off — which the control plane permits only on loopback |
 | DEV-AGENT-01 (all applications in-process) | — | `start-demo.ps1` |
 | DEV-AGENT-02 (one application in a `wslc` container) | — | `start-demo.ps1` |
 | Portal | `http://localhost:5231` | `start-demo.ps1` |

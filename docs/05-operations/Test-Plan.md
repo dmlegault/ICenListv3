@@ -2,7 +2,7 @@
 
 **Product:** enList v3
 **Framework:** xUnit
-**Document status:** Derived from the actual test source under `tests/`; rewritten 2026-09-08 at class level after the per-test list drifted. Total: **197 tests, all passing** (`dotnet test enList_v3.slnx`).
+**Document status:** Derived from the actual test source under `tests/`; rewritten 2026-09-08 at class level after the per-test list drifted. Total: **205 tests, all passing** (`dotnet test enList_v3.slnx`).
 
 ---
 
@@ -16,7 +16,7 @@
 
 Listed by test CLASS rather than by individual test. The per-test enumeration this section used to carry drifted badly — it described 51 tests under the pre-rename vocabulary (machines, assignments, labels) long after those concepts were gone — and a class-level inventory stays true for longer while still saying what is actually covered.
 
-### 2.1 `Enlist.ControlPlane.Tests` — 60 tests
+### 2.1 `Enlist.ControlPlane.Tests` — 68 tests
 
 Spawns the **real** `Enlist.ControlPlane.exe` against a throwaway LocalDB database per test class (`ControlPlaneTestServer`), so these exercise routing, EF Core, validation and JSON exactly as deployed.
 
@@ -28,6 +28,7 @@ Spawns the **real** `Enlist.ControlPlane.exe` against a throwaway LocalDB databa
 | `ReportRetentionTests` | Status-report retention on a seconds timescale against the real database: reports older than the window are swept once a newer one exists and the newest keeps its content; an agent's only report is never deleted however old it is — the exemption that stops a silent agent vanishing from the portal. |
 | `ApiValidationTests` | What the API refuses at the door: a digest that is not 64 hex characters is a 400 on every package endpoint before it can become a path (a well-formed unknown one is still a 404); an application name that could be a path or a device name is a 400 on upload and on rule creation; a rule naming a digest the control plane does not have is a 400 on create and on update (a real one is accepted, and stored lowercase however it was written); an upload larger than Kestrel's stock 30 MB limit succeeds; a body that is not a zip is a 400 that leaves neither a row nor a blob. |
 | `HealthEndpointTests` | `GET /health` against the real control plane and database: a healthy control plane answers 200 naming the product, a version without build metadata, and the newest applied migration (checked against `__EFMigrationsHistory` itself); taking the database offline after startup turns that into a 503 that still names the product and gives a reason that is not the connection string, and it is 200 again the moment the database is back — no restart. |
+| `AuthenticationTests` | The control plane under `Authentication:Mode=Required`, driven as an operator and an agent would drive it (the CLI verbs mint the credentials; HTTP and the real SignalR client present them): nothing but `/health` answers an anonymous caller, and `/health` says the mode; a join token enrolls an agent once, the credential it yields works on that agent's own routes, is 403 on any other agent's, cannot upload packages or read the registry, and may download packages; a name already holding a credential is a 409 until revoked, after which the old token is 401 and the name re-enrolls; keys carry roles (Viewer reads, Operator writes) and deleting an agent revokes its credential; the hub admits an agent to its own group only and refuses an anonymous connection at negotiate; `Off` off loopback and `Required` on plain HTTP off loopback both refuse to start; and `Off` on loopback is anonymous exactly as before. |
 | `CronExpressionsTests` | The cron dialect enList accepts, pinned where it is defined: the five-field and six-field forms of one schedule agree on the next occurrence; `?` reads as `*`; the wrong field count and an out-of-range value are refused with the reason. |
 | `PackageManifestTests` | The manifest is scanned once at upload and stored on the package row, served from there, and — for a row from before the column existed — scanned on first request and kept. |
 | `RuntimeFlavorTests` | Flavor validation and defaulting for `Path`-based rules, and rejection of unrecognized values. |

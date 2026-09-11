@@ -1,6 +1,8 @@
+using Enlist.ControlPlane.Authentication;
 using Enlist.ControlPlane.Contracts;
 
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Options;
 
 namespace Enlist.ControlPlane.Hubs;
 
@@ -14,8 +16,28 @@ namespace Enlist.ControlPlane.Hubs;
 /// </summary>
 public sealed class ApplicationPolicyHub : Hub
 {
+    private readonly AuthenticationOptions _authentication;
+
+    public ApplicationPolicyHub(IOptions<AuthenticationOptions> authentication)
+    {
+        _authentication = authentication.Value;
+    }
+
     public async Task JoinAgentGroup(string agentName)
     {
+        // An agent may join its own group and no other (Authentication-Design.md section 4.5).
+        // Checked here rather than at connect time because the name arrives with this call, not with
+        // the connection. Under Off — loopback only, by the startup rules — there is no credential to
+        // compare against, and the group is as open as every other endpoint.
+        if (_authentication.IsRequired)
+        {
+            var enrolledAs = Context.User?.FindFirst(EnlistClaims.Agent)?.Value;
+            if (!string.Equals(enrolledAs, agentName, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new HubException($"This connection is enrolled as '{enrolledAs}' and cannot join the group for '{agentName}'.");
+            }
+        }
+
         await Groups.AddToGroupAsync(Context.ConnectionId, GroupName(agentName));
     }
 

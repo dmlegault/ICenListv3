@@ -49,7 +49,7 @@ Severity reflects consequence in production, not effort to fix. Several of the w
 
 | # | Sev. | Finding | Where |
 |---|---|---|---|
-| C2 | Critical | **No authentication or authorization on any surface** — anyone who can reach the control plane can upload code every agent will run, or join any agent's command group. | `ControlPlane/Program.cs` · `Hubs/ApplicationPolicyHub.cs:17` |
+| C2 | Critical | **No authentication or authorization on any surface** — anyone who can reach the control plane can upload code every agent will run, or join any agent's command group. **Step 1 of 3 implemented 2026-09-11** (control plane: bearer scheme, policy table, credential tables, both hard rules, enrollment, CLI verbs — [Authentication-Design.md](../03-architecture/Authentication-Design.md) §13); open until the agent and portal steps land. | `ControlPlane/Program.cs` · `Hubs/ApplicationPolicyHub.cs:17` |
 
 ---
 
@@ -71,7 +71,7 @@ Credit first, because it is earned and because it frames what follows: the defec
 
 ### 3.2 Security boundary (C2)
 
-> **Design decided 2026-09-11:** [Authentication-Design.md](../03-architecture/Authentication-Design.md) - Windows authentication for operators, join-token enrollment for agents, TLS at Kestrel, and authentication that can only be off on loopback. C2 stays open until it is implemented.
+> **Design decided 2026-09-11:** [Authentication-Design.md](../03-architecture/Authentication-Design.md) - Windows authentication for operators, join-token enrollment for agents, TLS at Kestrel, and authentication that can only be off on loopback. **Step 1 (the control plane's infrastructure) implemented 2026-09-11**, pinned by `AuthenticationTests`; C2 stays open until the agent (step 2) and the portal (step 3) follow.
 
 The documents are consistent: no authentication anywhere, assumed to run inside a trusted network. What the documents do not spell out is what that assumption is carrying. Concretely, any host that can reach the control plane's port can:
 

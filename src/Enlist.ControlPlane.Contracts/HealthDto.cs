@@ -12,7 +12,10 @@ public sealed record HealthDto(
     string Product,
     string Version,
     HealthDatabaseDto Database,
-    DateTimeOffset CheckedAtUtc);
+    DateTimeOffset CheckedAtUtc,
+
+    /// <summary>"Required" or "Off" — so an agent with no credential, or the installer's Verify, can tell whether one is needed before failing. Off is only ever seen from loopback (Authentication-Design.md section 8).</summary>
+    string Authentication);
 
 /// <summary>LatestMigration is the newest applied EF migration id, so a probe (or the installer's Database page) can tell whether the schema is current without a second call. Error is set only when Reachable is false, and is a message, never a connection string.</summary>
 public sealed record HealthDatabaseDto(bool Reachable, string? LatestMigration, string? Error);

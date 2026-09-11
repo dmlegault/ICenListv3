@@ -2,8 +2,45 @@
 
 **Product:** enList v3 — Enlist.ControlPlane
 **Base URL (development):** `http://localhost:5293`
-**Format:** JSON over HTTP (minimal APIs, `System.Text.Json`, camelCase property names on the wire — the .NET `HttpClient` JSON helpers' `Web` defaults). No authentication is implemented (see [`BRD.md` §5.2](../04-requirements/BRD.md#52-out-of-scope-not-present-in-the-current-implementation)).
+**Format:** JSON over HTTP (minimal APIs, `System.Text.Json`, camelCase property names on the wire — the .NET `HttpClient` JSON helpers' `Web` defaults). Authentication is a bearer token per request; §0 has the modes, the token kinds and which endpoint wants which.
 **Document status:** Derived from `src/Enlist.ControlPlane/Program.cs` and `src/Enlist.ControlPlane.Contracts/`. Originally 2026-09-03; **every route, query parameter, request shape and status code re-verified against the source on 2026-09-08**, which corrected several that the terminology rename had left behind (`/labels` was actually `/tags`, `?machineName=` was `?agentName=`, the hub path was `/hubs/application-policies` not `/hubs/assignments`, an `AgentName` field that no longer exists, and a 409 on agent delete that is no longer returned) and added three endpoints that were missing entirely.
+
+---
+
+## 0. Authentication
+
+**Mode.** `Authentication:Mode` is `Required` (the default when the section is absent) or `Off`. Two rules are enforced at startup and refuse to start otherwise: `Off` is honoured only when every listener is bound to loopback (`localhost`, `127.0.0.1`, `::1`) — there is no override — and under `Required` no listener off loopback may be plain `http://`. `GET /health` reports the mode in `authentication`, so a caller can tell whether a credential is needed before failing.
+
+**Credentials.** One scheme: `Authorization: Bearer <token>`. Three token kinds, told apart by prefix: `enla_` agent credentials (one per agent, bound to its name), `enlk_` management API keys (with a role, `Operator` or `Viewer`), and `enlj_` join tokens (good for enrollment and nothing else). On the hub path the token may instead be the `access_token` query parameter, which is how the SignalR client sends it. Only SHA-256 hashes are stored; every secret is shown once.
+
+**Policies.** Three, in one table (`Authentication/EndpointPolicies.cs`, the code twin of [Authentication-Design.md §7](Authentication-Design.md)): agents act as themselves (the `{name}` in the route must equal the name in the credential), reads are `Viewer`, writes are `Operator`. An endpoint missing from the table is refused to everyone — fail closed. **401** is no credential or an unknown, revoked, expired or used-up one (with `WWW-Authenticate: Bearer`); **403** is a valid credential of the wrong kind, name or role.
+
+| Policy | Endpoints |
+|---|---|
+| Anonymous | `GET /health` |
+| Join token | `POST /api/agents/enroll` |
+| Agent (own name) | `GET /api/agents/{agentName}/policies`, `POST .../report`, `POST .../logs`, `PUT /api/agents/{name}/capabilities`, the hub |
+| Agent or Viewer | `GET /api/packages/{digest}` |
+| Viewer | every other `GET` |
+| Operator | every `POST`, `PUT` and `DELETE` not listed above |
+
+### `POST /api/agents/enroll`
+**Bearer:** a join token. **Body:** `EnrollAgentRequest { AgentName }`
+**201** → `EnrollAgentResponse { AgentName, AgentToken }` — the token is returned once and consumes one use of the join token. The agent row is created if it did not exist.
+**400** the name is not a valid agent name. **401** the join token is unknown, expired, revoked or used up. **409** the name already holds a live credential — revoke it first (`revoke-agent`, or `DELETE /api/agents/{name}`, which cascades). Under `Off` (loopback only) enrollment works without a join token.
+
+**Bootstrap, without HTTP.** Verbs on the control plane executable, run on its host against its database, because the first Operator key cannot be created by an Operator who does not exist yet:
+
+```
+Enlist.ControlPlane.exe create-api-key    --name portal --role Operator [--expires 90d|never]
+Enlist.ControlPlane.exe create-join-token [--expires 24h] [--uses 50]
+Enlist.ControlPlane.exe revoke-api-key    --name <name>
+Enlist.ControlPlane.exe revoke-agent      --name <agent>
+Enlist.ControlPlane.exe list-keys
+Enlist.ControlPlane.exe list-join-tokens
+```
+
+**Status (2026-09-11):** this is step 1 of [Authentication-Design.md §13](Authentication-Design.md), implemented on the control plane and pinned by `AuthenticationTests`. The agent does not yet present a credential and the portal does not yet authenticate people (steps 2 and 3), so until they land a deployment with clients runs `Off` on loopback — which is what the demo does.
 
 ---
 
@@ -366,6 +403,8 @@ A **dynamic** host port (omit `HostPort`) is the recommended configuration: a si
 | 202 | Accepted for asynchronous/best-effort processing (status reports, log batches). |
 | 204 | Successful write with nothing to return (delete, scheduling toggle, command acceptance). |
 | 400 | Request violates a validation rule (mutual exclusivity, invalid enum value, a malformed digest or application name, a rule naming a digest that is not stored). |
+| 401 | No credential, or one that is unknown, revoked, expired or used up (`WWW-Authenticate: Bearer`). Only under `Authentication:Mode=Required`; see §0. |
+| 403 | A valid credential of the wrong kind, name or role for this endpoint — an agent on another agent's route, a Viewer on a write, a join token anywhere but enrollment. |
 | 404 | Referenced agent / policy rule / package digest does not exist. |
 | 409 | Write blocked by a referential-integrity-style business rule — in practice only deleting a package that a policy rule still references. |
 | 413 | Package upload larger than `PackageStorage:MaxUploadBytes` (default 512 MB). |

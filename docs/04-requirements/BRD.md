@@ -57,7 +57,7 @@ This is slow, error-prone (a missed machine, a stale copy), and has no record of
 
 ### 5.2 Out of scope (not present in the current implementation)
 
-- Multi-tenancy / role-based access control in the portal (no authentication is currently wired into Enlist.Portal or Enlist.ControlPlane).
+- Multi-tenancy / role-based access control in the portal (the control plane authenticates callers as of 2026-09-11 — [Authentication-Design.md](../03-architecture/Authentication-Design.md) — but the portal does not yet authenticate people; roles exist only as `Operator` and `Viewer` on API keys).
 - Cross-platform agents (the agent's Windows Service hosting and Job Object process-tree cleanup are Windows-specific; Job Object usage is explicitly guarded as Windows-only and optional even there).
 - Blue/green or canary rollout orchestration — pointing a rule at a new digest applies to every matching machine as soon as each reconciles; there is no phased rollout primitive.
 - Secrets management — application settings are a flat `IDictionary<string,string>` read from a colocated `*.settings.json` file; there is no encrypted-secret or vault integration.
@@ -77,7 +77,7 @@ This is slow, error-prone (a missed machine, a stale copy), and has no record of
 - .NET 10 runtime available on every managed machine, the control plane host, and the portal host.
 - SQL Server (or SQL Server-compatible, e.g. LocalDB for development) reachable from the control plane.
 - Plugin authors follow the `contracts/EnlistAttributes.cs` source-inclusion convention rather than referencing a compiled assembly.
-- The current build has no authentication/authorization layer; it is assumed to run inside a trusted network boundary until such a layer is added.
+- The control plane has an authentication layer (bearer tokens; `Off` is permitted only on loopback, with no override). Until the agent and the portal present credentials (steps 2 and 3 of [Authentication-Design.md](../03-architecture/Authentication-Design.md)), a deployment with clients runs the control plane `Off`, which forces it onto loopback — the trusted boundary is the machine, not the network.
 
 ## 8. Related Documents
 

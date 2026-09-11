@@ -1,8 +1,10 @@
 using System.IO.Compression;
 using System.Reflection;
+using System.Security.Claims;
 using System.Text.Json;
 
 using Enlist.ControlPlane;
+using Enlist.ControlPlane.Authentication;
 using Enlist.ControlPlane.Contracts;
 using Enlist.ControlPlane.Data;
 using Enlist.ControlPlane.Hubs;
@@ -12,6 +14,14 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting.WindowsServices;
+using Microsoft.Extensions.Options;
+
+// The management verbs (create-api-key, create-join-token, revoke-agent, ...) run against the database
+// and exit; they never build the web host. Authentication-Design.md section 10; Authentication/ManagementCli.cs.
+if (ManagementCli.IsVerb(args))
+{
+    return await ManagementCli.RunAsync(args);
+}
 
 // Hosting-mode neutral: the same binary runs under IIS, as a Windows Service, or from `dotnet run`.
 //
@@ -37,10 +47,11 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 builder.Services.AddWindowsService(options => options.ServiceName = "enlist-controlplane");
 
 var connectionString = builder.Configuration.GetConnectionString("ControlPlane")
-    ?? "Server=(localdb)\\mssqllocaldb;Database=EnlistControlPlane;Trusted_Connection=True;TrustServerCertificate=True;";
+    ?? ManagementCli.DefaultConnectionString;
 
 builder.Services.AddDbContext<ControlPlaneDbContext>(options => options.UseSqlServer(connectionString));
 builder.Services.AddSignalR();
+builder.AddEnlistAuthentication();
 builder.Services.AddOpenApi();
 
 var packageStorageRoot = builder.Configuration["PackageStorage:Root"]
@@ -66,6 +77,10 @@ builder.Services.Configure<ReportRetentionOptions>(builder.Configuration.GetSect
 builder.Services.AddHostedService<ReportRetentionSweepService>();
 
 var app = builder.Build();
+
+// The authentication hard rules come before the database is even consulted: a configuration that
+// would expose an unauthenticated control plane, or send tokens over plain HTTP, is refused here.
+app.UseEnlistAuthentication();
 
 // Auto-migrate is DEVELOPMENT ONLY, and the split is about database PERMISSIONS, not tidiness.
 //
@@ -125,7 +140,7 @@ app.MapHub<ApplicationPolicyHub>(ApplicationPolicyHubContract.HubPath);
 // string. 200 when the database is reachable, 503 when it is not — the one degradation this process
 // can detect about itself, and the one a probe should act on. It can only ever report Unhealthy after
 // a successful start: outside Development the process refuses to start against an absent database.
-app.MapGet("/health", async (ControlPlaneDbContext db, CancellationToken requestAborted) =>
+app.MapGet("/health", async (ControlPlaneDbContext db, IOptions<AuthenticationOptions> authentication, CancellationToken requestAborted) =>
 {
     var assembly = typeof(Program).Assembly;
     var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
@@ -173,8 +188,77 @@ app.MapGet("/health", async (ControlPlaneDbContext db, CancellationToken request
         database = new HealthDatabaseDto(false, null, ex is OperationCanceledException ? "The database did not answer within 5s." : ex.Message);
     }
 
-    var dto = new HealthDto(database.Reachable ? "Healthy" : "Unhealthy", "enList control plane", version, database, DateTimeOffset.UtcNow);
+    var dto = new HealthDto(
+        database.Reachable ? "Healthy" : "Unhealthy",
+        "enList control plane",
+        version,
+        database,
+        DateTimeOffset.UtcNow,
+        authentication.Value.IsOff ? AuthenticationOptions.Off : AuthenticationOptions.Required);
     return Results.Json(dto, statusCode: database.Reachable ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
+});
+
+// Where an agent's credential comes from, and the only thing a join token can do
+// (Authentication-Design.md section 4). Under Required the fallback policy has already proved the
+// join token; this consumes a use. Under Off — loopback only — enrollment works without one, so the
+// flow can be exercised by hand on a developer machine.
+app.MapPost("/api/agents/enroll", async (EnrollAgentRequest request, HttpContext http, ControlPlaneDbContext db, IOptions<AuthenticationOptions> authentication) =>
+{
+    if (!AgentNames.IsValid(request.AgentName))
+    {
+        return Results.BadRequest($"'{request.AgentName}' is not a valid agent name: {AgentNames.Requirement}.");
+    }
+
+    var now = DateTimeOffset.UtcNow;
+
+    if (authentication.Value.IsRequired)
+    {
+        var joinId = Guid.Parse(http.User.FindFirstValue(EnlistClaims.Credential)!);
+        var join = await db.JoinTokens.FindAsync(joinId);
+        if (join is null || join.RevokedAtUtc is not null || join.ExpiresAtUtc <= now || join.UsesRemaining == 0)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (join.UsesRemaining is { } uses)
+        {
+            join.UsesRemaining = uses - 1;
+        }
+    }
+
+    // A name holds at most one live credential. This is the 409 that replaces the silent corruption
+    // two same-named agents used to cause; to move an agent, revoke the old credential first.
+    var existing = await db.AgentCredentials.FindAsync(request.AgentName);
+    if (existing is not null && existing.RevokedAtUtc is null)
+    {
+        return Results.Conflict(
+            $"'{request.AgentName}' already holds a live credential. Two agents with one name silently corrupt each other's reports, " +
+            "so this is refused. If that agent has been replaced, revoke its credential first (revoke-agent, or DELETE /api/agents/{name}).");
+    }
+
+    var agent = await db.Agents.FindAsync(request.AgentName);
+    if (agent is null)
+    {
+        agent = new AgentEntity { Name = request.AgentName, FirstSeenUtc = now, LastSeenUtc = now };
+        db.Agents.Add(agent);
+    }
+
+    var token = Tokens.Generate(Tokens.AgentPrefix);
+    if (existing is null)
+    {
+        db.AgentCredentials.Add(new AgentCredentialEntity { AgentName = request.AgentName, TokenHash = Tokens.Hash(token), IssuedAtUtc = now });
+    }
+    else
+    {
+        // Re-enrolling a name whose credential was revoked: the row is reused so the primary key holds.
+        existing.TokenHash = Tokens.Hash(token);
+        existing.IssuedAtUtc = now;
+        existing.LastUsedAtUtc = null;
+        existing.RevokedAtUtc = null;
+    }
+
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/agents/{request.AgentName}", new EnrollAgentResponse(request.AgentName, token));
 });
 
 // What an agent calls: everything currently assigned to it, resolved down to at most one outcome per
@@ -802,6 +886,7 @@ app.MapGet("/api/endpoints/traefik", async (ControlPlaneDbContext db) =>
 });
 
 app.Run();
+return 0;
 
 /// <summary>Highest VersionNumber ever assigned under this name, plus one — including packages already garbage-collected, since VersionNumber is never reused. Not called concurrently for the same name in practice (uploads are one-at-a-time operator actions), so no extra locking beyond the DbContext's own.</summary>
 /// <summary>

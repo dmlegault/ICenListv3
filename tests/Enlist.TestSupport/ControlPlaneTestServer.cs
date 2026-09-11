@@ -43,8 +43,15 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
 
     public static Task<ControlPlaneTestServer> StartAsync(TimeSpan readyTimeout) => StartAsync(readyTimeout, extraEnvironment: null);
 
-    /// <summary>extraEnvironment lets a test override things like PackageRetention__RetentionPeriod / PackageRetention__SweepInterval to run a retention sweep on a testable timescale instead of the real 30-day/6-hour defaults.</summary>
-    public static async Task<ControlPlaneTestServer> StartAsync(TimeSpan readyTimeout, IReadOnlyDictionary<string, string>? extraEnvironment)
+    /// <summary>
+    /// extraEnvironment lets a test override things like PackageRetention__RetentionPeriod /
+    /// PackageRetention__SweepInterval to run a retention sweep on a testable timescale instead of the
+    /// real 30-day/6-hour defaults — or Authentication__Mode, which this class sets to Off by default so
+    /// every existing test keeps calling the API anonymously (loopback, so the control plane allows it).
+    /// listenUrls exists for the tests of the startup rules themselves, which need an address that is
+    /// deliberately NOT loopback.
+    /// </summary>
+    public static async Task<ControlPlaneTestServer> StartAsync(TimeSpan readyTimeout, IReadOnlyDictionary<string, string>? extraEnvironment, string listenUrls = "http://127.0.0.1:0")
     {
         // BEFORE the child is spawned, and it has to be. LocalDB is started by whichever process
         // connects to it first, as a CHILD of that process — so if a spawned control plane gets
@@ -66,7 +73,7 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
         try
         {
             // Port 0 = Kestrel picks one and tells us which, via its startup log. See ListeningOn.
-            var (process, baseUri) = await LaunchAsync("http://127.0.0.1:0", databaseName, packageStorageRoot, extraEnvironment, readyTimeout).ConfigureAwait(false);
+            var (process, baseUri) = await LaunchAsync(listenUrls, databaseName, packageStorageRoot, extraEnvironment, readyTimeout).ConfigureAwait(false);
             return new ControlPlaneTestServer(process, baseUri, databaseName, packageStorageRoot, extraEnvironment);
         }
         catch
@@ -79,6 +86,41 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
             await DropDatabaseAsync(databaseName).ConfigureAwait(false);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Runs one management verb (create-api-key, create-join-token, revoke-agent, ...) against THIS
+    /// instance's database, the way an operator would on the control plane host, and returns its
+    /// stdout — which is where the verb prints the secret it created. A nonzero exit fails the test
+    /// with the verb's stderr.
+    /// </summary>
+    public async Task<string> RunCliAsync(params string[] verbAndOptions)
+    {
+        var psi = new ProcessStartInfo("dotnet")
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        psi.ArgumentList.Add(RepoPaths.ControlPlaneDll());
+        foreach (var argument in verbAndOptions)
+        {
+            psi.ArgumentList.Add(argument);
+        }
+
+        psi.Environment["ConnectionStrings__ControlPlane"] = ConnectionString;
+
+        using var process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start the control plane CLI.");
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync().ConfigureAwait(false);
+
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"'{string.Join(' ', verbAndOptions)}' exited {process.ExitCode}: {await stderr.ConfigureAwait(false)}");
+        }
+
+        return await stdout.ConfigureAwait(false);
     }
 
     /// <summary>Kills the control plane and waits until the process is actually gone. The database and blob store stay, so <see cref="StartAgainAsync"/> brings the SAME control plane back.</summary>
@@ -129,6 +171,10 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
         psi.Environment["ConnectionStrings__ControlPlane"] = connectionString;
         psi.Environment["PackageStorage__Root"] = packageStorageRoot;
         psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Development";
+
+        // Off by default so the rest of the suite keeps calling the API anonymously; the authentication
+        // tests override it to Required. Allowed because the address is loopback.
+        psi.Environment["Authentication__Mode"] = "Off";
 
         if (extraEnvironment is not null)
         {
@@ -202,8 +248,10 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
             {
                 try
                 {
-                    // Any response (including an empty list) means migrations finished and it's serving.
-                    var response = await http.GetAsync(new Uri(baseUri, "/api/application-policies")).ConfigureAwait(false);
+                    // /health is anonymous in every authentication mode, and a 200 from it means the
+                    // database is reachable and migrations finished — exactly "ready". The previous
+                    // probe, /api/application-policies, would be a 401 under Required.
+                    var response = await http.GetAsync(new Uri(baseUri, "/health")).ConfigureAwait(false);
                     if (response.IsSuccessStatusCode)
                     {
                         return (process, baseUri);

@@ -100,7 +100,11 @@ $env:ConnectionStrings__ControlPlane = (& powershell.exe -NoProfile -ExecutionPo
 # migration rather than silently applying one. Set explicitly (not just left to default) so a
 # Development value left in this shell by a prior portal launch below cannot leak into it.
 $env:ASPNETCORE_ENVIRONMENT = 'Production'
-Write-Host "Control plane on $controlPlaneUrl (Production, database on 127.0.0.1,14330)..."
+# Authentication off is permitted here, and only here, because the demo binds to loopback -- the hard
+# rule in docs/03-architecture/Authentication-Design.md section 8. The control plane refuses this
+# setting on any other address, so this line cannot be copied into a real deployment by accident.
+$env:Authentication__Mode = 'Off'
+Write-Host "Control plane on $controlPlaneUrl (Production, database on 127.0.0.1,14330, authentication off on loopback)..."
 Start-Background -Name 'control-plane' -Arguments @("`"$(Join-Path $repo 'src\Enlist.ControlPlane\bin\Debug\net10.0\Enlist.ControlPlane.dll')`"", '--urls', $controlPlaneUrl)
 $deadline = (Get-Date).AddSeconds(60)
 $ready = $false

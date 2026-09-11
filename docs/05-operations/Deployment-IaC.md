@@ -31,6 +31,7 @@
 - **Managed machines (agents) never accept an inbound connection for enList's own purposes** — this is the system's defining network-security property (see [`SAD.md` §1](../03-architecture/SAD.md#1-architectural-goals)). Firewall rules for managed machines only need to permit **outbound** traffic to the control plane's host/port.
 - The control plane host needs an **inbound** rule for its API/SignalR port (`5293` in development), reachable from every managed machine and from the portal.
 - The portal host needs an inbound rule for its own port (`5231` in development), reachable from operators' browsers, and outbound access to the control plane.
+- What arrives on the control plane's inbound port must be authenticated, and off loopback that means TLS — §1.8. The port being reachable is a routing fact, not a trust decision.
 
 ### 1.3 Configuration Surface
 
@@ -189,6 +190,15 @@ docker build -t enlist/runner:dev -f src/Enlist.Runner/Dockerfile .
 Ports declared on a rule are published by the engine, and the resolved host port is reported back — `GET /api/endpoints` and `/api/endpoints/traefik` expose that for a reverse proxy ([`API-Specification.md` §5a](../03-architecture/API-Specification.md)). Prefer a **dynamic** host port: a hard-coded one cannot serve a rule that matches several agents.
 
 ---
+
+### 1.8 Authentication
+
+Step 1 of [`Authentication-Design.md`](../03-architecture/Authentication-Design.md) (2026-09-11) put the control plane's side of authentication in place; the agent (step 2) and the portal (step 3) do not present or require credentials yet. What an operator needs to know now:
+
+- **`Authentication:Mode`** is `Required` unless configuration says `Off`, and `Off` is honoured **only when every listener is bound to loopback** — `localhost`, `127.0.0.1` or `::1`. Bind an `Off` control plane to `+`, `*`, `0.0.0.0` or a host address and it refuses to start, with the reason in the Event Log. There is no override. The trusted-network assumption the requirements carried until now ([BRD §7](../04-requirements/BRD.md)) is no longer something a deployment can rely on by omission: an unauthenticated control plane reachable from a network cannot be configured.
+- Under **`Required`**, a listener off loopback must be `https://` (bearer tokens are never sent in the clear); plain `http://` off loopback refuses to start. TLS terminates at Kestrel: `Kestrel:Certificates:Default` with a certificate from the machine store (`Store`/`Location`/`Subject` or `Thumbprint`) or a PFX, and `--urls https://+:5293` in the service's `binPath`.
+- **Credentials are created out of band**, on the control plane host, with the verbs on the executable (`create-api-key`, `create-join-token`, `revoke-api-key`, `revoke-agent`, `list-keys`, `list-join-tokens` — [API-Specification §0](../03-architecture/API-Specification.md)). They use `ConnectionStrings:ControlPlane` exactly as the server does. Each prints its secret once.
+- **Until steps 2 and 3 land**, a control plane with agents and a portal must run `Off`, which means loopback only — the demo's shape (`demo/start-demo.ps1` sets `Authentication__Mode=Off`). `GET /health` reports the mode.
 
 ## 2. Environments
 

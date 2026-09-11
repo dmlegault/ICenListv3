@@ -176,7 +176,7 @@ Deciding where it runs is a separate step: open the portal's **Applications** ta
 dotnet test enList_v3.slnx
 ```
 
-Runs all five test projects (`Enlist.ControlPlane.Tests`, `Enlist.Agent.Tests`, `Enlist.Runner.Tests`, `Enlist.Deploy.Tests`, `Enlist.Portal.Tests`) — see [`Test-Plan.md`](../05-operations/Test-Plan.md) for what each covers. As of this writing: 197 tests, all passing (50 Runner, 3 Deploy, 60 ControlPlane, 66 Agent, 18 Portal). The 16 container tests skip themselves when their engine (Docker or wslc) or its runner image is unavailable — see Container-Developer-Guide.md &sect;9.
+Runs all five test projects (`Enlist.ControlPlane.Tests`, `Enlist.Agent.Tests`, `Enlist.Runner.Tests`, `Enlist.Deploy.Tests`, `Enlist.Portal.Tests`) — see [`Test-Plan.md`](../05-operations/Test-Plan.md) for what each covers. As of this writing: 205 tests, all passing (50 Runner, 3 Deploy, 68 ControlPlane, 66 Agent, 18 Portal). The 16 container tests skip themselves when their engine (Docker or wslc) or its runner image is unavailable — see Container-Developer-Guide.md &sect;9.
 
 ## 9. Common Pitfalls
 
