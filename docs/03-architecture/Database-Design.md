@@ -262,17 +262,15 @@ With one exception — `AgentCredentials.AgentName` (§2.6), where the cascade i
 
 ## 6. Migration History
 
-Migrations live under `src/Enlist.ControlPlane/Migrations/`. The sequence is:
+Migrations live under `src/Enlist.ControlPlane/Migrations/`. As of this writing the sequence is a **single** migration:
 
-1. `20260908171028_InitialCreate`
-2. `20260909213438_PackageManifestJson` — `Packages.ManifestJson` (review finding M6).
-3. `20260910143301_PackageVersionUnique` — the filtered unique index on `Packages (ApplicationName, VersionNumber)`.
-4. `20260911181702_AuthenticationCredentials` — `AgentCredentials`, `JoinTokens`, `ApiKeys` (§2.6–2.8; [Authentication-Design.md §11](Authentication-Design.md)).
+1. `20260911192322_InitialCreate`
 
-`InitialCreate` is not the original first migration. The sequence before it had been collapsed **twice**, for the same reason both times — nothing had been deployed anywhere that needed upgrading, and the local database was disposable:
+That is not the original one. The sequence has been collapsed **three times**, for the same reason each time — nothing had been deployed anywhere that needed upgrading, and the local databases were either disposable or could be told the truth:
 
 - **First collapse.** The terminology rename (Machine→Agent, Assignment→Application Policy, Label→Tag) and the move to tags-only targeting changed almost every table name and several column names at once. Rather than carry eight superseded migrations describing a schema that no longer existed, the sequence was deleted and re-scaffolded. The earlier names (`AddPackageDistribution`, `AddMachineRegistryAndLabelPlacement`, `AddPackageRetention`, `AddAgentLogs`, `AddPackageApplicationName`, `AddPackageVersionNumber`, `AddAssignmentRuntimeFlavor`) are recorded here only so references elsewhere in this document set still resolve to something.
 - **Second collapse (2026-09-08).** `AddPolicyIsolation` and `AddAgentCapabilities` — both additive nullable columns, `IsolationJson` on `ApplicationPolicies` and `CapabilitiesJson` on `Agents` — were folded back into `InitialCreate` ahead of first deployment, so a production install is one step rather than a replay of three. Verified by regenerating the model snapshot and diffing it against the pre-collapse one: **byte-identical**, so the collapsed migration describes exactly the same model.
+- **Third collapse (2026-09-11).** `PackageManifestJson` (`Packages.ManifestJson`, review finding M6), `PackageVersionUnique` (the filtered unique index on `Packages (ApplicationName, VersionNumber)`) and `AuthenticationCredentials` (`AgentCredentials`, `JoinTokens`, `ApiKeys` — §2.6–2.8) folded into `InitialCreate` before the installer exists, so the first real install is one `CREATE`. Same proof as before: the model snapshot regenerated from the single migration is **byte-identical** to the one the four had produced. The demo database kept its data — its `__EFMigrationsHistory` was rewritten from the four rows to the one, and the control plane's Production verify-and-refuse check accepted it at the next start. **This is the last collapse.** The installer is the next thing built, and from the first machine it installs on, a migration is a contract.
 
 **Applied automatically in `Development` only.** Outside it the control plane verifies the schema and refuses to start rather than issuing DDL — see [`Deployment-IaC.md` §1.4](../05-operations/Deployment-IaC.md) for why (a production SQL login typically has neither `dbcreator` nor `CREATE`/`ALTER TABLE`) and for the deploy-step alternative.
 

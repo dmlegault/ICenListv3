@@ -263,7 +263,7 @@ The database check is bounded at 5 s, so a database that accepts the connection 
   "status": "Healthy",
   "product": "enList control plane",
   "version": "3.0.0",
-  "database": { "reachable": true, "latestMigration": "20260910143301_PackageVersionUnique", "error": null },
+  "database": { "reachable": true, "latestMigration": "20260911192322_InitialCreate", "error": null },
   "checkedAtUtc": "2026-09-11T14:02:11.4Z"
 }
 ```

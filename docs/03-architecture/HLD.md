@@ -17,7 +17,7 @@
 | `PackageBlobStore` | Content-addressed file storage for package zip bytes (digest computation, save/read/delete). |
 | `PackageRetentionSweepService` / `LogRetentionSweepService` / `ReportRetentionSweepService` | `IHostedService` background sweeps — mark-and-sweep GC for packages, straight age-based delete for log rows, age-based delete for status reports that always keeps each agent's newest. |
 | `Authentication/` | The bearer scheme (`EnlistBearerHandler`: three token kinds by hash, claims), the endpoint policy table and its fail-closed handler, the listener rules (`Off` only on loopback; no plain HTTP off loopback under `Required`), and the management CLI verbs — [Authentication-Design.md](Authentication-Design.md). |
-| `Migrations/` | EF Core migration history — `InitialCreate` and the three since ([Database-Design.md §6](Database-Design.md)). Auto-applied at startup in `Development` **only**; outside it the control plane verifies the schema and refuses to start rather than issuing DDL, because a production SQL login normally has neither `dbcreator` nor `CREATE`/`ALTER TABLE` rights (see [`Deployment-IaC.md` §1.4](../05-operations/Deployment-IaC.md)). |
+| `Migrations/` | EF Core migration history — a single `InitialCreate`, collapsed for the third and last time on 2026-09-11 ([Database-Design.md §6](Database-Design.md)). Auto-applied at startup in `Development` **only**; outside it the control plane verifies the schema and refuses to start rather than issuing DDL, because a production SQL login normally has neither `dbcreator` nor `CREATE`/`ALTER TABLE` rights (see [`Deployment-IaC.md` §1.4](../05-operations/Deployment-IaC.md)). |
 
 ### 1.2 Enlist.Agent
 

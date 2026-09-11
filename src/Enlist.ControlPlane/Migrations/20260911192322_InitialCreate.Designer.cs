@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Enlist.ControlPlane.Migrations
 {
     [DbContext(typeof(ControlPlaneDbContext))]
-    [Migration("20260911181702_AuthenticationCredentials")]
-    partial class AuthenticationCredentials
+    [Migration("20260911192322_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
