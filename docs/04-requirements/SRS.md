@@ -88,7 +88,7 @@ enList v3 is a new, standalone system (not a plugin or extension of another prod
 
 ### 2.6 Assumptions and Dependencies
 
-- Authentication is implemented on the control plane (bearer tokens, `Required` by default, `Off` only on loopback — [Authentication-Design.md](../03-architecture/Authentication-Design.md)) and on the agent (join-token enrollment, a DPAPI-protected credential); the portal's side is not yet, so a deployment with a portal runs on loopback (see [`BRD.md` §7](BRD.md#7-constraints-and-assumptions)).
+- Authentication is implemented on the control plane (bearer tokens, `Required` by default, `Off` only on loopback — [Authentication-Design.md](../03-architecture/Authentication-Design.md)), on the agent (join-token enrollment, a DPAPI-protected credential), on the portal (Windows sign-in; Operator and Viewer groups) and in the tools (API keys); `Off` is permitted only on loopback (see [`BRD.md` §7](BRD.md#7-constraints-and-assumptions)).
 - Cron expressions are parsed and scheduled using the Cronos library (`Enlist.Agent.csproj` → `Cronos 0.11.0`).
 
 ---

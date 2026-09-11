@@ -134,6 +134,10 @@ if (app.Environment.IsDevelopment())
 
 app.MapHub<ApplicationPolicyHub>(ApplicationPolicyHubContract.HubPath);
 
+// Keys, join tokens and credential revocation - the Operator-only management surface the portal's
+// Access page drives. Same issuer as the CLI verbs (Authentication/ManagementCli.cs).
+app.MapAccessEndpoints();
+
 // Liveness for load balancers, the installer's "verify this control plane URL", and anyone wondering
 // which build is answering. Unauthenticated like everything else here (review finding C2), and it
 // deliberately says nothing secret: a version and whether the database answers, never the connection
@@ -372,12 +376,16 @@ app.MapGet("/api/agents/{agentName}/logs", async (string agentName, string appli
 // created implicitly the first time an agent calls in (see UpsertAgentSeenAsync above), or explicitly
 // here if you want to set tags before that agent ever connects.
 app.MapGet("/api/agents", async (ControlPlaneDbContext db) =>
-    Results.Ok((await db.Agents.OrderBy(m => m.Name).ToListAsync()).Select(AgentToDto)));
+{
+    var agents = await db.Agents.OrderBy(m => m.Name).ToListAsync();
+    var credentials = await db.AgentCredentials.ToDictionaryAsync(c => c.AgentName, StringComparer.OrdinalIgnoreCase);
+    return Results.Ok(agents.Select(a => AgentToDto(a, credentials.GetValueOrDefault(a.Name))));
+});
 
 app.MapGet("/api/agents/{name}", async (string name, ControlPlaneDbContext db) =>
 {
     var agent = await db.Agents.FindAsync(name);
-    return agent is null ? Results.NotFound() : Results.Ok(AgentToDto(agent));
+    return agent is null ? Results.NotFound() : Results.Ok(AgentToDto(agent, await db.AgentCredentials.FindAsync(name)));
 });
 
 // Reported BY the agent, not set by an operator: only the agent can know whether a container engine on
@@ -411,7 +419,7 @@ app.MapPut("/api/agents/{name}/tags", async (string name, SetAgentTagsRequest re
     // (cheap: the agent just finds nothing new).
     await ApplicationPolicyHubNotifier.NotifyChangedAsync(hub, name);
 
-    return Results.Ok(AgentToDto(agent));
+    return Results.Ok(AgentToDto(agent, await db.AgentCredentials.FindAsync(name)));
 });
 
 // The one-click "stop everything on this agent, and don't give it any new work" control (Agents.razor's
@@ -435,7 +443,7 @@ app.MapPut("/api/agents/{name}/scheduling", async (string name, SetAgentScheduli
     // instead of waiting for its next unrelated poll.
     await ApplicationPolicyHubNotifier.NotifyChangedAsync(hub, name);
 
-    return Results.Ok(AgentToDto(agent));
+    return Results.Ok(AgentToDto(agent, await db.AgentCredentials.FindAsync(name)));
 });
 
 // No "still referenced, can't delete" check here (unlike packages below) — with tags-only targeting,
@@ -1238,13 +1246,14 @@ static IsolationSpec DeserializeIsolation(string? json)
     }
 }
 
-static AgentDto AgentToDto(AgentEntity entity) => new(
+static AgentDto AgentToDto(AgentEntity entity, AgentCredentialEntity? credential = null) => new(
     entity.Name,
     DeserializeTags(entity.TagsJson),
     entity.FirstSeenUtc,
     entity.LastSeenUtc,
     entity.SchedulingEnabled,
-    DeserializeCapabilities(entity.CapabilitiesJson));
+    DeserializeCapabilities(entity.CapabilitiesJson),
+    credential is null ? AgentCredentialStates.None : credential.RevokedAtUtc is null ? AgentCredentialStates.Live : AgentCredentialStates.Revoked);
 
 /// <summary>Null stays null — "this agent has not told us" is a real, displayable state, distinct from "it told us it has nothing". Malformed JSON is treated the same way rather than throwing: one bad row must not break the agent list.</summary>
 static AgentCapabilitiesDto? DeserializeCapabilities(string? json)

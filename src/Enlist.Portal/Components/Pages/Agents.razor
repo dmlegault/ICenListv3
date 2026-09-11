@@ -12,15 +12,24 @@
 else if (_agents.Count == 0)
 {
     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Class="mb-2">
+        <AuthorizeView Policy="@PortalRoles.Operator" Context="access">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="EnrollAsync">Enroll agent</MudButton>
+        </AuthorizeView>
         <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" title="Refresh" />
     </MudStack>
     <MudAlert Severity="Severity.Info">
         No agents have registered yet — an agent appears here automatically the first time it fetches
-        its policies, or you can pre-register one with tags before that happens.
+        its policies, or you can pre-register one with tags before that happens. A control plane that
+        requires authentication admits an agent only once it has enrolled with a join token: Enroll agent.
     </MudAlert>
 }
 else
 {
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Class="mb-2">
+        <AuthorizeView Policy="@PortalRoles.Operator" Context="access">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="EnrollAsync">Enroll agent</MudButton>
+        </AuthorizeView>
+    </MudStack>
     <div class="app-list">
         <div class="app-list-header">
             <span></span>
@@ -74,7 +83,9 @@ else
                                 <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">@tag.Key=@tag.Value</MudChip>
                             }
                         }
-                        <MudIconButton Icon="@Icons.Material.Filled.Label" Size="Size.Small" OnClick="@(() => EditTagsAsync(row.Agent))" title="Edit tags" />
+                        <AuthorizeView Policy="@PortalRoles.Operator" Context="access">
+                            <MudIconButton Icon="@Icons.Material.Filled.Label" Size="Size.Small" OnClick="@(() => EditTagsAsync(row.Agent))" title="Edit tags" />
+                        </AuthorizeView>
                     </MudStack>
                     <div>@Stats(row.Agent.Name).ApplicationCount</div>
                     <div>@Stats(row.Agent.Name).PolicyCount</div>
@@ -98,10 +109,28 @@ else
                         {
                             <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Filled">Offline</MudChip>
                         }
+                        @if (row.Agent.CredentialState == AgentCredentialStates.Live)
+                        {
+                            <MudTooltip Text="Enrolled: this agent presents its own credential on every call. Revoke it (key icon) to move the name to another machine.">
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
+                                         Icon="@Icons.Material.Filled.VerifiedUser">enrolled</MudChip>
+                            </MudTooltip>
+                        }
+                        else if (row.Agent.CredentialState == AgentCredentialStates.Revoked)
+                        {
+                            @* Under Required this agent is refused on every call; it keeps running what it
+                               runs and says so in its log. A new join token and a restart puts it back. *@
+                            <MudTooltip Text="Its credential was revoked: every call is refused until it re-enrolls with a new join token (restart it once with --join-token).">
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning"
+                                         Icon="@Icons.Material.Filled.KeyOff">credential revoked</MudChip>
+                            </MudTooltip>
+                        }
                     </MudStack>
                     <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
-                        <MudSwitch T="bool" Value="@row.Agent.SchedulingEnabled" Color="Color.Success"
-                                   Disabled="_schedulingPending" ValueChanged="@(_ => ToggleSchedulingAsync(row.Agent))" />
+                        <AuthorizeView Policy="@PortalRoles.Operator" Context="access">
+                            <MudSwitch T="bool" Value="@row.Agent.SchedulingEnabled" Color="Color.Success"
+                                       Disabled="_schedulingPending" ValueChanged="@(_ => ToggleSchedulingAsync(row.Agent))" />
+                        </AuthorizeView>
                         @if (row.Agent.SchedulingEnabled)
                         {
                             <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">Enabled</MudChip>
@@ -111,7 +140,15 @@ else
                             <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled">Disabled</MudChip>
                         }
                     </MudStack>
-                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(row.Agent))" title="Delete" />
+                    <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center">
+                        <AuthorizeView Policy="@PortalRoles.Operator" Context="access">
+                            @if (row.Agent.CredentialState == AgentCredentialStates.Live)
+                            {
+                                <MudIconButton Icon="@Icons.Material.Filled.KeyOff" Size="Size.Small" Color="Color.Warning" OnClick="@(() => RevokeCredentialAsync(row.Agent))" title="Revoke credential" />
+                            }
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(row.Agent))" title="Delete" />
+                        </AuthorizeView>
+                    </MudStack>
                 </div>
                 @if (row.IsExpanded)
                 {
@@ -294,11 +331,43 @@ else
         }
     }
 
+    /// <summary>A join token is what an operator hands to a machine they have not met yet; the dialog mints one and shows it once.</summary>
+    private async Task EnrollAsync()
+    {
+        await DialogService.ShowAsync<EnrollAgentDialog>("Enroll an agent", new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+    }
+
+    /// <summary>The agent keeps running what it runs and is refused from its next call on; the name is free for a new machine. The confirmation says exactly that, because "revoke" sounds like "stop" and is not.</summary>
+    private async Task RevokeCredentialAsync(AgentDto agent)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Revoke this agent's credential",
+            $"'{agent.Name}' keeps running everything it hosts, but every call it makes from now on is refused until it re-enrolls with a new join token (restart it once with --join-token). Do this to move the name to another machine, or if the machine is compromised.",
+            yesText: "Revoke",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        try
+        {
+            await Api.RevokeAgentCredentialAsync(agent.Name);
+            Snackbar.Add($"{agent.Name}'s credential revoked.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
     private async Task DeleteAsync(AgentDto agent)
     {
         var confirmed = await DialogService.ShowMessageBox(
             "Delete agent",
-            $"Remove '{agent.Name}' from the registry? It reappears automatically the next time its agent reports in.",
+            $"Remove '{agent.Name}' from the registry? This also revokes its credential: with authentication on it cannot come back under that name without a new join token; with authentication off it reappears the next time it reports in.",
             yesText: "Delete",
             cancelText: "Cancel");
 

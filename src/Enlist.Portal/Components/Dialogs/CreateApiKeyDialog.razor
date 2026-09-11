@@ -1,0 +1,78 @@
+@inject ControlPlaneApiClient Api
+@inject ISnackbar Snackbar
+
+@* Mints a management API key (Authentication-Design.md 6.2) and shows it once: for enlist-deploy, a
+   pipeline, a read-only dashboard, a reverse proxy reading the endpoint feed - or another portal. *@
+<MudDialog>
+    <DialogContent>
+        @if (_created is null)
+        {
+            <MudText Class="mb-4">
+                A key is how a tool talks to the control plane: <code>enlist-deploy --api-key</code>, a pipeline's
+                <code>ENLIST_API_KEY</code>, a dashboard. Viewers read; Operators change - including uploading code
+                every agent will run, so give a pipeline the role it needs and no more.
+            </MudText>
+            <MudTextField T="string" @bind-Value="_name" Label="Name" Variant="Variant.Outlined" Class="mb-3"
+                          HelperText="Who holds it: ci-main, dashboard, robert-laptop. Revocation is by this name." Immediate="true" />
+            <MudSelect T="string" @bind-Value="_role" Label="Role" Variant="Variant.Outlined" Class="mb-3">
+                <MudSelectItem Value="@ManagementRoles.Viewer">Viewer - reads only</MudSelectItem>
+                <MudSelectItem Value="@ManagementRoles.Operator">Operator - everything</MudSelectItem>
+            </MudSelect>
+            <MudSelect T="string" @bind-Value="_expiresIn" Label="Expires" Variant="Variant.Outlined">
+                <MudSelectItem Value="@("30d")">30 days</MudSelectItem>
+                <MudSelectItem Value="@("90d")">90 days</MudSelectItem>
+                <MudSelectItem Value="@("365d")">1 year</MudSelectItem>
+                <MudSelectItem Value="@("never")">Never (a service key)</MudSelectItem>
+            </MudSelect>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-3">Shown once. Copy it now; the control plane keeps only a hash and cannot show it again.</MudAlert>
+            <MudTextField T="string" Value="@_created.Key" Label="@($"API key '{_created.Name}' ({_created.Role})")" ReadOnly="true" Variant="Variant.Outlined" Class="mb-3" />
+            <MudText Typo="Typo.body2">
+                Present it as <code>Authorization: Bearer &lt;key&gt;</code>. For <code>enlist-deploy</code>: <code>--api-key</code> or the
+                <code>ENLIST_API_KEY</code> environment variable. For a portal: <code>Enlist.Portal.exe protect &lt;key&gt;</code> into
+                <code>ControlPlane:ApiKey</code>.
+            </MudText>
+            <MudText Typo="Typo.caption" Class="mt-2">Expires @(_created.ExpiresAtUtc is { } e ? e.ToLocalTime().ToString("g") : "never").</MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_created is null)
+        {
+            <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="CreateAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_name))">Create key</MudButton>
+        }
+        else
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="@(() => MudDialog.Close(DialogResult.Ok(true)))">Done</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    private string _name = "";
+    private string _role = ManagementRoles.Viewer;
+    private string _expiresIn = "90d";
+    private bool _busy;
+    private CreateApiKeyResponse? _created;
+
+    private async Task CreateAsync()
+    {
+        _busy = true;
+        try
+        {
+            _created = await Api.CreateApiKeyAsync(new CreateApiKeyRequest(_name.Trim(), _role, _expiresIn));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

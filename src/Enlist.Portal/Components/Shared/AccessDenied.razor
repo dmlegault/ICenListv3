@@ -1,0 +1,26 @@
+@inject PortalAuthenticationOptions Options
+
+<PageTitle>Access denied</PageTitle>
+
+<MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-4">
+    <MudText Typo="Typo.h6" Class="mb-2">This account is not admitted here.</MudText>
+    <AuthorizeView>
+        <Authorized>
+            <MudText Class="mb-2">Windows knows you as <b>@context.User.Identity?.Name</b>, but that account is in neither of the groups the portal admits:</MudText>
+        </Authorized>
+        <NotAuthorized>
+            <MudText Class="mb-2">Windows did not identify you, and the portal admits only members of these groups:</MudText>
+        </NotAuthorized>
+    </AuthorizeView>
+    <MudSimpleTable Dense="true" Class="mb-2" Style="max-width: 32rem;">
+        <tbody>
+            <tr><td><b>Operators</b> (every page, every change)</td><td>@Group(Options.Windows.OperatorsGroup)</td></tr>
+            <tr><td><b>Viewers</b> (every page, no changes)</td><td>@Group(Options.Windows.ViewersGroup)</td></tr>
+        </tbody>
+    </MudSimpleTable>
+    <MudText Typo="Typo.body2">Ask whoever administers those groups to add you, then reload; the portal keeps no user list of its own.</MudText>
+</MudAlert>
+
+@code {
+    private static string Group(string? name) => string.IsNullOrWhiteSpace(name) ? "(not configured - nobody)" : name;
+}

@@ -15,7 +15,9 @@
     <MudSpacer />
     <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Inventory2" OnClick="@(() => Nav.NavigateTo($"/applications/{Uri.EscapeDataString(AppName)}/packages"))">Manage Packages</MudButton>
     <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" title="Refresh" />
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="CreateAsync">New policy rule</MudButton>
+    <AuthorizeView Policy="@PortalRoles.Operator" Context="access">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="CreateAsync">New policy rule</MudButton>
+    </AuthorizeView>
 </MudStack>
 
 @if (_policies is null)
@@ -63,8 +65,10 @@ else
                     var conflictAgents = ConflictingAgents(context);
                 }
                 <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
-                    <MudSwitch T="bool" Value="rowEnabled" Color="Color.Success" Disabled="_statePending"
-                               ValueChanged="@(_ => ToggleDesiredStateAsync(context, rowEnabled ? DesiredStates.Stopped : DesiredStates.Running))" />
+                    <AuthorizeView Policy="@PortalRoles.Operator" Context="access">
+                        <MudSwitch T="bool" Value="rowEnabled" Color="Color.Success" Disabled="_statePending"
+                                   ValueChanged="@(_ => ToggleDesiredStateAsync(context, rowEnabled ? DesiredStates.Stopped : DesiredStates.Running))" />
+                    </AuthorizeView>
                     <MudChip T="string" Size="Size.Small" Color="@(rowEnabled ? Color.Success : Color.Default)">@DesiredStateLabel(context.DesiredState)</MudChip>
                     @if (context.Isolation?.IsContainer == true)
                     {
@@ -96,8 +100,10 @@ else
             <MudTd DataLabel="Updated">@context.UpdatedAtUtc.ToLocalTime()</MudTd>
             <MudTd>
                 <MudStack Row="true" Spacing="1" Justify="Justify.FlexEnd">
-                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="@(() => EditAsync(context))" title="Edit" />
-                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" title="Delete" />
+                    <AuthorizeView Policy="@PortalRoles.Operator" Context="access">
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="@(() => EditAsync(context))" title="Edit" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" title="Delete" />
+                    </AuthorizeView>
                 </MudStack>
             </MudTd>
         </RowTemplate>

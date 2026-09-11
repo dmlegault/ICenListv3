@@ -1,0 +1,3 @@
+@* Every page needs at least the Viewer role (Access.razor asks for Operator on top). Under
+   Authentication:Mode=Off - loopback only - both policies admit everyone, so this costs nothing there. *@
+@attribute [Authorize(Policy = PortalRoles.Viewer)]

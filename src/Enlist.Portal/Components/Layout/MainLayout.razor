@@ -19,6 +19,14 @@
             }
         </div>
         <MudSpacer />
+        @* Who Windows says you are, and what that makes you here. Nothing under authentication Off. *@
+        <AuthorizeView>
+            <Authorized>
+                <MudTooltip Text="@(context.User.IsInRole(PortalRoles.Operator) ? "Operator: every page, every change." : "Viewer: every page, no changes.")">
+                    <MudText Typo="Typo.body2" Class="enlist-user mr-4">@context.User.Identity?.Name</MudText>
+                </MudTooltip>
+            </Authorized>
+        </AuthorizeView>
         <MudHidden Breakpoint="Breakpoint.SmAndDown">
             <NavMenu />
         </MudHidden>
@@ -72,6 +80,7 @@
             [] or ["applications", ..] => "Applications",
             ["agents", ..] => "Agents",
             ["logs", ..] => "Logs",
+            ["access", ..] => "Access",
             _ => null,
         };
     }

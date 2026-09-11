@@ -65,6 +65,16 @@ public static class EndpointPolicies
         [("POST", "/api/application-policies")] = EndpointPolicy.Operator,
         [("PUT", "/api/application-policies/{id:guid}")] = EndpointPolicy.Operator,
         [("DELETE", "/api/application-policies/{id:guid}")] = EndpointPolicy.Operator,
+
+        // Key and join-token management (AccessEndpoints): creating, listing and revoking are all
+        // Operator - a Viewer key that could list keys would learn who holds the keys to the fleet.
+        [("POST", "/api/api-keys")] = EndpointPolicy.Operator,
+        [("GET", "/api/api-keys")] = EndpointPolicy.Operator,
+        [("DELETE", "/api/api-keys/{name}")] = EndpointPolicy.Operator,
+        [("POST", "/api/join-tokens")] = EndpointPolicy.Operator,
+        [("GET", "/api/join-tokens")] = EndpointPolicy.Operator,
+        [("DELETE", "/api/join-tokens/{id:guid}")] = EndpointPolicy.Operator,
+        [("DELETE", "/api/agents/{name}/credential")] = EndpointPolicy.Operator,
     };
 
     /// <summary>Null means "not in the table" — refuse.</summary>

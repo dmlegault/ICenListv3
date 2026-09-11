@@ -44,11 +44,13 @@ else
             <MudTd DataLabel="Size">@FormatSize(context.SizeBytes)</MudTd>
             <MudTd DataLabel="Uploaded">@context.UploadedAtUtc.ToLocalTime()</MudTd>
             <MudTd>
-                <MudTooltip Text="@DeleteTooltip(context.Digest)">
-                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error"
-                                   Disabled="@(_deletePending || _referencedBy.ContainsKey(context.Digest))"
-                                   OnClick="@(() => DeleteAsync(context))" />
-                </MudTooltip>
+                <AuthorizeView Policy="@PortalRoles.Operator" Context="access">
+                    <MudTooltip Text="@DeleteTooltip(context.Digest)">
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error"
+                                       Disabled="@(_deletePending || _referencedBy.ContainsKey(context.Digest))"
+                                       OnClick="@(() => DeleteAsync(context))" />
+                    </MudTooltip>
+                </AuthorizeView>
             </MudTd>
         </RowTemplate>
     </MudTable>

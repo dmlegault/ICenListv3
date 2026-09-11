@@ -1,10 +1,12 @@
+using Enlist.ControlPlane.Contracts;
+
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 
 namespace Enlist.ControlPlane.Authentication;
 
-/// <summary>Wires the scheme, the fallback policy and the startup rules. Two calls from Program.cs; everything else in this folder is behind them.</summary>
+/// <summary>Wires the scheme, the fallback policy, the startup rules and the audit line. Two calls from Program.cs; everything else in this folder is behind them.</summary>
 public static class AuthenticationSetup
 {
     public static void AddEnlistAuthentication(this WebApplicationBuilder builder)
@@ -35,19 +37,20 @@ public static class AuthenticationSetup
     /// <summary>
     /// The hard rules first — a configuration that would expose an unauthenticated control plane, or
     /// send tokens over plain HTTP, is refused before the database is even consulted — then the
-    /// middleware. Throws so that under the SCM the reason lands in the Event Log like the migration
-    /// checks that follow it.
+    /// middleware, then the audit line on every administrative write. Throws so that under the SCM
+    /// the reason lands in the Event Log like the migration checks that follow it.
     /// </summary>
     public static void UseEnlistAuthentication(this WebApplication app)
     {
         var options = app.Services.GetRequiredService<IOptions<AuthenticationOptions>>().Value;
-        if (ListenerRules.Violation(ConfiguredUrls(app.Configuration), options) is { } violation)
+        if (ListenerRules.Violation(ConfiguredUrls(app.Configuration), options.Mode, "control plane") is { } violation)
         {
             throw new InvalidOperationException(violation);
         }
 
         app.UseAuthentication();
         app.UseAuthorization();
+        app.UseMiddleware<AuditMiddleware>();
     }
 
     /// <summary>Every place a listen address can come from: --urls / ASPNETCORE_URLS (the "urls" key) and Kestrel endpoint configuration.</summary>

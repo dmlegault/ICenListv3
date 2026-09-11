@@ -117,12 +117,12 @@ The control plane and the portal are **hosting-mode neutral**: the same publishe
 ```powershell
 # elevated PowerShell. Note sc.exe's syntax: a space is required AFTER each '='.
 sc.exe create enlist-controlplane `
-  binPath= "C:\enlist\controlplane\Enlist.ControlPlane.exe --urls http://+:5293" `
+  binPath= "C:\enlist\controlplane\Enlist.ControlPlane.exe --urls https://+:5293" `
   start= auto
 sc.exe description enlist-controlplane "enList control plane"
 
 sc.exe create enlist-portal `
-  binPath= "C:\enlist\portal\Enlist.Portal.exe --urls http://+:5231" `
+  binPath= "C:\enlist\portal\Enlist.Portal.exe --urls https://+:5231" `
   start= auto depend= enlist-controlplane
 sc.exe description enlist-portal "enList portal"
 
@@ -134,6 +134,7 @@ sc.exe start enlist-controlplane
 sc.exe start enlist-portal
 ```
 
+- **`https://`** in both `binPath`s is not optional: with authentication on (the default), a listener off loopback that is plain HTTP refuses to start (§1.8). The certificate comes from `Kestrel:Certificates:Default` in `appsettings.json`.
 - **Binding** — a service gets no shell, so `--urls` in `binPath` is how it learns what to listen on (`Args` are passed through to the host). `ASPNETCORE_URLS` as a machine-level environment variable works equally well.
 - **Environment** — a service inherits **machine** environment variables, not your user ones. `ASPNETCORE_ENVIRONMENT` unset means `Production`, which is the intent here — but that is also what activates the migration verification in §1.4, so the database must already exist and be current.
 - **`depend=`** only orders startup on one machine; it is not a health check. The portal throws at startup if `ControlPlane:BaseUrl` is unset, so rely on the failure/restart actions above for boot races rather than on ordering. For an actual health check, the control plane answers `GET /health` — 200 with its version when the database is reachable, 503 when it is not — which is what a service monitor or load balancer should probe ([API-Specification §5b](../03-architecture/API-Specification.md)).
@@ -193,13 +194,16 @@ Ports declared on a rule are published by the engine, and the resolved host port
 
 ### 1.8 Authentication
 
-Step 1 of [`Authentication-Design.md`](../03-architecture/Authentication-Design.md) (2026-09-11) put the control plane's side of authentication in place; the agent (step 2) and the portal (step 3) do not present or require credentials yet. What an operator needs to know now:
+All three steps of [`Authentication-Design.md`](../03-architecture/Authentication-Design.md) are in place (2026-09-11): the control plane authenticates every caller, agents enroll with a join token, the portal signs people in with Windows and holds its own key, and `enlist-deploy` takes an API key. What an operator needs to know:
 
 - **`Authentication:Mode`** is `Required` unless configuration says `Off`, and `Off` is honoured **only when every listener is bound to loopback** — `localhost`, `127.0.0.1` or `::1`. Bind an `Off` control plane to `+`, `*`, `0.0.0.0` or a host address and it refuses to start, with the reason in the Event Log. There is no override. The trusted-network assumption the requirements carried until now ([BRD §7](../04-requirements/BRD.md)) is no longer something a deployment can rely on by omission: an unauthenticated control plane reachable from a network cannot be configured.
 - Under **`Required`**, a listener off loopback must be `https://` (bearer tokens are never sent in the clear); plain `http://` off loopback refuses to start. TLS terminates at Kestrel: `Kestrel:Certificates:Default` with a certificate from the machine store (`Store`/`Location`/`Subject` or `Thumbprint`) or a PFX, and `--urls https://+:5293` in the service's `binPath`.
-- **Credentials are created out of band**, on the control plane host, with the verbs on the executable (`create-api-key`, `create-join-token`, `revoke-api-key`, `revoke-agent`, `list-keys`, `list-join-tokens` — [API-Specification §0](../03-architecture/API-Specification.md)). They use `ConnectionStrings:ControlPlane` exactly as the server does. Each prints its secret once.
+- **Credentials are created out of band**, on the control plane host, with the verbs on the executable (`create-api-key`, `create-join-token`, `revoke-api-key`, `revoke-agent`, `list-keys`, `list-join-tokens` — [API-Specification §0](../03-architecture/API-Specification.md)). They use `ConnectionStrings:ControlPlane` exactly as the server does. Each prints its secret once. Day to day the portal's *Access* page and *Enroll agent* do the same through the Operator-only endpoints ([API-Specification §0](../03-architecture/API-Specification.md)).
 - **Agents enroll once.** Start a new agent once with `--join-token <token>` (an Operator mints it: `create-join-token [--expires 24h] [--uses 50]`). It exchanges the token for its own credential at `POST /api/agents/enroll`, stores it at `<data>\credential` — DPAPI machine scope, with an ACL of SYSTEM, Administrators and the service account — and never needs the option again. Do not leave `--join-token` in a service's `binPath`: `sc qc` shows it to anyone who can query the service, and an agent that already holds a credential ignores it (with a warning in its log). A name holds one live credential at a time: to move an agent to a new machine, revoke first (`revoke-agent --name X`, or `DELETE /api/agents/X`, which revokes as it deregisters), then enroll the new one. An agent whose credential is rejected keeps everything it runs and says so in its log once per five minutes ([Runbook §3.19](Runbook.md)); re-enrolling is a restart with a new join token.
-- **Until step 3 lands** (Windows authentication on the portal and the portal's own key, `--api-key` on `enlist-deploy`), a control plane with a portal must run `Off`, which means loopback only — the demo's shape (`demo/start-demo.ps1` sets `Authentication__Mode=Off`). `GET /health` reports the mode. A fleet driven through the API with keys, without the portal, can run `Required` today.
+- **The portal signs people in with Windows** (Negotiate on Kestrel: Kerberos in a domain, NTLM against local accounts on a workgroup machine). Two group names decide the roles — `Authentication:Windows:OperatorsGroup` (every page, every change) and `ViewersGroup` (every page, no changes); a person in neither gets a page naming the groups, and the portal keeps no user list of its own. Under a dedicated domain service account, register `HTTP/<portal fqdn>` as an SPN for that account (`setspn -S`), or Kerberos silently falls back to NTLM and fails across machines; under *Network Service* or *Local System* the machine account already has one. Under IIS, enable Windows Authentication on the site instead; the in-process handler steps aside. The portal's URL must be in the browsers' intranet zone for credentials to be sent without a prompt.
+- **The portal's own key** is an Operator API key, and root-equivalent: on the control plane host, `create-api-key --name portal --role Operator --expires never`; on the portal host, `Enlist.Portal.exe protect <key>` prints a `dpapi:` value for `ControlPlane:ApiKey` that only that machine can decrypt. DPAPI keeps the key out of a casual read and a backup; the file's ACL (the service account and administrators) is the control. A portal with no key logs a warning at startup and works only against a control plane running `Off`.
+- **Tools present an API key**: `enlist-deploy --api-key <key>`, or `ENLIST_API_KEY` in the environment (a pipeline; a command line is visible in process listings). Mint them from the Access page or the CLI with the role the tool needs — a pipeline that uploads is an Operator, a dashboard or a reverse proxy reading the endpoint feed is a Viewer — and revoke them by name.
+- **The portal has the same two listener rules** as the control plane: `Off` only on loopback, and `https://` off loopback under `Required`. The demo runs both `Off` on loopback by choice; a real deployment runs both `Required` over TLS.
 
 ## 2. Environments
 

@@ -16,6 +16,8 @@ public static class RepoPaths
 
     public static string DeployDll() => Path.Combine(Root(), "src", "Enlist.Deploy", "bin", "Debug", "net10.0", "enlist-deploy.dll");
 
+    public static string PortalDll() => Path.Combine(Root(), "src", "Enlist.Portal", "bin", "Debug", "net10.0", "Enlist.Portal.dll");
+
     /// <summary>
     /// A fresh, process-name-safe application name. Several test classes stage and spawn a real
     /// process under this name and then query/kill by that OS-level process name (Process

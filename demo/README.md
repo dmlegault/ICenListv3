@@ -203,6 +203,12 @@ the database moves.
 > deployment shape is documented in [`docs/05-operations/Deployment-IaC.md`](../docs/05-operations/Deployment-IaC.md).
 > The demo deliberately does not use it, so the whole fleet has one lifecycle and one command.
 
+It runs with authentication **off** as well — the same `Authentication__Mode=Off` the control plane gets, permitted
+because it listens on loopback — so there is no Windows sign-in and everyone is an Operator. The *Access* page
+still works: mint a join token or an API key there and use it against the demo control plane, which accepts a
+key even while `Off`. A real portal runs `Required` — Windows sign-in, two group names, its own key
+([Deployment-IaC §1.8](../docs/05-operations/Deployment-IaC.md)).
+
 ## Start from zero
 
 To wipe the demo and rebuild it clean — destroys the database **and** the package blobs:

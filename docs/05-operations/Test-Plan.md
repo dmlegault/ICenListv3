@@ -2,7 +2,7 @@
 
 **Product:** enList v3
 **Framework:** xUnit
-**Document status:** Derived from the actual test source under `tests/`; rewritten 2026-09-08 at class level after the per-test list drifted. Total: **211 tests, all passing** (`dotnet test enList_v3.slnx`).
+**Document status:** Derived from the actual test source under `tests/`; rewritten 2026-09-08 at class level after the per-test list drifted. Total: **232 tests, all passing** (15 skip themselves where the machine cannot run them — §2.6) (`dotnet test enList_v3.slnx`).
 
 ---
 
@@ -16,7 +16,7 @@
 
 Listed by test CLASS rather than by individual test. The per-test enumeration this section used to carry drifted badly — it described 51 tests under the pre-rename vocabulary (machines, assignments, labels) long after those concepts were gone — and a class-level inventory stays true for longer while still saying what is actually covered.
 
-### 2.1 `Enlist.ControlPlane.Tests` — 68 tests
+### 2.1 `Enlist.ControlPlane.Tests` — 72 tests
 
 Spawns the **real** `Enlist.ControlPlane.exe` against a throwaway LocalDB database per test class (`ControlPlaneTestServer`), so these exercise routing, EF Core, validation and JSON exactly as deployed.
 
@@ -29,6 +29,7 @@ Spawns the **real** `Enlist.ControlPlane.exe` against a throwaway LocalDB databa
 | `ApiValidationTests` | What the API refuses at the door: a digest that is not 64 hex characters is a 400 on every package endpoint before it can become a path (a well-formed unknown one is still a 404); an application name that could be a path or a device name is a 400 on upload and on rule creation; a rule naming a digest the control plane does not have is a 400 on create and on update (a real one is accepted, and stored lowercase however it was written); an upload larger than Kestrel's stock 30 MB limit succeeds; a body that is not a zip is a 400 that leaves neither a row nor a blob. |
 | `HealthEndpointTests` | `GET /health` against the real control plane and database: a healthy control plane answers 200 naming the product, a version without build metadata, and the newest applied migration (checked against `__EFMigrationsHistory` itself); taking the database offline after startup turns that into a 503 that still names the product and gives a reason that is not the connection string, and it is 200 again the moment the database is back — no restart. |
 | `AuthenticationTests` | The control plane under `Authentication:Mode=Required`, driven as an operator and an agent would drive it (the CLI verbs mint the credentials; HTTP and the real SignalR client present them): nothing but `/health` answers an anonymous caller, and `/health` says the mode; a join token enrolls an agent once, the credential it yields works on that agent's own routes, is 403 on any other agent's, cannot upload packages or read the registry, and may download packages; a name already holding a credential is a 409 until revoked, after which the old token is 401 and the name re-enrolls; keys carry roles (Viewer reads, Operator writes) and deleting an agent revokes its credential; the hub admits an agent to its own group only and refuses an anonymous connection at negotiate; `Off` off loopback and `Required` on plain HTTP off loopback both refuse to start; and `Off` on loopback is anonymous exactly as before. |
+| `AccessEndpointsTests` | The credential management surface over HTTP, as an Operator whose key the CLI minted: keys are created (with the secret once), listed (without it), refused a taken name (409) and a bad role (400), revoked (401 from then on, the name free again), and a Viewer key can read, cannot write, and cannot see or make keys; join tokens are minted, enroll an agent, count down, and are revoked; revoking an agent's credential keeps its registry row, refuses its token, shows as revoked and frees the name; and the audit line names the key and the person on an administrative write, the join token on an enrollment, and is absent for an agent's own status report. |
 | `CronExpressionsTests` | The cron dialect enList accepts, pinned where it is defined: the five-field and six-field forms of one schedule agree on the next occurrence; `?` reads as `*`; the wrong field count and an out-of-range value are refused with the reason. |
 | `PackageManifestTests` | The manifest is scanned once at upload and stored on the package row, served from there, and — for a row from before the column existed — scanned on first request and kept. |
 | `RuntimeFlavorTests` | Flavor validation and defaulting for `Path`-based rules, and rejection of unrecognized values. |
@@ -89,27 +90,35 @@ Drives a real `enlist-runner` process through `StubAgent`, with no in-process sh
 
 **Not covered:** the interactive `--dev` session end to end. Nothing here drives real keystrokes, so the host's own behaviour was verified manually against both runners (services auto-start, a job runs on command, `[EnlistStop]` output is delivered on `quit`, exit code 0), and the redirected path is exercised by hand on every change because it is what scripted sessions depend on. The parts that could regress silently — discovery, settings merge, start/stop/execute — are the same code paths `RunnerLifecycleTests` already covers through `StubAgent`, because the dev host deliberately has no private entry point into `RunnerHost`.
 
-### 2.4 `Enlist.Deploy.Tests` — 3 tests
+### 2.4 `Enlist.Deploy.Tests` — 5 tests
 
 | Class | Verifies |
 |---|---|
-| `DeployCliTests` | Zipping a source directory, uploading it, and printing the resulting digest and detected runtime flavor. |
+| `DeployCliTests` | Zipping a source directory, uploading it, and printing the resulting digest and detected runtime flavor; and against a control plane that requires authentication: an Operator key uploads whether it comes from `--api-key` or `ENLIST_API_KEY`, no key is refused with the remedy rather than a bare 401, and a Viewer key is refused with why. |
 
-### 2.5 `Enlist.Portal.Tests` — 18 tests
+### 2.5 `Enlist.Portal.Tests` — 33 tests
 
 Plain xUnit over the portal assembly — no bUnit, no browser. What it pins are the portal's own copies of decisions the control plane makes, which is exactly the code that drifts silently: the review of 2026-09-09 found a private copy of the agreement rule on the Agents tab that had never learned about Isolation.
+
+Since C2 step 3 the authentication tests also run the real portal as a process against a real control plane and read the pages it renders, the same posture as every other process-level test here.
 
 | Class | Verifies |
 |---|---|
 | `PolicyConflictDetectorTests` | `Agree` mirrors resolution field for field: identical rules agree, a missing isolation block equals an explicit process one, equal port lists in different list instances agree, and a difference in isolation mode, host port or a cron override disagrees. `FindConflictsByAgent` names only agents matched by disagreeing rules; `FindPortCollisions` reports a static host port another application holds on the same agent, ignores dynamic ports, and never counts an application against its own rules. |
 | `TagSelectorMatcherTests` | The implicit `agent` self-tag matches a rule that names the agent; an empty selector matches every agent; every pair has to match; only the bare self-tag counts as "this agent only"; `DescribeScope` produces the three phrasings every screen shows. |
 | `AgentReportCacheTests` | The fan-out limiter behind every polling panel: callers inside the window share one fetch, a caller after it gets a fresh one, different agents are fetched separately. |
+| `PortalAuthenticationTests` | The real portal as a process, against a control plane running `Required`: an anonymous browser is challenged (401, `Negotiate`); `Off` off loopback refuses to start and `Off` on loopback is anonymous with everyone an Operator; and, signed in as the account running the tests — where the machine permits it, see §2.6 — an Operator is admitted and offered the Operator controls and the Access page, a Viewer sees every page without them and is refused the Access page with a reason, and a person in neither group gets the page naming both groups. |
+| `PortalRolesTests` | What a Windows sign-in turns into, without a handshake: the current Windows identity becomes a detached principal (no `WindowsIdentity`, no token) carrying exactly the roles its groups earn; an unconfigured or unknown group admits nobody; and the real policy registration admits by role under `Required` (anonymous never) and admits everyone, anonymous included, under `Off`. |
+| `ControlPlaneApiClientTests` | Every call carries the portal's key and names the person in `X-Enlist-Operator`; a Viewer's write is refused (403) before any bytes leave while a Viewer's read goes; with no key and no person the call is the anonymous one it always was. |
+| `ProtectedSettingsTests` | The `dpapi:` configuration value: a round trip on this machine that does not contain the secret, a value in the clear passed through, an empty one as nothing, and a blob from another machine reported rather than guessed at. |
 
 Component rendering and interaction stay manual (§5).
 
 ### 2.6 Tests that skip themselves
 
 The 16 container tests call `Skip.IfNot(...)` when their engine or its image is unavailable — Docker and `enlist/runner:dev` for the four Docker classes, `wslc` and `enlist/runner:wslc` for `WslContainerEngineTests` — and report as **skipped** rather than failed. The suite must stay runnable on a machine with no container engine, where a red test would say "enList is broken" when it means "Docker isn't installed". Build the image first (see [`Container-Developer-Guide.md` §3](../02-building-applications/Container-Developer-Guide.md)) or they will skip.
+
+Three `PortalAuthenticationTests` sign in to the portal as the account running the tests, and skip themselves — naming which of two reasons — on a machine that will not let an account sign in to itself: Windows refuses NTLM to the local machine under any name but its own (LSA's loopback check; the harness already dials the machine name over HTTPS for exactly this reason), and an account without a network-usable secret (a Microsoft account, Windows Hello) cannot start the handshake at all. Both are properties of the machine. What those tests would prove is pinned without a handshake by `PortalRolesTests`; the Negotiate challenge itself is asserted before the skip can happen.
 
 ## 2a. A note on determinism
 

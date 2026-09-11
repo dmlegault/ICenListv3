@@ -28,8 +28,10 @@ else
                       Placeholder="Search applications, services, jobs..." Variant="Variant.Outlined" Margin="Margin.Dense"
                       Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="app-search" />
         <MudStack Row="true" Spacing="2" Class="app-toolbar-right">
-            <MudFab Color="Color.Default" StartIcon="@Icons.Material.Filled.CloudUpload" Size="Size.Medium"
-                    OnClick="ShowUploadDialogAsync" title="Upload a package" />
+            <AuthorizeView Policy="@PortalRoles.Operator" Context="access">
+                <MudFab Color="Color.Default" StartIcon="@Icons.Material.Filled.CloudUpload" Size="Size.Medium"
+                        OnClick="ShowUploadDialogAsync" title="Upload a package" />
+            </AuthorizeView>
             <MudFab Color="Color.Default" StartIcon="@Icons.Material.Filled.Refresh" Size="Size.Medium"
                     OnClick="LoadAsync" title="Refresh" />
         </MudStack>

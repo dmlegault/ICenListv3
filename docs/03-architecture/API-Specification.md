@@ -22,12 +22,20 @@
 | Agent (own name) | `GET /api/agents/{agentName}/policies`, `POST .../report`, `POST .../logs`, `PUT /api/agents/{name}/capabilities`, the hub |
 | Agent or Viewer | `GET /api/packages/{digest}` |
 | Viewer | every other `GET` |
-| Operator | every `POST`, `PUT` and `DELETE` not listed above |
+| Operator | every `POST`, `PUT` and `DELETE` not listed above — including all of `/api/api-keys` and `/api/join-tokens` (listing included) and `DELETE /api/agents/{name}/credential` |
 
 ### `POST /api/agents/enroll`
 **Bearer:** a join token. **Body:** `EnrollAgentRequest { AgentName }`
 **201** → `EnrollAgentResponse { AgentName, AgentToken }` — the token is returned once and consumes one use of the join token. The agent row is created if it did not exist.
 **400** the name is not a valid agent name. **401** the join token is unknown, expired, revoked or used up. **409** the name already holds a live credential — revoke it first (`revoke-agent`, or `DELETE /api/agents/{name}`, which cascades). Under `Off` (loopback only) enrollment works without a join token.
+
+### Keys and join tokens (Operator)
+`POST /api/api-keys` — body `CreateApiKeyRequest { Name, Role, ExpiresIn? }` (`Role` is `Operator` or `Viewer`; `ExpiresIn` like `30d`, `1h` or `never`, default 90 days) → **201** `CreateApiKeyResponse { Id, Name, Role, ExpiresAtUtc, Key }`, the key once. **400** a bad role or expiry; **409** a live key already has that name.
+`GET /api/api-keys` → `ApiKeyDto[]` (`Status` is `live`, `expired` or `revoked`; never the key). `DELETE /api/api-keys/{name}` → **204**; **404** no live key of that name.
+`POST /api/join-tokens` — body `CreateJoinTokenRequest { ExpiresIn?, Uses? }` (default 24 h and unlimited uses; `never` is refused) → **201** `CreateJoinTokenResponse { Id, ExpiresAtUtc, UsesRemaining, Token }`. `GET /api/join-tokens` → `JoinTokenDto[]` (`Status` adds `used up`). `DELETE /api/join-tokens/{id}` → **204** / **404**.
+`DELETE /api/agents/{name}/credential` → **204** revokes the agent's credential and keeps its registry row (`DELETE /api/agents/{name}` does both); **404** it holds none. `AgentDto.CredentialState` is `none`, `live` or `revoked`.
+
+**Who did it.** A management caller may add `X-Enlist-Operator: <DOMAIN\user>` naming the person behind the key — the portal does, with the Windows identity of whoever is looking at the page. The control plane never authorizes on it; it logs it. Every administrative write — anything but a `GET`, and not what an agent does as itself (reports, logs, capabilities) — leaves one line in the control plane's log: `Audit: PUT /api/agents/WEB-07/tags -> 200 by key 'portal' for CORP\alice`. An enrollment is audited as `by join token <id>`.
 
 **Bootstrap, without HTTP.** Verbs on the control plane executable, run on its host against its database, because the first Operator key cannot be created by an Operator who does not exist yet:
 
@@ -40,7 +48,7 @@ Enlist.ControlPlane.exe list-keys
 Enlist.ControlPlane.exe list-join-tokens
 ```
 
-**Status (2026-09-11):** steps 1 and 2 of [Authentication-Design.md §13](Authentication-Design.md) are implemented — the control plane (pinned by `AuthenticationTests`) and the agent (`AgentCredentialTests`: enrollment with `--join-token`, the DPAPI-protected credential file, every call and the hub connection made as itself, a rejected credential leaving applications running). The portal does not yet authenticate people or hold a key, and `enlist-deploy` has no `--api-key` (step 3), so a deployment with either still runs `Off` on loopback — which is what the demo does. A fleet driven through the API with keys can run `Required` today.
+**Status (2026-09-11):** all three steps of [Authentication-Design.md §13](Authentication-Design.md) are implemented — the control plane (`AuthenticationTests`, `AccessEndpointsTests`), the agent (`AgentCredentialTests`) and the portal and tools (`PortalAuthenticationTests`, `PortalRolesTests`, `ControlPlaneApiClientTests`; `--api-key` in `DeployCliTests`). Still deferred: `--control-plane-ca` on the agent (a trust anchor for a private CA; the machine store serves until then) and an audit *table* (the audit is the structured log line below). The demo runs `Off` on loopback by choice, not necessity.
 
 ---
 

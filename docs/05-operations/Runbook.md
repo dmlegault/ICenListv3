@@ -31,7 +31,7 @@ Portal → Applications → select the row → for each of its assignments, clic
 
 ### 2.4 Add a new managed agent
 
-1. Have an Operator mint a join token (`Enlist.ControlPlane.exe create-join-token`; the portal will do this once step 3 of the authentication design lands). Install `enlist-agent` on the new machine pointed at the control plane (see [`Developer-Setup-Guide.md` §5](../01-start-here/Developer-Setup-Guide.md#5-run-an-agent)) and start it **once** with `--join-token <token>`: it enrolls, stores its credential under `--data`, and the option is not needed again — take it out of the service definition. Against a control plane whose authentication is `Off` (loopback only) there is no token to give.
+1. Have an Operator mint a join token (portal: Agents → *Enroll agent*, which shows the token once; or `Enlist.ControlPlane.exe create-join-token` on the control plane host). Install `enlist-agent` on the new machine pointed at the control plane (see [`Developer-Setup-Guide.md` §5](../01-start-here/Developer-Setup-Guide.md#5-run-an-agent)) and start it **once** with `--join-token <token>`: it enrolls, stores its credential under `--data`, and the option is not needed again — take it out of the service definition. Against a control plane whose authentication is `Off` (loopback only) there is no token to give.
 2. It self-registers on its first successful call. Assign tags (portal → Agents → Edit tags, or `PUT /api/agents/{name}/tags`) so it picks up any tag-selector assignments already in place — no redeploy action is needed on the application side.
 
 ### 2.5 Decommission an agent
@@ -48,6 +48,13 @@ Decision tree:
 2. Is the machine's card showing **Stale**? If yes but Online, the machine is reachable enough to have registered/reported once but its *reconciliation* may not have run since your change — go to §3.2 (the SignalR reconnect issue) if the control plane restarted recently.
 3. Confirm the assignment actually changed as intended: `GET /api/application-policies?agentName=<name>` and check `desiredState`/`packageDigest`/`updatedAtUtc` directly against the control plane, bypassing the portal's own caching/polling.
 4. If the assignment is correct but the agent's last report predates it: the agent hasn't reconciled yet. Restarting the agent process always forces a fresh, full reconciliation from the current desired state, regardless of any missed push — use this as a reliable (if blunt) fallback while investigating the SignalR path.
+
+### 2.7 Give a tool access, or take it away
+
+1. Portal → Access → *New API key*: a name that says who holds it (`ci-main`, `dashboard`), the role it needs (a pipeline that uploads is an Operator; anything that only reads is a Viewer), an expiry. The key is shown once.
+2. Hand it over out of band. `enlist-deploy --api-key <key>`, or `ENLIST_API_KEY` in a pipeline's environment; `Authorization: Bearer <key>` for anything else.
+3. To take it away: Access → the key's row → Revoke. Whatever presents it gets 401 from then on; the name is free to reuse. The same page revokes join tokens, and the Agents tab revokes an agent's credential (§3.19 says what the agent then does).
+4. The portal's own key is created at install (`create-api-key --name portal --role Operator --expires never`) and stored protected (`Enlist.Portal.exe protect`); §3.20 covers losing it.
 
 ## 3. Known Issues and Postmortems
 
@@ -265,3 +272,11 @@ On a `net472` application the runner may instead sit at 100% CPU and answer noth
 **Cause:** the credential was revoked (`revoke-agent`, or `DELETE /api/agents/X`, which revokes as it deregisters), or the agent is talking to a control plane that never issued it (a restored database, a different environment). The `403` variant means the credential file belongs to a different agent name — a data directory copied from another machine.
 
 **Fix:** nothing running is disturbed, so there is no hurry. Have an Operator mint a join token (`create-join-token`), make sure the name is free (`revoke-agent --name X` if it still shows a live credential in the registry), and restart the agent once with `--join-token <token>`: it re-enrolls, replaces `<data>\credential`, and logs `Enrolled as 'X'`. An agent that refuses to start with *rejected this agent's stored credential* is the same condition met at startup, and the same fix. Do not leave `--join-token` in the service definition afterwards.
+
+### 3.20 The portal says "The control plane refused the portal's own credential (401)"
+
+**Symptom:** every page loads and every action — and, on a refresh, every list — ends in that message. The person is signed in fine; it is the portal's own key to the control plane that is not accepted.
+
+**Cause:** `ControlPlane:ApiKey` is missing, was revoked (Access page, or `revoke-api-key --name portal`), expired, or is a `dpapi:` value written on another machine.
+
+**Fix:** on the control plane host, `Enlist.ControlPlane.exe create-api-key --name portal --role Operator --expires never` (`revoke-api-key --name portal` first if `list-keys` still shows it live); on the portal host, `Enlist.Portal.exe protect <key>` and put the printed value in `ControlPlane:ApiKey`; restart the portal. Nothing else is affected — agents and tools hold their own credentials.

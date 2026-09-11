@@ -1,4 +1,6 @@
 using System.IO.Compression;
+using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 
 using Enlist.ControlPlane.Contracts;
@@ -6,7 +8,7 @@ using Enlist.ControlPlane.Contracts;
 namespace Enlist.Deploy;
 
 /// <summary>
-/// enlist-deploy --control-plane &lt;url&gt; --app &lt;name&gt; --source &lt;dir&gt;
+/// enlist-deploy --control-plane &lt;url&gt; --app &lt;name&gt; --source &lt;dir&gt; [--api-key &lt;key&gt;]
 ///
 /// Zips --source and uploads it once (content-addressed — re-running this against an unchanged build
 /// is a no-op upload, see PackageBlobStore). That is the entire job of this tool: it publishes a
@@ -18,9 +20,16 @@ namespace Enlist.Deploy;
 /// The runtime flavor (net472 vs net10.0 — which enlist-runner build an agent needs to host this) is
 /// no longer declared here either: the control plane detects it automatically from the uploaded
 /// build's own shape (presence or absence of a .deps.json entry) and returns it below for confirmation.
+///
+/// A control plane that requires authentication wants a management API key with the Operator role
+/// (Authentication-Design.md 6.2): --api-key, or ENLIST_API_KEY in the environment, which is what a
+/// pipeline uses because a command line is visible in process listings. Against a control plane whose
+/// authentication is Off (loopback only) neither is needed.
 /// </summary>
 internal static class Program
 {
+    private const string ApiKeyVariable = "ENLIST_API_KEY";
+
     private static async Task<int> Main(string[] args)
     {
         Options options;
@@ -32,16 +41,20 @@ internal static class Program
         {
             Console.Error.WriteLine(ex.Message);
             Console.Error.WriteLine();
-            Console.Error.WriteLine("Usage: enlist-deploy --control-plane <url> --app <name> --source <dir>");
+            Console.Error.WriteLine($"Usage: enlist-deploy --control-plane <url> --app <name> --source <dir> [--api-key <key>]   (or {ApiKeyVariable} in the environment)");
             return 2;
         }
 
         using var http = new HttpClient { BaseAddress = options.ControlPlaneUrl };
+        if (options.ApiKey is { } apiKey)
+        {
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        }
 
         Console.WriteLine($"Packaging {options.SourceDir}...");
         try
         {
-            await UploadPackageAsync(http, options.SourceDir, options.AppName);
+            await UploadPackageAsync(http, options.SourceDir, options.AppName, options.ApiKey is not null);
         }
         catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException)
         {
@@ -53,7 +66,7 @@ internal static class Program
         return 0;
     }
 
-    private static async Task UploadPackageAsync(HttpClient http, string sourceDir, string appName)
+    private static async Task UploadPackageAsync(HttpClient http, string sourceDir, string appName, bool presentedKey)
     {
         var tempZip = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".zip");
         try
@@ -62,8 +75,22 @@ internal static class Program
 
             await using var stream = File.OpenRead(tempZip);
             var response = await http.PostAsync($"/api/packages?application={Uri.EscapeDataString(appName)}", new StreamContent(stream));
-            // The server's own words, not a bare status code: a refused name, an unknown digest or a
-            // body over the limit each say exactly what to change.
+
+            // The two refusals that are about the caller rather than the package say what to do; the
+            // rest quote the server's own words - a refused name, an unknown digest or a body over the
+            // limit each say exactly what to change.
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                throw new InvalidOperationException(presentedKey
+                    ? "The control plane refused the API key (401): it is unknown, revoked or expired. An Operator creates another with 'Enlist.ControlPlane create-api-key --name <name> --role Operator', or from the portal's Access page."
+                    : $"The control plane requires an API key (401). Pass --api-key <key> or set {ApiKeyVariable}; an Operator creates one with 'Enlist.ControlPlane create-api-key --name <name> --role Operator', or from the portal's Access page.");
+            }
+
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                throw new InvalidOperationException("The API key presented has the Viewer role (403); uploading a package needs Operator - it is code every qualifying agent will run.");
+            }
+
             if (!response.IsSuccessStatusCode)
             {
                 var detail = (await response.Content.ReadAsStringAsync()).Trim();
@@ -85,13 +112,14 @@ internal static class Program
         }
     }
 
-    private sealed record Options(Uri ControlPlaneUrl, string AppName, string SourceDir)
+    private sealed record Options(Uri ControlPlaneUrl, string AppName, string SourceDir, string? ApiKey)
     {
         public static Options Parse(string[] args)
         {
             string? controlPlane = null;
             string? appName = null;
             string? sourceDir = null;
+            string? apiKey = null;
 
             for (var i = 0; i < args.Length - 1; i++)
             {
@@ -100,6 +128,7 @@ internal static class Program
                     case "--control-plane": controlPlane = args[++i]; break;
                     case "--app": appName = args[++i]; break;
                     case "--source": sourceDir = args[++i]; break;
+                    case "--api-key": apiKey = args[++i]; break;
                 }
             }
 
@@ -118,7 +147,14 @@ internal static class Program
                 throw new ArgumentException($"--app '{appName}' is not a valid application name: {ApplicationNames.Requirement}.");
             }
 
-            return new Options(new Uri(controlPlane.TrimEnd('/') + "/"), appName, sourceDir);
+            // The command line wins over the environment when both are given; an empty variable is no key.
+            apiKey ??= Environment.GetEnvironmentVariable(ApiKeyVariable);
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                apiKey = null;
+            }
+
+            return new Options(new Uri(controlPlane.TrimEnd('/') + "/"), appName, sourceDir, apiKey);
         }
     }
 }

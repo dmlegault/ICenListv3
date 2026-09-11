@@ -8,7 +8,10 @@ public sealed record AgentDto(
     bool SchedulingEnabled = true,
 
     /// <summary>Null until this agent has reported in at least once since the capability endpoint existed — an older agent, or one that has never connected.</summary>
-    AgentCapabilitiesDto? Capabilities = null);
+    AgentCapabilitiesDto? Capabilities = null,
+
+    /// <summary>One of <see cref="AgentCredentialStates"/>: whether this agent holds a live credential (enrolled with a join token), has had it revoked, or has never enrolled - which under authentication Off is every agent.</summary>
+    string CredentialState = AgentCredentialStates.None);
 
 /// <summary>Replaces the full tag set — not a merge. Simpler contract, and matches how CronOverrides updates already work.</summary>
 public sealed record SetAgentTagsRequest(IReadOnlyDictionary<string, string> Tags);

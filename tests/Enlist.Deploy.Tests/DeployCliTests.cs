@@ -13,10 +13,13 @@ namespace Enlist.Deploy.Tests;
 /// idempotent re-upload, and that the package is queryable afterward with no assignment/policy
 /// anywhere pointing at it yet — a freshly-deployed, unplaced package is the expected end state of
 /// this CLI, not an intermediate one. Runs the real enlist-deploy.exe as its own process against a
-/// real control plane, same pattern as every other CLI test in this suite.
+/// real control plane, same pattern as every other CLI test in this suite. The last three run against
+/// a control plane that requires authentication, the way a real one does.
 /// </summary>
 public sealed class DeployCliTests : IAsyncLifetime
 {
+    private static readonly IReadOnlyDictionary<string, string> Required = new Dictionary<string, string> { ["Authentication__Mode"] = "Required" };
+
     private ControlPlaneTestServer? _server;
     private HttpClient _client = null!;
 
@@ -36,7 +39,9 @@ public sealed class DeployCliTests : IAsyncLifetime
         }
     }
 
-    private async Task<(int ExitCode, string Output)> RunDeployAsync(params string[] args)
+    private static Task<(int ExitCode, string Output)> RunDeployAsync(params string[] args) => RunDeployAsync(null, args);
+
+    private static async Task<(int ExitCode, string Output)> RunDeployAsync(IReadOnlyDictionary<string, string>? environment, params string[] args)
     {
         var dll = RepoPaths.DeployDll();
         Assert.True(File.Exists(dll), $"enlist-deploy.dll not found at {dll} - build src/Enlist.Deploy first.");
@@ -46,6 +51,16 @@ public sealed class DeployCliTests : IAsyncLifetime
         foreach (var arg in args)
         {
             psi.ArgumentList.Add(arg);
+        }
+
+        // Never inherited from the test host: a key in this shell must not make the "no key" test pass.
+        psi.Environment.Remove("ENLIST_API_KEY");
+        if (environment is not null)
+        {
+            foreach (var (key, value) in environment)
+            {
+                psi.Environment[key] = value;
+            }
         }
 
         using var process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start enlist-deploy.");
@@ -118,5 +133,46 @@ public sealed class DeployCliTests : IAsyncLifetime
         var packages = await _client.GetFromJsonAsync<List<PackageInfo>>("/api/packages");
         var package = Assert.Single(packages!, p => p.ApplicationName == appName);
         Assert.Equal(RuntimeFlavors.NetFramework472, package.RuntimeFlavor);
+    }
+
+    [Fact]
+    public async Task Against_a_control_plane_that_requires_authentication_an_operator_key_uploads_and_no_key_is_told_what_to_do()
+    {
+        await using var required = await ControlPlaneTestServer.StartAsync(TimeSpan.FromSeconds(30), Required);
+        var operatorKey = await required.CreateApiKeyAsync("ci-main", "Operator");
+        string[] upload = ["--control-plane", required.BaseUri.ToString(), "--app", RepoPaths.UniqueAppName(), "--source", RepoPaths.SampleServiceDir()];
+
+        // No key: refused with the remedy, not a bare status code.
+        var refused = await RunDeployAsync(upload);
+        Assert.Equal(1, refused.ExitCode);
+        Assert.Contains("--api-key", refused.Output);
+        Assert.Contains("ENLIST_API_KEY", refused.Output);
+
+        // On the command line.
+        var withFlag = await RunDeployAsync([.. upload, "--api-key", operatorKey]);
+        Assert.Equal(0, withFlag.ExitCode);
+        Assert.Contains("uploaded", withFlag.Output);
+
+        // In the environment, the way a pipeline passes it.
+        var withEnvironment = await RunDeployAsync(new Dictionary<string, string> { ["ENLIST_API_KEY"] = operatorKey }, upload);
+        Assert.Equal(0, withEnvironment.ExitCode);
+        Assert.Contains("already on the control plane", withEnvironment.Output);
+    }
+
+    [Fact]
+    public async Task A_viewer_key_cannot_upload_and_is_told_why()
+    {
+        await using var required = await ControlPlaneTestServer.StartAsync(TimeSpan.FromSeconds(30), Required);
+        var viewerKey = await required.CreateApiKeyAsync("dashboard", "Viewer");
+
+        var (exitCode, output) = await RunDeployAsync(
+            "--control-plane", required.BaseUri.ToString(),
+            "--app", RepoPaths.UniqueAppName(),
+            "--source", RepoPaths.SampleServiceDir(),
+            "--api-key", viewerKey);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Viewer", output);
+        Assert.Contains("Operator", output);
     }
 }

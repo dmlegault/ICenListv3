@@ -1,0 +1,75 @@
+@inject ControlPlaneApiClient Api
+@inject ISnackbar Snackbar
+
+@* Mints a join token (Authentication-Design.md 4.1) and shows it once. The token is what an operator
+   hands to a machine they have not met yet; the agent exchanges it for its own credential on its first
+   start and the token is never needed again. *@
+<MudDialog>
+    <DialogContent>
+        @if (_created is null)
+        {
+            <MudText Class="mb-4">
+                A join token lets a new agent enroll: started once with <code>--join-token</code>, it exchanges the token
+                for its own long-lived credential, which never leaves that machine. One token can enroll a whole
+                fleet; keep it short-lived.
+            </MudText>
+            <MudSelect T="string" @bind-Value="_expiresIn" Label="Valid for" Variant="Variant.Outlined" Class="mb-3">
+                <MudSelectItem Value="@("1h")">1 hour</MudSelectItem>
+                <MudSelectItem Value="@("24h")">24 hours</MudSelectItem>
+                <MudSelectItem Value="@("7d")">7 days</MudSelectItem>
+            </MudSelect>
+            <MudNumericField T="int?" @bind-Value="_uses" Label="Enrollments" Min="1" Variant="Variant.Outlined"
+                             HelperText="How many agents may enroll with it. Leave blank for any number until it expires." />
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-3">Shown once. Copy it now; the control plane keeps only a hash and cannot show it again.</MudAlert>
+            <MudTextField T="string" Value="@_created.Token" Label="Join token" ReadOnly="true" Variant="Variant.Outlined" Class="mb-3" />
+            <MudText Typo="Typo.body2" Class="mb-1">On the new machine, once (or the installer's Agent page):</MudText>
+            <MudTextField T="string" Value="@Command" ReadOnly="true" Variant="Variant.Outlined" Lines="3" Class="mb-2" />
+            <MudText Typo="Typo.caption">
+                Expires @_created.ExpiresAtUtc.ToLocalTime().ToString("g"); enrollments: @(_created.UsesRemaining?.ToString() ?? "unlimited until then").
+                The agent stores its credential under its data directory and ignores a join token left on a later start.
+            </MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_created is null)
+        {
+            <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="CreateAsync" Disabled="_busy">Create join token</MudButton>
+        }
+        else
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="@(() => MudDialog.Close(DialogResult.Ok(true)))">Done</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    private string _expiresIn = "24h";
+    private int? _uses;
+    private bool _busy;
+    private CreateJoinTokenResponse? _created;
+
+    private string Command => $"enlist-agent --control-plane <control plane url> --agent <name> --runner-bin <path> --join-token {_created?.Token}";
+
+    private async Task CreateAsync()
+    {
+        _busy = true;
+        try
+        {
+            _created = await Api.CreateJoinTokenAsync(new CreateJoinTokenRequest(_expiresIn, _uses));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

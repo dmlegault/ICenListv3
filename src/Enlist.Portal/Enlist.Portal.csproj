@@ -16,6 +16,14 @@
       silently (the page loads unstyled with no error — see Runbook.md).
     -->
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0" />
+    <!--
+      Windows authentication for the people who use the portal (Authentication-Design.md section 5):
+      Negotiate on Kestrel - Kerberos in a domain, NTLM against local accounts. No password store of
+      our own, ever.
+    -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" Version="10.0.0" />
+    <!-- DPAPI, for the portal's control-plane key in configuration (Services/PortalCredential.cs): machine scope, this machine only. -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
   </ItemGroup>
 
   <!-- Design doc section 8: "The portal never talks to an agent" — only the control plane's DTOs are needed here, same reasoning as Enlist.Deploy referencing this and nothing else. -->

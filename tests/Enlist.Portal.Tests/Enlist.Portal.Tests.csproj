@@ -11,6 +11,8 @@
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
+    <!-- So the Windows sign-in tests report as SKIPPED, with the reason, on a machine whose account cannot sign in over the network (see PortalAuthenticationTests). -->
+    <PackageReference Include="Xunit.SkippableFact" Version="1.5.23" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
   </ItemGroup>
 
@@ -28,6 +30,8 @@
   -->
   <ItemGroup>
     <ProjectReference Include="..\..\src\Enlist.Portal\Enlist.Portal.csproj" />
+    <!-- ControlPlaneTestServer and PortalTestServer: the authentication tests drive the real portal, as a process, against a real control plane. -->
+    <ProjectReference Include="..\Enlist.TestSupport\Enlist.TestSupport.csproj" />
   </ItemGroup>
 
 </Project>

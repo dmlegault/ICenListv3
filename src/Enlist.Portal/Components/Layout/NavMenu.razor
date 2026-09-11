@@ -11,6 +11,13 @@
         <MudIcon Icon="@Icons.Material.Filled.Article" Size="Size.Small" Class="enlist-nav-icon" />
         <span>Logs</span>
     </NavLink>
+    @* Keys and join tokens: Operators only, so a Viewer never sees the door. *@
+    <AuthorizeView Policy="@PortalRoles.Operator">
+        <NavLink class="enlist-nav-link" href="/access">
+            <MudIcon Icon="@Icons.Material.Filled.Key" Size="Size.Small" Class="enlist-nav-icon" />
+            <span>Access</span>
+        </NavLink>
+    </AuthorizeView>
 </nav>
 
 @code {

@@ -219,7 +219,7 @@ One row per join token an Operator has minted (`create-join-token`). Good for `P
 
 ### 2.8 `ApiKeys` (`ApiKeyEntity`)
 
-One row per management API key (`create-api-key`): the portal's own key once step 3 lands, `enlist-deploy`, a CI pipeline, a read-only dashboard or a reverse proxy reading the endpoint feed.
+One row per management API key (`create-api-key`): the portal's own key, `enlist-deploy`, a CI pipeline, a read-only dashboard or a reverse proxy reading the endpoint feed.
 
 | Column | Type | Nullable | Notes |
 |---|---|---|---|

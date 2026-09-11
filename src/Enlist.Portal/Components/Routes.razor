@@ -1,6 +1,15 @@
-﻿<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+        @* Each page carries [Authorize(Policy = Viewer)] from Pages/_Imports.razor; a person Windows
+           has identified but neither group admits lands here, on a page that names the groups. *@
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                <AccessDenied />
+            </NotAuthorized>
+            <Authorizing>
+                <MudProgressCircular Indeterminate="true" />
+            </Authorizing>
+        </AuthorizeRouteView>
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
 </Router>

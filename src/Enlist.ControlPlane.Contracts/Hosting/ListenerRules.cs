@@ -1,9 +1,10 @@
-namespace Enlist.ControlPlane.Authentication;
+namespace Enlist.ControlPlane.Contracts;
 
 /// <summary>
 /// The hard rules of Authentication-Design.md section 8, as a pure function over the configured
-/// listen URLs so they can be reasoned about without a server: authentication may be Off only when
-/// every listener is loopback, and when it is Required no listener off loopback may be plain HTTP.
+/// listen URLs so they can be reasoned about without a server, and shared by the control plane and
+/// the portal (R3: the portal has the same two rules). Authentication may be Off only when every
+/// listener is loopback, and when it is Required no listener off loopback may be plain HTTP.
 /// Returns the message to refuse startup with, or null when the configuration is acceptable.
 /// </summary>
 public static class ListenerRules
@@ -11,12 +12,15 @@ public static class ListenerRules
     /// <summary>What Kestrel listens on when nothing is configured at all.</summary>
     private const string KestrelDefault = "http://localhost:5000";
 
-    public static string? Violation(IEnumerable<string> urls, AuthenticationOptions options)
+    /// <param name="component">Named in the message: "control plane" or "portal".</param>
+    public static string? Violation(IEnumerable<string> urls, string? mode, string component)
     {
-        if (!options.IsKnownMode)
+        if (!AuthenticationModes.IsKnown(mode))
         {
-            return $"Authentication:Mode must be '{AuthenticationOptions.Required}' or '{AuthenticationOptions.Off}', got '{options.Mode}'.";
+            return $"Authentication:Mode must be '{AuthenticationModes.Required}' or '{AuthenticationModes.Off}', got '{mode}'.";
         }
+
+        var off = AuthenticationModes.IsOff(mode);
 
         var list = urls.Select(u => u.Trim()).Where(u => u.Length > 0).ToList();
         if (list.Count == 0)
@@ -29,16 +33,16 @@ public static class ListenerRules
             var (scheme, host) = Split(url);
             var loopback = IsLoopback(host);
 
-            if (options.IsOff && !loopback)
+            if (off && !loopback)
             {
-                return $"Authentication is Off, but '{url}' listens off loopback. Off is honoured only when every listener is bound to " +
-                       "localhost, 127.0.0.1 or ::1, and there is no override: an unauthenticated control plane reachable from a network " +
+                return $"Authentication is Off, but the {component} listens on '{url}', off loopback. Off is honoured only when every listener is bound to " +
+                       $"localhost, 127.0.0.1 or ::1, and there is no override: an unauthenticated {component} reachable from a network " +
                        "cannot be configured. Bind to loopback, or set Authentication:Mode to Required. See docs/03-architecture/Authentication-Design.md section 8.";
             }
 
-            if (!options.IsOff && !loopback && scheme == "http")
+            if (!off && !loopback && scheme == "http")
             {
-                return $"Authentication is Required, but '{url}' is plain HTTP off loopback, which would send bearer tokens in the clear. " +
+                return $"Authentication is Required, but the {component} listens on '{url}', plain HTTP off loopback, which would carry credentials in the clear. " +
                        "Use https:// with a Kestrel certificate, or bind to loopback. See docs/03-architecture/Authentication-Design.md section 9.";
             }
         }

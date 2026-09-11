@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Enlist.TestSupport;
@@ -20,6 +21,7 @@ namespace Enlist.TestSupport;
 public sealed class ControlPlaneTestServer : IAsyncDisposable
 {
     private Process _process;
+    private StringBuilder _output;
     private readonly string _databaseName;
     private readonly string _packageStorageRoot;
     private readonly IReadOnlyDictionary<string, string>? _extraEnvironment;
@@ -32,9 +34,22 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
     /// <summary>Where this instance keeps its package blobs — for a test that has to prove nothing was left on disk.</summary>
     public string PackageStorageRoot => _packageStorageRoot;
 
-    private ControlPlaneTestServer(Process process, Uri baseUri, string databaseName, string packageStorageRoot, IReadOnlyDictionary<string, string>? extraEnvironment)
+    /// <summary>Everything the control plane has written to stdout and stderr so far - its log. For a test that has to prove a line was (or was not) logged, such as the audit line on a write.</summary>
+    public string Output
+    {
+        get
+        {
+            lock (_output)
+            {
+                return _output.ToString();
+            }
+        }
+    }
+
+    private ControlPlaneTestServer(Process process, Uri baseUri, string databaseName, string packageStorageRoot, IReadOnlyDictionary<string, string>? extraEnvironment, StringBuilder output)
     {
         _process = process;
+        _output = output;
         BaseUri = baseUri;
         _databaseName = databaseName;
         _packageStorageRoot = packageStorageRoot;
@@ -74,8 +89,8 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
         try
         {
             // Port 0 = Kestrel picks one and tells us which, via its startup log. See ListeningOn.
-            var (process, baseUri) = await LaunchAsync(listenUrls, databaseName, packageStorageRoot, extraEnvironment, readyTimeout).ConfigureAwait(false);
-            return new ControlPlaneTestServer(process, baseUri, databaseName, packageStorageRoot, extraEnvironment);
+            var (process, baseUri, output) = await LaunchAsync(listenUrls, databaseName, packageStorageRoot, extraEnvironment, readyTimeout).ConfigureAwait(false);
+            return new ControlPlaneTestServer(process, baseUri, databaseName, packageStorageRoot, extraEnvironment, output);
         }
         catch
         {
@@ -152,7 +167,7 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
     /// <summary>The counterpart of <see cref="StopAsync"/>: relaunches on the address the first launch chose, so an agent holding that address reconnects to it.</summary>
     public async Task StartAgainAsync(TimeSpan readyTimeout)
     {
-        var (process, baseUri) = await LaunchAsync(BaseUri.ToString().TrimEnd('/'), _databaseName, _packageStorageRoot, _extraEnvironment, readyTimeout).ConfigureAwait(false);
+        var (process, baseUri, output) = await LaunchAsync(BaseUri.ToString().TrimEnd('/'), _databaseName, _packageStorageRoot, _extraEnvironment, readyTimeout).ConfigureAwait(false);
 
         if (baseUri != BaseUri)
         {
@@ -161,9 +176,10 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
         }
 
         _process = process;
+        _output = output;
     }
 
-    private static async Task<(Process Process, Uri BaseUri)> LaunchAsync(
+    private static async Task<(Process Process, Uri BaseUri, StringBuilder Output)> LaunchAsync(
         string urls, string databaseName, string packageStorageRoot, IReadOnlyDictionary<string, string>? extraEnvironment, TimeSpan readyTimeout)
     {
         var connectionString = ConnectionStringFor(databaseName);
@@ -272,7 +288,7 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
                     var response = await http.GetAsync(new Uri(baseUri, "/health")).ConfigureAwait(false);
                     if (response.IsSuccessStatusCode)
                     {
-                        return (process, baseUri);
+                        return (process, baseUri, output);
                     }
                 }
                 catch (Exception ex)

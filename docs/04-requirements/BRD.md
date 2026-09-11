@@ -57,7 +57,7 @@ This is slow, error-prone (a missed machine, a stale copy), and has no record of
 
 ### 5.2 Out of scope (not present in the current implementation)
 
-- Multi-tenancy / role-based access control in the portal (the control plane authenticates callers as of 2026-09-11 — [Authentication-Design.md](../03-architecture/Authentication-Design.md) — but the portal does not yet authenticate people; roles exist only as `Operator` and `Viewer` on API keys).
+- Multi-tenancy / role-based access control in the portal (as of 2026-09-11 the portal signs people in with Windows and maps two groups to `Operator` and `Viewer` — [Authentication-Design.md](../03-architecture/Authentication-Design.md); multi-tenancy itself is still out of scope).
 - Cross-platform agents (the agent's Windows Service hosting and Job Object process-tree cleanup are Windows-specific; Job Object usage is explicitly guarded as Windows-only and optional even there).
 - Blue/green or canary rollout orchestration — pointing a rule at a new digest applies to every matching machine as soon as each reconciles; there is no phased rollout primitive.
 - Secrets management — application settings are a flat `IDictionary<string,string>` read from a colocated `*.settings.json` file; there is no encrypted-secret or vault integration.
@@ -77,7 +77,7 @@ This is slow, error-prone (a missed machine, a stale copy), and has no record of
 - .NET 10 runtime available on every managed machine, the control plane host, and the portal host.
 - SQL Server (or SQL Server-compatible, e.g. LocalDB for development) reachable from the control plane.
 - Plugin authors follow the `contracts/EnlistAttributes.cs` source-inclusion convention rather than referencing a compiled assembly.
-- The control plane has an authentication layer (bearer tokens; `Off` is permitted only on loopback, with no override). Agents enroll with a join token and present their own credential. Until the portal authenticates people (step 3 of [Authentication-Design.md](../03-architecture/Authentication-Design.md)), a deployment with a portal runs the control plane `Off`, which forces it onto loopback — the trusted boundary is the machine, not the network.
+- The control plane has an authentication layer (bearer tokens; `Off` is permitted only on loopback, with no override). Agents enroll with a join token and present their own credential, the portal signs people in with Windows, and tools present API keys ([Authentication-Design.md](../03-architecture/Authentication-Design.md), implemented in full). `Off` is permitted only on loopback — the trusted boundary is the machine, not the network.
 
 ## 8. Related Documents
 

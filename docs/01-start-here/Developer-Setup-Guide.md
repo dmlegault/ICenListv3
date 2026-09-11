@@ -47,6 +47,8 @@ ControlPlane__BaseUrl=http://localhost:5293 dotnet run --project src/Enlist.Port
 
 Open `http://localhost:5231` — you should see the Applications page (empty, with an info alert, on a fresh system) under the "enList Portal" dark theme.
 
+Authentication is `Off` in the portal's `appsettings.Development.json` (as in the control plane's), which the portal permits only because `launchSettings.json` binds to `localhost` — so `dotnet run` needs no Windows groups and no key, and everyone is an Operator. A real deployment runs `Required`: Windows sign-in, two group names, and the portal's own key ([Deployment-IaC §1.8](../05-operations/Deployment-IaC.md)).
+
 ## 5. Run an Agent
 
 An agent needs `enlist-runner`'s build output as its `--runner-bin` (build it once — it doesn't need to be running):
@@ -177,7 +179,7 @@ Deciding where it runs is a separate step: open the portal's **Applications** ta
 dotnet test enList_v3.slnx
 ```
 
-Runs all five test projects (`Enlist.ControlPlane.Tests`, `Enlist.Agent.Tests`, `Enlist.Runner.Tests`, `Enlist.Deploy.Tests`, `Enlist.Portal.Tests`) — see [`Test-Plan.md`](../05-operations/Test-Plan.md) for what each covers. As of this writing: 211 tests, all passing (50 Runner, 3 Deploy, 68 ControlPlane, 72 Agent, 18 Portal). The 16 container tests skip themselves when their engine (Docker or wslc) or its runner image is unavailable — see Container-Developer-Guide.md &sect;9.
+Runs all five test projects (`Enlist.ControlPlane.Tests`, `Enlist.Agent.Tests`, `Enlist.Runner.Tests`, `Enlist.Deploy.Tests`, `Enlist.Portal.Tests`) — see [`Test-Plan.md`](../05-operations/Test-Plan.md) for what each covers. As of this writing: 232 tests, all passing (50 Runner, 5 Deploy, 72 ControlPlane, 72 Agent, 33 Portal). The 16 container tests skip themselves when their engine (Docker or wslc) or its runner image is unavailable — see Container-Developer-Guide.md &sect;9. Three portal tests that sign in with Windows skip themselves on a machine that refuses its own NTLM sign-in ([Test-Plan §2.6](../05-operations/Test-Plan.md)).
 
 ## 9. Common Pitfalls
 

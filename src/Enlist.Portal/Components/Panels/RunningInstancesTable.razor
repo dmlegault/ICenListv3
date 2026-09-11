@@ -122,14 +122,16 @@ else
                     <MudStack Row="true" Justify="Justify.FlexEnd">
                         @if (context.Type != "Conflict")
                         {
-                            <MudTooltip Text="@CommandDisabledReason(context)" Disabled="@(!CommandsDisabled(context))">
-                                <MudButton Size="Size.Small" Variant="Variant.Filled" Style="width:84px;"
-                                           Color="@(context.Type == "Service" ? (context.State == "Running" ? Color.Error : Color.Success) : (context.Paused ? Color.Success : Color.Warning))"
-                                           Disabled="@(_commandPending || CommandsDisabled(context))"
-                                           OnClick="@(() => SendCommandAsync(context))">
-                                    @(context.Type == "Service" ? (context.State == "Running" ? "Stop" : "Start") : (context.Paused ? "Enable" : "Disable"))
-                                </MudButton>
-                            </MudTooltip>
+                            <AuthorizeView Policy="@PortalRoles.Operator" Context="access">
+                                <MudTooltip Text="@CommandDisabledReason(context)" Disabled="@(!CommandsDisabled(context))">
+                                    <MudButton Size="Size.Small" Variant="Variant.Filled" Style="width:84px;"
+                                               Color="@(context.Type == "Service" ? (context.State == "Running" ? Color.Error : Color.Success) : (context.Paused ? Color.Success : Color.Warning))"
+                                               Disabled="@(_commandPending || CommandsDisabled(context))"
+                                               OnClick="@(() => SendCommandAsync(context))">
+                                        @(context.Type == "Service" ? (context.State == "Running" ? "Stop" : "Start") : (context.Paused ? "Enable" : "Disable"))
+                                    </MudButton>
+                                </MudTooltip>
+                            </AuthorizeView>
                         }
                     </MudStack>
                 </MudTd>
