@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Reflection;
 using System.Text.Json;
 
 using Enlist.ControlPlane;
@@ -8,6 +9,7 @@ using Enlist.ControlPlane.Hubs;
 
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting.WindowsServices;
 
@@ -116,6 +118,64 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapHub<ApplicationPolicyHub>(ApplicationPolicyHubContract.HubPath);
+
+// Liveness for load balancers, the installer's "verify this control plane URL", and anyone wondering
+// which build is answering. Unauthenticated like everything else here (review finding C2), and it
+// deliberately says nothing secret: a version and whether the database answers, never the connection
+// string. 200 when the database is reachable, 503 when it is not — the one degradation this process
+// can detect about itself, and the one a probe should act on. It can only ever report Unhealthy after
+// a successful start: outside Development the process refuses to start against an absent database.
+app.MapGet("/health", async (ControlPlaneDbContext db, CancellationToken requestAborted) =>
+{
+    var assembly = typeof(Program).Assembly;
+    var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? assembly.GetName().Version?.ToString()
+        ?? "unknown";
+
+    // SourceLink appends "+<commit>" build metadata; a probe wants the version, not the hash.
+    var plus = version.IndexOf('+');
+    if (plus > 0)
+    {
+        version = version[..plus];
+    }
+
+    // Bounded: a database that accepts the connection and never answers must not turn a health probe
+    // into a hung request. Longer than any healthy round trip, shorter than a probe's patience.
+    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(requestAborted);
+    timeout.CancelAfter(TimeSpan.FromSeconds(5));
+
+    HealthDatabaseDto database;
+    try
+    {
+        var reachable = await db.Database.CanConnectAsync(timeout.Token);
+        if (!reachable)
+        {
+            // A pool severed by an outage hands out its dead connections one at a time before it
+            // discards them, so the first probes after a database comes back still report it down — a
+            // false negative that a one-shot check, like the installer's Verify, would act on. Clear
+            // the pool and ask once more, so the answer reflects the database rather than the pool.
+            // The timeout above bounds both attempts together.
+            if (db.Database.GetDbConnection() is SqlConnection sql)
+            {
+                SqlConnection.ClearPool(sql);
+            }
+
+            reachable = await db.Database.CanConnectAsync(timeout.Token);
+        }
+
+        var latest = reachable ? (await db.Database.GetAppliedMigrationsAsync(timeout.Token)).LastOrDefault() : null;
+        database = new HealthDatabaseDto(reachable, latest, reachable ? null : "The database did not accept a connection.");
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException || !requestAborted.IsCancellationRequested)
+    {
+        // A message only. SqlException text names the server, never the credentials, and the
+        // connection string itself is never echoed.
+        database = new HealthDatabaseDto(false, null, ex is OperationCanceledException ? "The database did not answer within 5s." : ex.Message);
+    }
+
+    var dto = new HealthDto(database.Reachable ? "Healthy" : "Unhealthy", "enList control plane", version, database, DateTimeOffset.UtcNow);
+    return Results.Json(dto, statusCode: database.Reachable ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
+});
 
 // What an agent calls: everything currently assigned to it, resolved down to at most one outcome per
 // ApplicationName — Running and Stopped alike, the agent's own reconciliation loop decides what to do

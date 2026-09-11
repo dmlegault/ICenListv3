@@ -212,6 +212,29 @@ Emits `http.services` and deliberately **no** `http.routers`. A service is the l
 
 Verified against a real Traefik 3.1, including it following an application to a new ephemeral port after a container restart.
 
+## 5b. Health — for probes, the installer and the portal
+
+### `GET /health`
+Liveness with a verdict. Unauthenticated, like every other endpoint (review finding C2), and it says nothing secret: which product and build is answering, and whether its database does — never the connection string.
+**200** → `HealthDto` with `Status: "Healthy"` — the database answered.
+**503** → the same `HealthDto` with `Status: "Unhealthy"` and `Database.Error` set — the control plane is up but its database is not. Still a JSON body naming the product, so a caller can tell *enList, degraded* from *not enList at all* (a connection error, or a non-JSON body). Only ever seen after a successful start: outside Development the process refuses to start against an absent database ([`Deployment-IaC.md` §1.4](../05-operations/Deployment-IaC.md)).
+
+The database check is bounded at 5 s, so a database that accepts the connection and never answers cannot turn a probe into a hung request. `Database.LatestMigration` is the newest applied migration id — how the installer's Database page and a deploy pipeline can tell whether the schema is current without a second call.
+
+```jsonc
+{
+  "status": "Healthy",
+  "product": "enList control plane",
+  "version": "1.0.0",
+  "database": { "reachable": true, "latestMigration": "20260910143301_PackageVersionUnique", "error": null },
+  "checkedAtUtc": "2026-09-11T14:02:11.4Z"
+}
+```
+
+Point service monitors, load balancers and the installer's *Verify* at this, not at `/api/agents`.
+
+---
+
 ## 6. Real-Time Push — `ApplicationPolicyHub` (SignalR)
 
 **Hub path:** `/hubs/application-policies` (`ApplicationPolicyHubContract.HubPath` — the one place it is defined, referenced by both the hub registration and the agent's client)
@@ -227,6 +250,13 @@ Both push types are **fire-and-forget** from the server's point of view — `Cli
 ---
 
 ## 7. Data Transfer Objects
+
+### `HealthDto`, `HealthDatabaseDto`
+```csharp
+record HealthDto(string Status, string Product, string Version, HealthDatabaseDto Database, DateTimeOffset CheckedAtUtc);
+record HealthDatabaseDto(bool Reachable, string? LatestMigration, string? Error);
+```
+`Status` is `Healthy` or `Unhealthy` and mirrors the HTTP status (200 / 503); `Error` is set only when `Reachable` is false. See §5b.
 
 **File:** `src/Enlist.ControlPlane.Contracts/`
 
@@ -339,6 +369,7 @@ A **dynamic** host port (omit `HostPort`) is the recommended configuration: a si
 | 404 | Referenced agent / policy rule / package digest does not exist. |
 | 409 | Write blocked by a referential-integrity-style business rule — in practice only deleting a package that a policy rule still references. |
 | 413 | Package upload larger than `PackageStorage:MaxUploadBytes` (default 512 MB). |
+| 503 | `GET /health` only: the control plane is up but its database did not answer. The body is still a `HealthDto`. |
 
 ---
 

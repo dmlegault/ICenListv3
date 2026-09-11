@@ -39,12 +39,14 @@ New-Item -ItemType Directory -Force -Path $logs | Out-Null
 
 function Stop-DemoProcesses {
     # The control plane, both agents and the portal are all dotnet.exe processes this script started;
-    # each is matched by the DLL on its command line. Name AND command line, because a command-line
-    # match alone would also catch whatever shell is running this script.
+    # each is matched by the DLL AND the demo's own arguments on its command line. The arguments are
+    # not optional: the test suite spawns real Enlist.ControlPlane.dll processes on other ports, and a
+    # match on the DLL name alone killed nine of them mid-run. Name AND command line, because a
+    # command-line match alone would also catch whatever shell is running this script.
     $demo = [ordered]@{
-        'control plane' = '*Enlist.ControlPlane.dll*'
-        'agent'         = '*enlist-agent.dll*'
-        'portal'        = '*Enlist.Portal.dll*'
+        'control plane' = '*Enlist.ControlPlane.dll*localhost:5293*'
+        'agent'         = '*enlist-agent.dll*localhost:5293*'
+        'portal'        = '*Enlist.Portal.dll*localhost:5231*'
     }
     foreach ($label in $demo.Keys) {
         foreach ($p in (Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'dotnet.exe' -and $_.CommandLine -like $demo[$label] })) {

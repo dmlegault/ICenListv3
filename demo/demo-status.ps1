@@ -49,10 +49,12 @@ Write-Host ""
 Write-Host "Processes" -ForegroundColor White
 
 $components = @(
-    @{ Name = 'Control plane'; Match = '*Enlist.ControlPlane.dll*' },
+    # Matched on the demo's own arguments, not the DLL alone: the test suite spawns real control
+    # planes on other ports, and this must never mistake one of those for the demo's.
+    @{ Name = 'Control plane'; Match = '*Enlist.ControlPlane.dll*localhost:5293*' },
     @{ Name = 'DEV-AGENT-01';  Match = '*enlist-agent.dll*DEV-AGENT-01*' },
     @{ Name = 'DEV-AGENT-02';  Match = '*enlist-agent.dll*DEV-AGENT-02*' },
-    @{ Name = 'Portal';        Match = '*Enlist.Portal.dll*' }
+    @{ Name = 'Portal';        Match = '*Enlist.Portal.dll*localhost:5231*' }
 )
 foreach ($c in $components) {
     $p = $procs | Where-Object { $_.CommandLine -like $c.Match } | Select-Object -First 1
