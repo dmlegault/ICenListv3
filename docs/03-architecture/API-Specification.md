@@ -40,7 +40,7 @@ Enlist.ControlPlane.exe list-keys
 Enlist.ControlPlane.exe list-join-tokens
 ```
 
-**Status (2026-09-11):** this is step 1 of [Authentication-Design.md §13](Authentication-Design.md), implemented on the control plane and pinned by `AuthenticationTests`. The agent does not yet present a credential and the portal does not yet authenticate people (steps 2 and 3), so until they land a deployment with clients runs `Off` on loopback — which is what the demo does.
+**Status (2026-09-11):** steps 1 and 2 of [Authentication-Design.md §13](Authentication-Design.md) are implemented — the control plane (pinned by `AuthenticationTests`) and the agent (`AgentCredentialTests`: enrollment with `--join-token`, the DPAPI-protected credential file, every call and the hub connection made as itself, a rejected credential leaving applications running). The portal does not yet authenticate people or hold a key, and `enlist-deploy` has no `--api-key` (step 3), so a deployment with either still runs `Off` on loopback — which is what the demo does. A fleet driven through the API with keys can run `Required` today.
 
 ---
 

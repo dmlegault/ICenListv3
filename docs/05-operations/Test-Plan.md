@@ -2,7 +2,7 @@
 
 **Product:** enList v3
 **Framework:** xUnit
-**Document status:** Derived from the actual test source under `tests/`; rewritten 2026-09-08 at class level after the per-test list drifted. Total: **205 tests, all passing** (`dotnet test enList_v3.slnx`).
+**Document status:** Derived from the actual test source under `tests/`; rewritten 2026-09-08 at class level after the per-test list drifted. Total: **211 tests, all passing** (`dotnet test enList_v3.slnx`).
 
 ---
 
@@ -38,7 +38,7 @@ Spawns the **real** `Enlist.ControlPlane.exe` against a throwaway LocalDB databa
 | `PortCollisionTests` | Two applications claiming one static host port on one agent both fail, each naming the other — plus the three cases that must NOT be conflicts (dynamic ports, same port on different agents, different host ports sharing a container port). |
 | `EndpointFeedTests` | The endpoint projection, staleness, the Traefik shape (and that it emits no `routers`), and that an unreadable snapshot degrades instead of breaking the feed. |
 
-### 2.2 `Enlist.Agent.Tests` — 66 tests
+### 2.2 `Enlist.Agent.Tests` — 72 tests
 
 Spawns real runner processes, and (where Docker is present) real containers.
 
@@ -49,6 +49,7 @@ Spawns real runner processes, and (where Docker is present) real containers.
 | `JobOverlapTests` | A job slower than its schedule, against a real runner: OrderProcessor's ten-second Ledger Rebuild on a two-second cron starts once, and the ticks that arrive mid-run are skipped and written to the application's log — never stacked. |
 | `DockerContainerEngineTests` / `FailureNoticeTests` | A stand-in `docker` that never answers is killed after the engine's timeout: the probe reports it, every other command throws a `TimeoutException` naming the command — no real engine needed. `FailureNotice`: the first failure is said at once, the next inside the window are not, one after the window carries the count, and a recovery is said once. |
 | `AgentReconnectTests` | Against a real control plane killed and relaunched on the same address (`ControlPlaneTestServer.StopAsync`/`StartAgainAsync`): an agent reports its push channel as reconnecting, survives a 50-second outage — longer than SignalR's stock four attempts — and receives the next policy change by push with the re-fetch floor parked an hour away; and an agent with no push channel at all still converges on the re-fetch floor and reports the channel as disconnected. |
+| `AgentCredentialTests` | The agent's side of authentication, against a control plane running `Required`: a first start with a join token enrolls, stores the credential DPAPI-protected (the file does not contain the token; its ACL is closed to SYSTEM, Administrators and the current account) and then runs as itself — the policy arrives over the hub, status and capability reports are accepted; a later start uses the stored credential, and a join token left on the command line is ignored, said, and not spent; with no credential the agent refuses to start under `Required` with the remedy, and runs anonymously under `Off`; a revoked credential leaves the running application untouched, is reported once with the remedy, blocks a plain restart, and is replaced by a restart with a new join token; a credential file the machine cannot decrypt is reported by name rather than treated as never enrolled. |
 | `AgentCrashRestartTests` | A killed runner is restarted; repeated crashes back off and eventually give up. |
 | `AgentStartupFailureTests` | A runner that never connects is retried and eventually abandoned — with its staging directory removed — without blocking sibling applications. |
 | `AgentJobObjectTests` | An abnormally-dead agent takes its child runners with it (Windows Job Object). |

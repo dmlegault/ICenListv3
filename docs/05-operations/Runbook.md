@@ -31,13 +31,13 @@ Portal → Applications → select the row → for each of its assignments, clic
 
 ### 2.4 Add a new managed agent
 
-1. Install/start `enlist-agent` on the new machine, pointed at the control plane (see [`Developer-Setup-Guide.md` §5](../01-start-here/Developer-Setup-Guide.md#5-run-an-agent)).
+1. Have an Operator mint a join token (`Enlist.ControlPlane.exe create-join-token`; the portal will do this once step 3 of the authentication design lands). Install `enlist-agent` on the new machine pointed at the control plane (see [`Developer-Setup-Guide.md` §5](../01-start-here/Developer-Setup-Guide.md#5-run-an-agent)) and start it **once** with `--join-token <token>`: it enrolls, stores its credential under `--data`, and the option is not needed again — take it out of the service definition. Against a control plane whose authentication is `Off` (loopback only) there is no token to give.
 2. It self-registers on its first successful call. Assign tags (portal → Agents → Edit tags, or `PUT /api/agents/{name}/tags`) so it picks up any tag-selector assignments already in place — no redeploy action is needed on the application side.
 
 ### 2.5 Decommission an agent
 
 1. Stop and remove the `enlist-agent` Windows Service on the machine itself (outside enList's scope — standard OS-level service removal).
-2. In the portal, delete the agent record (Agents → row → Delete icon). This is a registry cleanup, not data destruction: the agent reappears on its next contact, and rules target tags rather than agent rows, so nothing blocks the delete.
+2. In the portal, delete the agent record (Agents → row → Delete icon). This is a registry cleanup, not data destruction, and it revokes the agent's credential: under `Required` the old machine cannot come back as that name without a new join token (under `Off` it reappears on its next contact); rules target tags rather than agent rows, so nothing blocks the delete.
 3. Historical status reports and forwarded log lines for that machine name are retained, not deleted, in case the name is reused later.
 
 ### 2.6 Investigate "why isn't my change taking effect on agent X"
@@ -257,3 +257,11 @@ On a `net472` application the runner may instead sit at 100% CPU and answer noth
 **Symptom (fixed):** a container agent's reconcile stopped making progress — applications stuck in `Starting`, no new log lines — while the daemon accepted connections and never answered. Every engine call waited on the CLI with no limit.
 
 **Fix:** every `docker` command except `wait` is bounded at 60 s; on expiry the CLI is killed and the start fails with `'docker run' did not finish within 60s — the container engine is not answering`, which goes through the ordinary retry/give-up path. The capability probe reports the same condition as the engine being unavailable. Restart the daemon; the agent picks up on its next retry.
+
+### 3.19 An agent logs `Authentication to the control plane failed`
+
+**Symptom:** the agent's applications keep running, but its `lastSeenUtc` stops advancing, policy changes stop reaching it, and the agent log carries `Authentication to the control plane failed: the control plane rejected this agent's credential (401 on GET /api/agents/X/policies) ...` — once, then at most one line per five minutes while it lasts, and `succeeded again` when it recovers.
+
+**Cause:** the credential was revoked (`revoke-agent`, or `DELETE /api/agents/X`, which revokes as it deregisters), or the agent is talking to a control plane that never issued it (a restored database, a different environment). The `403` variant means the credential file belongs to a different agent name — a data directory copied from another machine.
+
+**Fix:** nothing running is disturbed, so there is no hurry. Have an Operator mint a join token (`create-join-token`), make sure the name is free (`revoke-agent --name X` if it still shows a live credential in the registry), and restart the agent once with `--join-token <token>`: it re-enrolls, replaces `<data>\credential`, and logs `Enrolled as 'X'`. An agent that refuses to start with *rejected this agent's stored credential* is the same condition met at startup, and the same fix. Do not leave `--join-token` in the service definition afterwards.

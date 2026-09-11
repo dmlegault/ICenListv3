@@ -16,16 +16,18 @@
 | `Hubs/ApplicationPolicyHub.cs` | SignalR hub: group join, and the two outbound notification helpers (`NotifyChangedAsync`, `SendCommandAsync`). |
 | `PackageBlobStore` | Content-addressed file storage for package zip bytes (digest computation, save/read/delete). |
 | `PackageRetentionSweepService` / `LogRetentionSweepService` / `ReportRetentionSweepService` | `IHostedService` background sweeps — mark-and-sweep GC for packages, straight age-based delete for log rows, age-based delete for status reports that always keeps each agent's newest. |
-| `Migrations/` | EF Core migration history — a single `InitialCreate`. Auto-applied at startup in `Development` **only**; outside it the control plane verifies the schema and refuses to start rather than issuing DDL, because a production SQL login normally has neither `dbcreator` nor `CREATE`/`ALTER TABLE` rights (see [`Deployment-IaC.md` §1.4](../05-operations/Deployment-IaC.md)). |
+| `Authentication/` | The bearer scheme (`EnlistBearerHandler`: three token kinds by hash, claims), the endpoint policy table and its fail-closed handler, the listener rules (`Off` only on loopback; no plain HTTP off loopback under `Required`), and the management CLI verbs — [Authentication-Design.md](Authentication-Design.md). |
+| `Migrations/` | EF Core migration history — `InitialCreate` and the three since ([Database-Design.md §6](Database-Design.md)). Auto-applied at startup in `Development` **only**; outside it the control plane verifies the schema and refuses to start rather than issuing DDL, because a production SQL login normally has neither `dbcreator` nor `CREATE`/`ALTER TABLE` rights (see [`Deployment-IaC.md` §1.4](../05-operations/Deployment-IaC.md)). |
 
 ### 1.2 Enlist.Agent
 
 | Module | Responsibility |
 |---|---|
 | `AgentHost.cs` | The orchestrator. Owns reconciliation, crash/restart supervision, status snapshot assembly, command dispatch to runners, and all of its own background loops (reconciliation, retention sweep, heartbeat). |
-| `Configuration/ControlPlaneAssignmentSource.cs` | Implements `IAssignmentSource` against the real control plane: REST fetch + SignalR push with a reconnect policy that never gives up, a `Closed` handler that reopens, and a 3-minute re-fetch floor + package-digest-to-local-path resolution via `PackageCache`. |
+| `Configuration/ControlPlaneAssignmentSource.cs` | Implements `IAssignmentSource` against the real control plane: REST fetch + SignalR push with a reconnect policy that never gives up, a `Closed` handler that reopens, and a 3-minute re-fetch floor + package-digest-to-local-path resolution via `PackageCache`. Presents the agent's credential on the REST calls and as the hub's access token. |
 | `Configuration/AssignmentStore.cs` | The step-2 (local file) alternative assignment source, kept alongside the control-plane one behind the same `IAssignmentSource` interface. |
 | `Configuration/PackageCache.cs` | Downloads and extracts a package by digest exactly once, reused across every assignment referencing it; prunes digests no longer in use. |
+| `Credentials/AgentEnrollment.cs`, `AgentCredentialStore.cs`, `AgentCredential.cs` | Settles what the agent presents before anything else starts (a stored credential, an enrollment with `--join-token`, or nothing when the control plane says `Off`); the DPAPI + ACL credential file under `--data`; the one holder every `HttpClient` and the hub read the token from, which says a rejection once. |
 | `Scheduling/JobScheduler.cs` | In-process cron scheduling (Cronos-based) per (application, job) key, with its own lock to prevent a double-registration race between a reconciliation pass and an imperative command. |
 | `Status/AgentStatusSnapshot.cs`, `AgentStatusWriter.cs`, `ControlPlaneStatusReporter.cs` | The status model, its local on-disk mirror (`<data>/Logs/status.json` — under the LOG root, not the data root), and the HTTP reporter that POSTs it. |
 | `Logging/AgentFileLogSink.cs`, `ControlPlaneLogForwarder.cs` | Per-application local log files plus best-effort forwarding to the control plane. |

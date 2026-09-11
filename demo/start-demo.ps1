@@ -16,6 +16,13 @@
 .PARAMETER ContainerEngine
     Engine for DEV-AGENT-02's container application: wslc (default) or docker.
 
+.PARAMETER JoinToken
+    Enroll both agents on this run: the token is passed as --join-token, each agent exchanges it for
+    its own credential (stored DPAPI-protected at .demo/agent-0N/credential) and never needs it again.
+    Mint one with `dotnet src/Enlist.ControlPlane/bin/Debug/net10.0/Enlist.ControlPlane.dll create-join-token`
+    with ConnectionStrings__ControlPlane set to `demo/sql-server/demo-db.ps1 connstring`. Optional: the
+    demo control plane runs with authentication off, so the agents work without a credential too.
+
 .PARAMETER Stop
     Stop the demo processes and return. The SQL Server keeps running; `demo/sql-server/demo-db.ps1 down` stops it.
 
@@ -27,6 +34,8 @@
 param(
     [ValidateSet('wslc', 'docker')]
     [string]$ContainerEngine = 'wslc',
+
+    [string]$JoinToken,
 
     [switch]$Stop
 )
@@ -122,6 +131,11 @@ $runnerBin = Join-Path $repo 'src\Enlist.Runner\bin\Debug\net10.0'
 $legacyBin = Join-Path $repo 'src\Enlist.Runner.Legacy\bin\Debug\net472'
 $agentDll = Join-Path $repo 'src\Enlist.Agent\bin\Debug\net10.0\enlist-agent.dll'
 $common = @("`"$agentDll`"", '--control-plane', $controlPlaneUrl, '--runner-bin', "`"$runnerBin`"", '--legacy-runner-bin', "`"$legacyBin`"")
+if ($JoinToken) {
+    # First start only: an agent that already holds a credential ignores this (and says so in its log).
+    $common += @('--join-token', $JoinToken)
+    Write-Host "  enrolling both agents with the join token"
+}
 Start-Background -Name 'agent-01' -Arguments ($common + @('--agent', 'DEV-AGENT-01', '--data', "`"$(Join-Path $repo '.demo\agent-01')`""))
 Start-Background -Name 'agent-02' -Arguments ($common + @('--agent', 'DEV-AGENT-02', '--container-image', $image, '--container-engine', $ContainerEngine, '--data', "`"$(Join-Path $repo '.demo\agent-02')`""))
 

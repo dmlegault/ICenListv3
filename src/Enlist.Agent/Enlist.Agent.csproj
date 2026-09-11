@@ -27,6 +27,11 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0" />
     <!-- Client for Enlist.ControlPlane's ApplicationPolicyHub — design doc section 6: agents dial OUT, never accept inbound connections. -->
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.0" />
+    <!--
+      DPAPI, for the agent's credential file (Credentials/AgentCredentialStore.cs): machine-scope
+      protection, the only scope a service without a user profile can use. Windows only, as the agent is.
+    -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
   </ItemGroup>
 
   <!--

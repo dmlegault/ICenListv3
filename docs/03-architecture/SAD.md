@@ -174,7 +174,7 @@ See [`Deployment-IaC.md`](../05-operations/Deployment-IaC.md) for the full deplo
 
 ## 8. Known Architectural Limitations
 
-- Authentication is partly in place: the control plane authenticates every request under `Authentication:Mode=Required` and can be `Off` only on loopback ([Authentication-Design.md](Authentication-Design.md), step 1 of 3, 2026-09-11); the agent and the portal do not present or require credentials yet, so a deployment with clients still runs `Off` on loopback.
+- Authentication is partly in place: the control plane authenticates every request under `Authentication:Mode=Required` and can be `Off` only on loopback ([Authentication-Design.md](Authentication-Design.md), steps 1 and 2 of 3, 2026-09-11), and agents enroll with a join token and present their own credential; the portal does not authenticate people yet, so a deployment with a portal still runs `Off` on loopback.
 - No multi-region/multi-control-plane federation — one control plane serves one fleet.
 - No phased/canary rollout primitive — an assignment update is applied to every currently-matching machine as soon as each one reconciles.
 - **Overlapping tag selectors are not ranked.** Two rules whose selectors both match one agent for the same application are resolved by AGREEMENT, not by precedence: if they agree on what to run they are equivalent and either will do; if they disagree the application is reported with a `ConflictReason` naming the rules rather than one being silently chosen. There is deliberately no "most specific selector wins" rule — see [`LLD.md` §3.2](LLD.md). (This limitation previously described `GoverningAssignment`, an explicit-versus-selector tiebreak that disappeared with explicit targeting.)

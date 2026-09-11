@@ -77,7 +77,7 @@ This is slow, error-prone (a missed machine, a stale copy), and has no record of
 - .NET 10 runtime available on every managed machine, the control plane host, and the portal host.
 - SQL Server (or SQL Server-compatible, e.g. LocalDB for development) reachable from the control plane.
 - Plugin authors follow the `contracts/EnlistAttributes.cs` source-inclusion convention rather than referencing a compiled assembly.
-- The control plane has an authentication layer (bearer tokens; `Off` is permitted only on loopback, with no override). Until the agent and the portal present credentials (steps 2 and 3 of [Authentication-Design.md](../03-architecture/Authentication-Design.md)), a deployment with clients runs the control plane `Off`, which forces it onto loopback — the trusted boundary is the machine, not the network.
+- The control plane has an authentication layer (bearer tokens; `Off` is permitted only on loopback, with no override). Agents enroll with a join token and present their own credential. Until the portal authenticates people (step 3 of [Authentication-Design.md](../03-architecture/Authentication-Design.md)), a deployment with a portal runs the control plane `Off`, which forces it onto loopback — the trusted boundary is the machine, not the network.
 
 ## 8. Related Documents
 

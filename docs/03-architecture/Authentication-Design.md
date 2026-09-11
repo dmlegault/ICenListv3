@@ -1,7 +1,7 @@
 # enList Authentication and Authorization — Design (review finding C2)
 
 **Product:** enList v3
-**Document status:** Design, decided 2026-09-11 and **not yet implemented**. Closes review finding **C2** ([`enList-v3-Review-2026-09-09.md` §3.2](../06-background/enList-v3-Review-2026-09-09.md)), the one open item in that review: *no authentication or authorization on any surface*. C2 stays open in the review until this is built; this document is what "built" means.
+**Document status:** Design, decided 2026-09-11; steps 1 and 2 of §13 (the control plane, the agent) implemented the same day, step 3 (the portal and the tools) open. Closes review finding **C2** ([`enList-v3-Review-2026-09-09.md` §3.2](../06-background/enList-v3-Review-2026-09-09.md)), the one open item in that review: *no authentication or authorization on any surface*. C2 stays open in the review until this is built; this document is what "built" means.
 
 **The four decisions this rests on**, taken on 2026-09-11 after discussion, with the alternatives they rejected:
 
@@ -250,7 +250,7 @@ Nothing in `AgentHost`, the runners, or the seam changes. Authentication is a bo
 ## 13. Rollout
 
 1. **Infrastructure first** (control plane only) — **implemented 2026-09-11**, pinned by `AuthenticationTests`: the bearer scheme, the policy table and its fail-closed handler, the three tables (migration `AuthenticationCredentials`), the mode switch with both hard rules, `/health` reporting the mode, and the six CLI verbs. `POST /api/agents/enroll` shipped here too, pulled forward from step 2: it is the only way an agent credential comes into existence, and without it this step could not be proven end to end. An existing deployment that is network-exposed can no longer start with `Off` — that is the intended pressure; a loopback demo is untouched.
-2. **Agents**: the agent's credential handling (the enrollment endpoint shipped with step 1). Upgrading a fleet: create a join token, redeploy each agent with it (the installer's Agent page, or `--join-token`), then set the control plane to `Required`. Until then agents without credentials still work because the mode is what decides.
+2. **Agents** — **implemented 2026-09-11**, pinned by `AgentCredentialTests`: `--join-token` on the first start, the DPAPI + ACL credential file (4.3), the credential on every call and on the hub (4.5), a rejected credential reported once and left running (4.4), a leftover join token ignored with a warning, and a refusal to start — with the remedy, in the agent log — when a credential is required and there is none. Not in this step: `--control-plane-ca`, which waits for the TLS work in step 3 since nothing serves HTTPS yet. Upgrading a fleet: create a join token, restart each agent once with it (the installer's Agent page, or `--join-token`), then set the control plane to `Required`. Until then agents without credentials still work because the mode is what decides.
 3. **Portal and tools**: Windows authentication and roles, the portal key, `--api-key` on the CLI, audit.
 4. **Documents**: an authentication section in [`API-Specification.md`](API-Specification.md); TLS, groups and keys in [`Deployment-IaC.md`](../05-operations/Deployment-IaC.md), which also loses its trusted-network preamble; Runbook entries for a revoked agent and a lost portal key; the installer pages (§14); the review's C2 marked resolved.
 

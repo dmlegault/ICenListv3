@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Text.RegularExpressions;
 
 namespace Enlist.TestSupport;
 
@@ -121,6 +122,23 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
         }
 
         return await stdout.ConfigureAwait(false);
+    }
+
+    /// <summary>A join token minted by the CLI (options as the verb takes them: --uses, --expires), for a test that enrolls an agent the way an operator provisions one.</summary>
+    public async Task<string> CreateJoinTokenAsync(params string[] options) =>
+        Secret(await RunCliAsync(["create-join-token", .. options]).ConfigureAwait(false), "token");
+
+    /// <summary>A management API key minted by the CLI, with the given role, for a test that drives the API as an operator would.</summary>
+    public async Task<string> CreateApiKeyAsync(string name, string role, params string[] options) =>
+        Secret(await RunCliAsync(["create-api-key", "--name", name, "--role", role, .. options]).ConfigureAwait(false), "key");
+
+    /// <summary>The verbs print their one secret on a line of the form "  token: enlj_..." / "  key: enlk_...".</summary>
+    private static string Secret(string cliOutput, string label)
+    {
+        var match = Regex.Match(cliOutput, $@"^\s*{label}:\s*(\S+)\s*$", RegexOptions.Multiline);
+        return match.Success
+            ? match.Groups[1].Value
+            : throw new InvalidOperationException($"The CLI printed no '{label}:' line:{Environment.NewLine}{cliOutput}");
     }
 
     /// <summary>Kills the control plane and waits until the process is actually gone. The database and blob store stay, so <see cref="StartAgainAsync"/> brings the SAME control plane back.</summary>

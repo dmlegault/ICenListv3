@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 
+using Enlist.Agent.Credentials;
 using Enlist.ControlPlane.Contracts;
 
 using Microsoft.AspNetCore.SignalR.Client;
@@ -40,6 +41,11 @@ namespace Enlist.Agent.Configuration;
 /// there's exactly one outbound connection per agent by design (section 6: dials out, never accepts
 /// inbound), so a second command-only HubConnection would just be two sockets doing the one job this
 /// class already does for policy-changed pushes.
+///
+/// Presents the agent's credential (AgentCredential) on the REST calls and on the hub connection, and
+/// relays the credential's own diagnostics - the control plane refusing it - through this class's
+/// Diagnostic event, since that refusal is about this connection. With no credential, every call is
+/// the anonymous one it always was.
 /// </summary>
 public sealed class ControlPlaneAssignmentSource : IAssignmentSource, IAsyncDisposable, IPrunesPackageCache, IReportsPushChannel
 {
@@ -51,6 +57,7 @@ public sealed class ControlPlaneAssignmentSource : IAssignmentSource, IAsyncDisp
     private readonly string _agentName;
     private readonly PackageCache _packageCache;
     private readonly TimeSpan _refetchInterval;
+    private readonly AgentCredential _credential;
 
     // Cancelled first thing in DisposeAsync so the reopen loop in the Closed handler stops, and so that
     // handler can tell a disposal (its own Closed event) from a connection the server ended.
@@ -74,17 +81,30 @@ public sealed class ControlPlaneAssignmentSource : IAssignmentSource, IAsyncDisp
 
     public string PushChannelState => _pushChannelState;
 
-    public ControlPlaneAssignmentSource(Uri controlPlaneBaseUrl, string agentName, string packageCacheRoot, TimeSpan? refetchInterval = null)
+    public ControlPlaneAssignmentSource(Uri controlPlaneBaseUrl, string agentName, string packageCacheRoot, TimeSpan? refetchInterval = null, AgentCredential? credential = null)
     {
         _agentName = agentName;
         _refetchInterval = refetchInterval ?? DefaultRefetchInterval;
-        _http = new HttpClient { BaseAddress = controlPlaneBaseUrl };
+        _credential = credential ?? AgentCredential.None;
+        _http = new HttpClient(_credential.CreateHandler()) { BaseAddress = controlPlaneBaseUrl };
         _packageCache = new PackageCache(_http, packageCacheRoot);
 
         _hub = new HubConnectionBuilder()
-            .WithUrl(new Uri(controlPlaneBaseUrl, ApplicationPolicyHubContract.HubPath))
+            .WithUrl(new Uri(controlPlaneBaseUrl, ApplicationPolicyHubContract.HubPath), options =>
+            {
+                // A WebSocket cannot carry a header, so SignalR sends this as the access_token query
+                // parameter on connect - which the control plane reads on the hub path and nowhere
+                // else. Asked on every (re)connect, so a credential replaced by re-enrollment is used
+                // from the next connect on. Null means no token, which is the anonymous connect.
+                options.AccessTokenProvider = () => Task.FromResult(_credential.Token);
+            })
             .WithAutomaticReconnect(new PersistentReconnectPolicy())
             .Build();
+
+        // The control plane refusing the credential is about this connection, whichever of the
+        // agent's HttpClients saw it first - so it reaches the agent log through this class, once,
+        // then rate-limited, with the remedy.
+        _credential.Diagnostic += message => Diagnostic?.Invoke(message);
 
         _hub.On(ApplicationPolicyHubContract.ApplicationPoliciesChangedMethod, () => ReleaseChangeSignal());
         _hub.On<AgentCommandRequest>(ApplicationPolicyHubContract.ExecuteCommandMethod, command => CommandReceived?.Invoke(command));

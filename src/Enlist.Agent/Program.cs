@@ -1,4 +1,5 @@
 using Enlist.Agent.Configuration;
+using Enlist.Agent.Credentials;
 using Enlist.Agent.Logging;
 using Enlist.Agent.Status;
 using Enlist.Agent.Supervision;
@@ -29,6 +30,13 @@ namespace Enlist.Agent;
 /// is staged from this path instead. Omit it and this agent simply can't start a net472-flavored
 /// assignment (AgentHost logs why and marks it Failed rather than guessing).
 ///
+/// --join-token &lt;token&gt; is for the FIRST start against a control plane that requires a credential
+/// (Authentication-Design section 4): the agent exchanges it for its own long-lived agent token, stores
+/// that DPAPI-protected under --data, and never needs the option again. Left in a service definition it
+/// is ignored with a warning, because `sc qc` shows a service's arguments to anyone who can query it.
+/// Against a control plane whose authentication is Off (loopback only - the demo) no credential is
+/// needed and none is asked for.
+///
 /// Runs as a proper Windows Service when installed as one (sc.exe create / New-Service) — the SCM's
 /// start/stop signals are routed to AgentHost.StartAsync/StopAsync through AgentBackgroundService.
 /// Run directly in a terminal (no service context detected), it behaves like a normal console app:
@@ -47,6 +55,7 @@ internal static class Program
 
         string? containerImage = null;
         string? containerEngineName = null;
+        string? joinToken = null;
 
         for (var i = 0; i < args.Length - 1; i++)
         {
@@ -60,6 +69,9 @@ internal static class Program
                     break;
                 case "--agent":
                     agentName = args[i + 1];
+                    break;
+                case "--join-token":
+                    joinToken = args[i + 1];
                     break;
                 case "--runner-bin":
                     runnerBinDirectory = args[i + 1];
@@ -82,7 +94,7 @@ internal static class Program
         if (runnerBinDirectory is null)
         {
             Console.Error.WriteLine(
-                "Usage: enlist-agent --runner-bin <path> (--assignments <path> | --control-plane <url> [--agent <name>]) [--legacy-runner-bin <path>] [--data <path>] [--container-image <image>] [--container-engine docker|wslc]");
+                "Usage: enlist-agent --runner-bin <path> (--assignments <path> | --control-plane <url> [--agent <name>] [--join-token <token>]) [--legacy-runner-bin <path>] [--data <path>] [--container-image <image>] [--container-engine docker|wslc]");
             return 2;
         }
 
@@ -133,13 +145,39 @@ internal static class Program
             }
 
 
-            var packageCacheRoot = Path.Combine(dataRoot, "Packages");
-            var assignmentSource = new ControlPlaneAssignmentSource(baseUri, effectiveAgentName, packageCacheRoot);
+            // What this agent presents to the control plane is settled before anything else is built:
+            // the stored credential, a fresh enrollment with --join-token, or nothing when the control
+            // plane says its authentication is off. Each outcome, and each refusal, goes to the agent
+            // log as well as the console - under the SCM there is no console, and "the service failed
+            // to start" with no reason in <data>\Logs is the worst kind of morning.
+            var startupLog = new AgentFileLogSink(logRoot);
+            void LogStartup(string line)
+            {
+                Console.WriteLine(line);
+                startupLog.WriteAgentLogAsync(line).GetAwaiter().GetResult();
+            }
 
-            var reportHttp = new HttpClient { BaseAddress = baseUri };
+            AgentCredential credential;
+            try
+            {
+                credential = await AgentEnrollment.ResolveAsync(baseUri, effectiveAgentName, new AgentCredentialStore(dataRoot), joinToken, LogStartup, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (AgentStartupException ex)
+            {
+                Console.Error.WriteLine($"enlist-agent not starting: {ex.Message}");
+                await startupLog.WriteAgentLogAsync($"Not starting: {ex.Message}").ConfigureAwait(false);
+                return 2;
+            }
+
+            var packageCacheRoot = Path.Combine(dataRoot, "Packages");
+            var assignmentSource = new ControlPlaneAssignmentSource(baseUri, effectiveAgentName, packageCacheRoot, credential: credential);
+
+            // The same credential on every client that talks to the control plane, one handler each (a
+            // DelegatingHandler belongs to one client); a refusal seen by any of them is said once.
+            var reportHttp = new HttpClient(credential.CreateHandler()) { BaseAddress = baseUri };
             var statusReporter = new ControlPlaneStatusReporter(reportHttp, effectiveAgentName);
 
-            var logHttp = new HttpClient { BaseAddress = baseUri };
+            var logHttp = new HttpClient(credential.CreateHandler()) { BaseAddress = baseUri };
             var logForwarder = new ControlPlaneLogForwarder(logHttp, effectiveAgentName);
 
             agentHost = new AgentHost(assignmentSource, runnerBinDirectory, stagingRoot, logRoot, statusReporter: statusReporter, logForwarder: logForwarder, additionalRunnerBinDirectories: additionalRunnerBinDirectories, containerImage: containerImage, agentName: effectiveAgentName, containerEngine: containerEngine);
@@ -151,7 +189,7 @@ internal static class Program
 
             await assignmentSource.ConnectAsync(CancellationToken.None).ConfigureAwait(false);
 
-            startupDescription = $"agent '{effectiveAgentName}' against control plane {baseUri}";
+            startupDescription = $"agent '{effectiveAgentName}' against control plane {baseUri} ({(credential.HasToken ? "with its credential" : "no credential; authentication is off")})";
         }
         else
         {

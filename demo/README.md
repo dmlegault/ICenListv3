@@ -35,6 +35,7 @@ to report, and prints where everything is. About 30–40 seconds from cold.
 ```powershell
 ./demo/start-demo.ps1 -Stop           # stop the control plane and agents (SQL Server stays up)
 ./demo/start-demo.ps1 -ContainerEngine docker   # put DEV-AGENT-02's container app on Docker instead of wslc
+./demo/start-demo.ps1 -JoinToken enlj_...        # enroll both agents, once - see Enrolling the demo agents
 ```
 
 Stopping the SQL Server too, when you want the machine quiet:
@@ -149,6 +150,28 @@ curl.exe -X POST $cp/api/application-policies -H "Content-Type: application/json
 
 Within a few seconds each agent downloads its packages and starts them; confirm in the portal or with
 `GET /api/agents/DEV-AGENT-01/report/latest`.
+
+## Enrolling the demo agents (optional)
+
+The demo control plane runs with authentication **off** — permitted only because it listens on loopback — so
+the agents need no credential and start without one. To show enrollment, the way a real fleet is brought
+up ([Authentication-Design.md §4](../docs/03-architecture/Authentication-Design.md)), mint a join token
+against the demo database and start the demo with it once:
+
+```powershell
+$env:ConnectionStrings__ControlPlane = ./demo/sql-server/demo-db.ps1 connstring
+dotnet src/Enlist.ControlPlane/bin/Debug/net10.0/Enlist.ControlPlane.dll create-join-token
+./demo/start-demo.ps1 -JoinToken enlj_...
+```
+
+Each agent's log (`.demo/logs/agent-0N.log`) then says `Enrolled as 'DEV-AGENT-0N'`, and the credential
+sits at `.demo/agent-0N/credential` — DPAPI-protected, readable by SYSTEM, Administrators and you. From
+then on a plain `./demo/start-demo.ps1` starts the agents with their stored credentials (`with its
+credential` in the startup line); the join token is not needed again, and an agent that already holds a
+credential ignores `-JoinToken` and says so. `list-join-tokens` and `revoke-agent --name DEV-AGENT-01` are
+the other verbs worth showing: a revoked agent keeps running what it runs and logs why, once per five
+minutes ([Runbook §3.19](../docs/05-operations/Runbook.md)). To start over, delete
+`.demo/agent-0N/credential` and revoke the name.
 
 ## Redeploying a code change
 
