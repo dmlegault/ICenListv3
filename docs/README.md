@@ -4,7 +4,7 @@ enList runs small programs (services and scheduled jobs) across many Windows mac
 from one web portal. You upload a package, write a rule saying *where* it should run, and agents on
 each machine make it so.
 
-There are 20 documents here. **You do not need most of them to be productive.** This page is the
+There are 22 documents here. **You do not need most of them to be productive.** This page is the
 map: a short path in, then tracks depending on what you actually came to do.
 
 ---
@@ -32,7 +32,7 @@ the code lives. **Stop there and pick a track below** rather than reading straig
 |---|---|
 | **Write an application that runs on enList** (the most common case — you are a consumer of the platform, not a maintainer) | [Application-Developer-Guide.md](02-building-applications/Application-Developer-Guide.md). Note §8 especially: the agent behaviours the dev host deliberately does *not* reproduce. Then [Container-Developer-Guide.md](02-building-applications/Container-Developer-Guide.md) if your application will run containerized. |
 | **Work on the platform itself** | [HLD.md](03-architecture/HLD.md) for module decomposition and the key sequence diagrams, then [LLD.md](03-architecture/LLD.md) for the algorithms worth knowing exactly. Add [Database-Design.md](03-architecture/Database-Design.md), [API-Specification.md](03-architecture/API-Specification.md) and [UI-UX-Design-Spec.md](03-architecture/UI-UX-Design-Spec.md) as you touch those areas. |
-| **Deploy or operate it** | [Deployment-IaC.md](05-operations/Deployment-IaC.md), then [Runbook.md](05-operations/Runbook.md). The proposed installer that replaces the manual steps is designed, page by page, in [Installer-UI-Design.md](05-operations/Installer-UI-Design.md) (a draft — nothing built yet). |
+| **Deploy or operate it** | [Deployment-IaC.md](05-operations/Deployment-IaC.md), then [Runbook.md](05-operations/Runbook.md). The proposed installer that replaces the manual steps is designed, page by page, in [Installer-UI-Design.md](05-operations/Installer-UI-Design.md) (a draft — nothing built yet). The one-machine demo install, a fourth install type, is in [Demo-Install-Design.md](05-operations/Demo-Install-Design.md). |
 | **Understand containers** | [Container-Story.md](03-architecture/Container-Story.md) — the reasoning and the phased plan (C0–C5 shipped; only C6 remains a proposal). [Container-Developer-Guide.md](02-building-applications/Container-Developer-Guide.md) is the practical companion, and the one to read if you want to actually *run* any of it. |
 | **Know what the system must do**, formally | [BRD.md](04-requirements/BRD.md) → [SRS.md](04-requirements/SRS.md) → [FRS.md](04-requirements/FRS.md). Useful for scoping and review; not the fastest way to learn how anything works. |
 | **Change something and not break it** | [Test-Plan.md](05-operations/Test-Plan.md) — what the suite covers and, importantly, what it does not yet. |

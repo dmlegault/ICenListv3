@@ -43,6 +43,7 @@ The first real page. One radio group; it decides which MSIs are in the chain and
 | **Server** | Control Plane + Portal, optionally a local Agent | The one box that hosts enList |
 | **Agent only** | Agent | Every machine that will *run* applications |
 | **Custom** | Any combination | Split tiers (portal on a DMZ host, control plane inside), or adding a component later |
+| **Demo** | Everything on this machine, seeded with the sample applications and run as a session launcher rather than as services | A presenter or evaluator laptop. Designed separately in [Demo-Install-Design.md](Demo-Install-Design.md) |
 
 Selecting a component adds its configuration page(s) to the flow (§5). "Custom" with all three unticked disables *Next*.
 
