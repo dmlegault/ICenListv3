@@ -7,14 +7,10 @@
 
 <PageTitle>Access</PageTitle>
 
-<MudText Typo="Typo.h4" Class="mb-1">Access</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">
-    Three kinds of caller, three kinds of credential. <b>People</b> sign in with Windows; who is an Operator and who is a
-    Viewer is two group names in this portal's configuration (@Group(Authentication.Windows.OperatorsGroup) /
-    @Group(Authentication.Windows.ViewersGroup)). <b>Agents</b> enroll once with a join token and keep their own
-    credential (Agents tab). <b>Tools</b> present an API key with a role. Every secret is shown once, here, and stored
-    only as a hash.
-</MudText>
+<MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-4">
+    <MudText Typo="Typo.h4">Access</MudText>
+    <MudIconButton Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" OnClick="ShowHelpAsync" title="What this page manages" />
+</MudStack>
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
     <MudText Typo="Typo.h6">Join tokens</MudText>
@@ -123,6 +119,19 @@ else
     }
 
     private static string Group(string? name) => string.IsNullOrWhiteSpace(name) ? "not configured" : name;
+
+    /// <summary>The page's explanation, behind the help icon rather than above the tables: read once, not on every visit.</summary>
+    private Task ShowHelpAsync() => DialogService.ShowMessageBox(
+        "Access",
+        new MarkupString(
+            "Three kinds of caller, three kinds of credential.<br/><br/>" +
+            "<b>People</b> sign in with Windows. Who is an Operator (every page, every change) and who is a Viewer (every page, no changes) " +
+            $"is two group names in this portal's configuration: <code>{Group(Authentication.Windows.OperatorsGroup)}</code> and " +
+            $"<code>{Group(Authentication.Windows.ViewersGroup)}</code>. The portal keeps no user list of its own.<br/><br/>" +
+            "<b>Agents</b> enroll once with a join token and keep their own credential from then on (Agents tab, <i>Enroll agent</i>; revoke it there too).<br/><br/>" +
+            "<b>Tools</b> - enlist-deploy, a pipeline, a dashboard, another portal - present an API key with a role.<br/><br/>" +
+            "Every secret is shown once, on this page, and the control plane stores only a hash: a lost key or token is replaced, never recovered."),
+        yesText: "Close");
 
     private static Color StatusColor(string status) => status switch
     {

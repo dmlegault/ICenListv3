@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 @inject NavigationManager Nav
+@inject PortalAuthenticationOptions Authentication
 
 <MudThemeProvider Theme="_theme" IsDarkMode="true" />
 <MudPopoverProvider />
@@ -19,13 +20,26 @@
             }
         </div>
         <MudSpacer />
-        @* Who Windows says you are, and what that makes you here. Nothing under authentication Off. *@
+        @* Who Windows says you are and what that makes you here - or, under authentication Off (loopback
+           only), that nobody signed in and everyone is an Operator. Never blank: a blank reads as a bug. *@
         <AuthorizeView>
             <Authorized>
-                <MudTooltip Text="@(context.User.IsInRole(PortalRoles.Operator) ? "Operator: every page, every change." : "Viewer: every page, no changes.")">
-                    <MudText Typo="Typo.body2" Class="enlist-user mr-4">@context.User.Identity?.Name</MudText>
-                </MudTooltip>
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center" Class="mr-4">
+                    <MudIcon Icon="@Icons.Material.Filled.AccountCircle" Size="Size.Small" />
+                    <MudText Typo="Typo.body2">@context.User.Identity?.Name</MudText>
+                    <MudTooltip Text="@RoleTooltip(context.User)">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@(context.User.IsInRole(PortalRoles.Operator) ? Color.Primary : Color.Default)">@RoleLabel(context.User)</MudChip>
+                    </MudTooltip>
+                </MudStack>
             </Authorized>
+            <NotAuthorized>
+                @if (Authentication.IsOff)
+                {
+                    <MudTooltip Text="This portal runs with authentication off, which it permits only on loopback: nobody signs in, and everyone is an Operator.">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" Icon="@Icons.Material.Filled.LockOpen" Class="mr-4">authentication off</MudChip>
+                    </MudTooltip>
+                }
+            </NotAuthorized>
         </AuthorizeView>
         <MudHidden Breakpoint="Breakpoint.SmAndDown">
             <NavMenu />
@@ -86,6 +100,14 @@
     }
 
     public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+
+    private static string RoleLabel(System.Security.Claims.ClaimsPrincipal user) =>
+        user.IsInRole(PortalRoles.Operator) ? "Operator" : user.IsInRole(PortalRoles.Viewer) ? "Viewer" : "not admitted";
+
+    private static string RoleTooltip(System.Security.Claims.ClaimsPrincipal user) =>
+        user.IsInRole(PortalRoles.Operator) ? "Operator: every page, every change."
+        : user.IsInRole(PortalRoles.Viewer) ? "Viewer: every page, no changes."
+        : "Signed in, but in neither of the groups this portal admits.";
 
     /// <summary>
     /// Typography and shadows stay MudBlazor's own default. AppbarBackground is #1c1c28 — not a guess,

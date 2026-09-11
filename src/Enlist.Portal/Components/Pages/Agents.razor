@@ -90,7 +90,7 @@ else
                     <div>@Stats(row.Agent.Name).ApplicationCount</div>
                     <div>@Stats(row.Agent.Name).PolicyCount</div>
                     <div>@FormatRelative(row.Agent.LastSeenUtc)</div>
-                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
                         @if (IsOnline(row.Agent.LastSeenUtc))
                         {
                             <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">Online</MudChip>
