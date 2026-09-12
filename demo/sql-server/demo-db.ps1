@@ -329,11 +329,19 @@ switch ($Action) {
         Write-Host ""
         Write-Host "Demo SQL Server is up on 127.0.0.1,$($values['MSSQL_PORT']) (user: sa)."
         Write-Host ""
+        # The connection string carries the SA password, so it is NOT printed here. This ran on every
+        # `up`, which put the password into any transcript, scrollback or CI log that captured it -
+        # and `up` is the one action nobody thinks of as revealing a secret. `connstring` exists for
+        # when the caller actually wants it, and says so on the line below.
         Write-Host "Point the control plane at it:" -ForegroundColor Cyan
-        Write-Host "  `$env:ConnectionStrings__ControlPlane = '$(Get-ConnectionString -Values $values)'"
+        Write-Host "  `$env:ConnectionStrings__ControlPlane = (./demo-db.ps1 connstring)"
+        Write-Host ""
+        Write-Host "Then apply the schema and start it. The demo control plane runs in Production and"
+        Write-Host "refuses to start on a pending migration rather than applying it, so migrate first:"
+        Write-Host "  dotnet ef database update --project src/Enlist.ControlPlane"
         Write-Host "  dotnet run --project src/Enlist.ControlPlane"
         Write-Host ""
-        Write-Host "The database and schema are created on that first run (Development auto-migrates)."
+        Write-Host "(A Development run auto-migrates and needs no separate step - see demo/start-demo.ps1.)"
     }
 
     'down' {

@@ -59,7 +59,10 @@ function Stop-DemoProcesses {
     }
     foreach ($label in $demo.Keys) {
         foreach ($p in (Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'dotnet.exe' -and $_.CommandLine -like $demo[$label] })) {
-            Stop-Process -Id $p.ProcessId -Force
+            # SilentlyContinue because a process that exits between the CIM query and this line makes
+            # Stop-Process throw - and with $ErrorActionPreference = 'Stop' that aborted the whole
+            # script at its very first step, including the -Stop path whose entire job is this loop.
+            Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
             Write-Host "  stopped $label (pid $($p.ProcessId))"
         }
     }
@@ -97,9 +100,26 @@ Write-Host "Stopping anything already running..."
 Stop-DemoProcesses
 if ($Stop) { Write-Host "Demo stopped. The SQL Server is still up; demo/sql-server/demo-db.ps1 down stops it."; return }
 
+# Everything below sets environment variables in THIS shell, because that is how the child processes
+# inherit them. They are restored in the finally at the bottom, because otherwise they outlive the
+# script: a shell that had run this was left holding Authentication__Mode=Off, ASPNETCORE_ENVIRONMENT
+# and a ConnectionStrings__ControlPlane containing the SA password. A control plane started by hand
+# from that shell afterwards silently inherited authentication-off - the exact accident the comment
+# below says cannot happen.
+$savedEnvironment = @{}
+foreach ($name in @('ConnectionStrings__ControlPlane', 'ASPNETCORE_ENVIRONMENT', 'Authentication__Mode', 'ControlPlane__BaseUrl', 'ControlPlane__ApiKey')) {
+    $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
+}
+
+try {
+
 Write-Host "Demo SQL Server..."
 $demoDb = Join-Path $repo 'demo\sql-server\demo-db.ps1'
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $demoDb up | Out-Null
+# NOT piped to Out-Null. demo-db.ps1 streams the first-run image pull on purpose ("about 1.5 GB,
+# once") precisely so it does not look hung for the minutes that takes - and swallowing it put this
+# script back to sitting silently at "Demo SQL Server..." on exactly the machine least able to tell
+# the difference between slow and broken. It prints nothing at all once the image is local.
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $demoDb up
 if ($LASTEXITCODE -ne 0) { throw "The demo SQL Server did not start. Run demo/sql-server/demo-db.ps1 up to see why." }
 
 # The standard ASP.NET override; the child processes inherit it. Only the control plane reads it.
@@ -118,10 +138,19 @@ Start-Background -Name 'control-plane' -Arguments @("`"$(Join-Path $repo 'src\En
 $deadline = (Get-Date).AddSeconds(60)
 $ready = $false
 while ((Get-Date) -lt $deadline) {
-    try { Invoke-WebRequest -UseBasicParsing -Uri "$controlPlaneUrl/api/agents" -TimeoutSec 3 | Out-Null; $ready = $true; break } catch { Start-Sleep -Seconds 1 }
+    # /health, not /api/agents: it is anonymous in every authentication mode and was built for exactly
+    # this caller, whereas /api/agents is Viewer-policed and answers 401 the moment this demo is
+    # pointed at a control plane running Required. A 200 from /health also means the database answered
+    # and migrations are settled, which is the real definition of ready here.
+    try { Invoke-WebRequest -UseBasicParsing -Uri "$controlPlaneUrl/health" -TimeoutSec 3 | Out-Null; $ready = $true; break } catch { Start-Sleep -Seconds 1 }
 }
 if (-not $ready) {
     Get-Content (Join-Path $logs 'control-plane.log') -Tail 15 | ForEach-Object { Write-Host "  $_" }
+
+    # The control plane child was started above and is still running. Left alive, the next run's
+    # log tail shows the STALE process's output, which is the most confusing possible thing to
+    # read while debugging why the last one would not start.
+    Stop-DemoProcesses
     throw "The control plane did not answer on $controlPlaneUrl within 60s. A pending migration is the usual cause -- see the log above."
 }
 
@@ -169,3 +198,12 @@ Write-Host "  DEV-AGENT-01   $s1"
 Write-Host "  DEV-AGENT-02   $s2  (containers on $ContainerEngine)"
 Write-Host "  portal         $portalUrl  $(if ($portalReady) { '' } else { '(not answering yet -- see .demo/logs/portal.log)' })"
 Write-Host "  logs           $logs"
+
+}
+finally {
+    # The children have their own copies by now; these are this shell's, and they go back exactly as
+    # they were - including back to unset, which is why the saved value is written even when null.
+    foreach ($name in $savedEnvironment.Keys) {
+        [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name])
+    }
+}

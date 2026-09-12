@@ -22,6 +22,25 @@ function Get-WslcPath {
     return $null
 }
 
+function Invoke-WslcQuietly {
+    <#
+        Runs a wslc call with $ErrorActionPreference dropped to 'Continue' for its duration, so
+        stderr cannot become a terminating NativeCommandError under this script's 'Stop'. The same
+        trap demo-db.ps1's Invoke-Wslc exists for, in the one script that was still using a bare
+        2>$null -- which suppresses the OUTPUT of the problem without suppressing the problem.
+
+        Read-only by nature: this script never changes anything, so a failed call means "report it as
+        absent", never "retry" or "fix it".
+    #>
+    param([scriptblock]$Call)
+
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $Call 2>$null }
+    catch { @() }
+    finally { $ErrorActionPreference = $previous }
+}
+
 function Get-ListeningPort {
     param([int]$ProcessId)
     $conn = Get-NetTCPConnection -State Listen -OwningProcess $ProcessId -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -75,7 +94,13 @@ if (-not $wslc) {
     Write-Line 'SQL Server' 'wslc not found' 'Red'
 }
 else {
-    $inspect = & $wslc inspect enlist-demo-sql --format json 2>$null
+    # 'Continue' for the duration of the call, not a bare 2>$null. In Windows PowerShell 5.1 a native
+    # command's stderr becomes ErrorRecords, and under this script's $ErrorActionPreference = 'Stop'
+    # that is a TERMINATING error even when the command exits 0 - demo-db.ps1 documents the same trap
+    # at length and routes every wslc call through a wrapper because of it. `wslc inspect` on a
+    # container that does not exist writes to stderr routinely, which is the NORMAL case for a status
+    # check run before the first `up`.
+    $inspect = Invoke-WslcQuietly { & $wslc inspect enlist-demo-sql --format json }
     $json = ($inspect -join '') -replace '\0', ''
     if ($json -match '"Status":"(\w+)"') {
         $status = $matches[1]
@@ -88,7 +113,7 @@ else {
 
     Write-Host ""
     Write-Host "Application containers (wslc)" -ForegroundColor White
-    $list = (& $wslc list 2>$null) | Where-Object { $_ -match 'enlist-' -and $_ -notmatch 'enlist-demo-sql' }
+    $list = (Invoke-WslcQuietly { & $wslc list }) | Where-Object { $_ -match 'enlist-' -and $_ -notmatch 'enlist-demo-sql' }
     if ($list) {
         foreach ($line in $list) { Write-Host "  $($line -replace '\s{2,}', '  ')" -ForegroundColor Gray }
     }
