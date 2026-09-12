@@ -189,7 +189,7 @@
 
     private Task<IEnumerable<string>> SearchPackagesAsync(string? value, CancellationToken ct)
     {
-        var candidates = _packages.Where(p => p.ApplicationName == Existing.ApplicationName).OrderByDescending(p => p.UploadedAtUtc).AsEnumerable();
+        var candidates = _packages.Where(p => string.Equals(p.ApplicationName, Existing.ApplicationName, StringComparison.OrdinalIgnoreCase)).OrderByDescending(p => p.UploadedAtUtc).AsEnumerable();
         if (!string.IsNullOrWhiteSpace(value))
         {
             candidates = candidates.Where(p => p.Digest.Contains(value, StringComparison.OrdinalIgnoreCase));
@@ -217,16 +217,20 @@
     {
         if (string.IsNullOrWhiteSpace(_packageDigest))
         {
-            Snackbar.Add("Pick a package — publish one with enlist-deploy first if none exist yet.", Severity.Warning);
+            Snackbar.Add("Pick a package - publish one with enlist-deploy first if none exist yet.", Severity.Warning);
+            return;
+        }
+
+        if (KeyedRows.DuplicateMessage(_cronRows.Select(r => r.JobName), "job name") is { } duplicateJobs)
+        {
+            Snackbar.Add(duplicateJobs, Severity.Warning);
             return;
         }
 
         _saving = true;
         try
         {
-            var cronOverrides = _cronRows
-                .Where(r => !string.IsNullOrWhiteSpace(r.JobName))
-                .ToDictionary(r => r.JobName, r => r.Cron);
+            var cronOverrides = KeyedRows.Collapse(_cronRows.Select(r => (r.JobName, r.Cron)));
 
             var request = new UpdateApplicationPolicyRequest(
                 Path: null,

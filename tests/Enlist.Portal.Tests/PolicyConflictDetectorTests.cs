@@ -112,6 +112,46 @@ public sealed class PolicyConflictDetectorTests
         new(Guid.NewGuid(), application, Path: null, "Running", cron ?? Tags(), When, selector ?? Tags(),
             PackageDigest: "0123456789abcdef", Isolation: isolation);
 
+    [Fact]
+    public void Two_rules_differing_only_in_the_case_of_a_protocol_agree()
+    {
+        // The control plane accepts "tcp" and "TCP" interchangeably at validation, so anything that
+        // treats them as different is disagreeing with what was allowed in. Compared ordinally
+        // through record equality, these two reported a conflict - and an application with two rules
+        // that conflict does not resolve at all, so it simply never ran, for a difference nobody
+        // could see on screen.
+        var lower = Rule(isolation: Container(new PortMapping(5000, 8080, "tcp")));
+        var upper = Rule(isolation: Container(new PortMapping(5000, 8080, "TCP")));
+
+        Assert.True(PolicyConflictDetector.Agree([lower, upper]));
+    }
+
+    [Fact]
+    public void A_port_label_is_part_of_the_comparison_because_the_server_says_so()
+    {
+        // The portal's old canonical string dropped PortMapping.Name entirely while the server
+        // compared it, so this pair was accepted here and refused there. The direction matters: a
+        // portal that is quietly more permissive than the server sends people to save rules that
+        // then fail, which is worse than a portal that is merely wrong.
+        var named = Rule(isolation: Container(new PortMapping(5000, 8080, "tcp", "http")));
+        var unnamed = Rule(isolation: Container(new PortMapping(5000, 8080, "tcp")));
+
+        Assert.False(PolicyConflictDetector.Agree([named, unnamed]));
+    }
+
+    [Fact]
+    public void Mode_and_image_are_matched_the_way_the_server_matches_them()
+    {
+        // IsolationSpec.AgreesWith compares Mode and Image case-insensitively. The portal's canonical
+        // string compared them case-sensitively, so it flagged conflicts the server was perfectly
+        // happy with - the opposite error to the one above, from the same cause: a hand-built copy of
+        // a comparison that lived somewhere else.
+        var lower = Rule(isolation: new IsolationSpec(IsolationModes.Container, Image: "enlist/runner:dev"));
+        var upper = Rule(isolation: new IsolationSpec("CONTAINER", Image: "Enlist/Runner:Dev"));
+
+        Assert.True(PolicyConflictDetector.Agree([lower, upper]));
+    }
+
     private static IsolationSpec Container(params PortMapping[] ports) =>
         new(IsolationModes.Container, Ports: ports);
 

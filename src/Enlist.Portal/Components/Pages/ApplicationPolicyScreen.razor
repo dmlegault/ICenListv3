@@ -163,7 +163,7 @@ else
             // ALL policies, not just this application's: a port collision is between DIFFERENT
             // applications, so filtering first would make it undetectable here.
             var allPolicies = await Api.GetApplicationPoliciesAsync();
-            _policies = allPolicies.Where(p => p.ApplicationName == AppName).ToList();
+            _policies = allPolicies.Where(p => string.Equals(p.ApplicationName, AppName, StringComparison.OrdinalIgnoreCase)).ToList();
             _conflictsByAgent = PolicyConflictDetector.FindConflictsByAgent(_agents, _policies);
             _portCollisionsByAgent = PolicyConflictDetector.FindPortCollisionsByAgent(_agents, AppName, allPolicies);
         }

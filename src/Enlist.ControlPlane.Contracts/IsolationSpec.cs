@@ -46,7 +46,7 @@ public sealed record IsolationSpec(
     public bool AgreesWith(IsolationSpec other) =>
         string.Equals(Mode, other.Mode, StringComparison.OrdinalIgnoreCase) &&
         string.Equals(Image, other.Image, StringComparison.OrdinalIgnoreCase) &&
-        (Ports ?? []).SequenceEqual(other.Ports ?? []) &&
+        PortsAgree(Ports, other.Ports) &&
         (Networks ?? []).SequenceEqual(other.Networks ?? [], StringComparer.OrdinalIgnoreCase) &&
         (Env ?? new Dictionary<string, string>()).Count == (other.Env ?? new Dictionary<string, string>()).Count &&
         (Env ?? new Dictionary<string, string>()).All(kv =>
@@ -63,12 +63,43 @@ public sealed record IsolationSpec(
         string.Equals(mode, IsolationModes.Container, StringComparison.OrdinalIgnoreCase)
             ? this with { Mode = mode }
             : new IsolationSpec(mode);
+
+    /// <summary>
+    /// SequenceEqual on the records themselves compared Protocol and Name ORDINALLY, while validation
+    /// accepts "tcp" and "TCP" as the same protocol. Two rules that agreed in every way a human could
+    /// see therefore reported a phantom conflict, and the application they described refused to
+    /// resolve at all.
+    /// </summary>
+    private static bool PortsAgree(IReadOnlyList<PortMapping>? left, IReadOnlyList<PortMapping>? right)
+    {
+        var a = left ?? [];
+        var b = right ?? [];
+        return a.Count == b.Count && a.Zip(b).All(pair => pair.First.AgreesWith(pair.Second));
+    }
 }
 
 /// <param name="ContainerPort">The port the application binds INSIDE the container.</param>
 /// <param name="HostPort">The port to publish it on, or null to let the engine allocate one.</param>
 /// <param name="Name">An optional label so an endpoint can be reported as something meaningful ("http", "grpc") rather than a bare number.</param>
-public sealed record PortMapping(int ContainerPort, int? HostPort = null, string Protocol = "tcp", string? Name = null);
+public sealed record PortMapping(int ContainerPort, int? HostPort = null, string Protocol = "tcp", string? Name = null)
+{
+    /// <summary>
+    /// Whether two mappings describe the same publication, with Protocol and Name compared
+    /// case-insensitively — which the compiler-generated equality does not do. The control plane
+    /// accepts "tcp" and "TCP" interchangeably at validation, so anything downstream that treats them
+    /// as different is disagreeing with what was allowed in: it made agreeing rules conflict, and it
+    /// made 8080/tcp and 8080/TCP invisible to the host-port collision check whose entire job is to
+    /// notice that pair.
+    /// </summary>
+    public bool AgreesWith(PortMapping other) =>
+        ContainerPort == other.ContainerPort &&
+        HostPort == other.HostPort &&
+        string.Equals(Protocol, other.Protocol, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(Name, other.Name, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The protocol in one spelling, for use as a dictionary key or a comparison target. Two rules must not be able to claim "the same" host port under two spellings of the same protocol.</summary>
+    public string NormalizedProtocol => Protocol.ToLowerInvariant();
+}
 
 /// <summary>
 /// Defined here beside RuntimeFlavors, for the same reason: the control plane validates against these,

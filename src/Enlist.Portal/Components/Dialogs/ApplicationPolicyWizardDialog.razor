@@ -217,8 +217,9 @@
     private bool _resolvingPreview;
     private bool _saving;
 
+    // Read during render, so it must never throw - see KeyedRows.
     private Dictionary<string, string> CurrentSelector =>
-        _tagRows.Where(r => !string.IsNullOrWhiteSpace(r.Key)).ToDictionary(r => r.Key, r => r.Value);
+        KeyedRows.Collapse(_tagRows.Select(r => (r.Key, r.Value)));
 
     protected override async Task OnInitializedAsync()
     {
@@ -226,7 +227,7 @@
         {
             _packages = await Api.GetPackagesAsync();
             _allPolicies = await Api.GetApplicationPoliciesAsync();
-            _existingPolicies = _allPolicies.Where(p => p.ApplicationName == ApplicationName).ToList();
+            _existingPolicies = _allPolicies.Where(p => string.Equals(p.ApplicationName, ApplicationName, StringComparison.OrdinalIgnoreCase)).ToList();
         }
         catch (ApiException)
         {
@@ -281,10 +282,15 @@
     /// the real safety net regardless. This is the early warning, not a substitute for it.</summary>
     private List<(string AgentName, ApplicationPolicyDto ExistingPolicy)> FindConflicts()
     {
-        // Id/ApplicationName/TagSelector/etc. don't matter here — PolicyConflictDetector.Agree only
-        // compares Path/PackageDigest/DesiredState/CronOverrides, which is all this hypothetical rule
-        // needs to carry.
-        var hypothetical = new ApplicationPolicyDto(Guid.Empty, ApplicationName, null, _desiredState, BuildCronOverrides(), default, new Dictionary<string, string>(), _packageDigest);
+        // Id/ApplicationName/TagSelector don't matter here, but every field Agree COMPARES does, and
+        // Isolation is one of them - it decides process versus container. Left off, this preview told
+        // the person their new container rule agreed with an existing process rule, and the server
+        // then refused the pair as a conflict the moment they saved. The comment that used to sit
+        // here listed the compared fields and had simply gone stale when Isolation joined them, which
+        // is why this now passes the real thing rather than describing what it can omit.
+        var hypothetical = new ApplicationPolicyDto(
+            Guid.Empty, ApplicationName, null, _desiredState, BuildCronOverrides(), default,
+            new Dictionary<string, string>(), _packageDigest, Isolation: BuildIsolation());
         var conflicts = new List<(string, ApplicationPolicyDto)>();
 
         foreach (var agentName in _matchingAgents)
@@ -313,13 +319,11 @@
     }
 
     private Dictionary<string, string> BuildCronOverrides() =>
-        _cronRows
-            .Where(r => !string.IsNullOrWhiteSpace(r.JobName))
-            .ToDictionary(r => r.JobName, r => r.Cron);
+        KeyedRows.Collapse(_cronRows.Select(r => (r.JobName, r.Cron)));
 
     private Task<IEnumerable<string>> SearchPackagesAsync(string? value, CancellationToken ct)
     {
-        var candidates = _packages.Where(p => p.ApplicationName == ApplicationName).OrderByDescending(p => p.UploadedAtUtc).AsEnumerable();
+        var candidates = _packages.Where(p => string.Equals(p.ApplicationName, ApplicationName, StringComparison.OrdinalIgnoreCase)).OrderByDescending(p => p.UploadedAtUtc).AsEnumerable();
         if (!string.IsNullOrWhiteSpace(value))
         {
             candidates = candidates.Where(p => p.Digest.Contains(value, StringComparison.OrdinalIgnoreCase));
@@ -371,6 +375,21 @@
 
     private async Task SaveAsync()
     {
+        // Said rather than silently collapsed: two rows with one key means one of them was meant to
+        // be something else, and quietly keeping whichever came last would save a rule the person did
+        // not write.
+        if (KeyedRows.DuplicateMessage(_tagRows.Select(r => r.Key), "tag key") is { } duplicateTags)
+        {
+            Snackbar.Add(duplicateTags, Severity.Warning);
+            return;
+        }
+
+        if (KeyedRows.DuplicateMessage(_cronRows.Select(r => r.JobName), "job name") is { } duplicateJobs)
+        {
+            Snackbar.Add(duplicateJobs, Severity.Warning);
+            return;
+        }
+
         if (_portCollisions.Count > 0)
         {
             var byAgent = _portCollisions.DistinctBy(c => (c.AgentName, c.HostPort, c.OtherApplication)).ToList();

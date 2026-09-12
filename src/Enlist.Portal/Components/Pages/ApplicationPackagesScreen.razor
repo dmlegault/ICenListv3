@@ -76,7 +76,7 @@ else
         try
         {
             _packages = (await Api.GetPackagesAsync())
-                .Where(p => p.ApplicationName == AppName)
+                .Where(p => string.Equals(p.ApplicationName, AppName, StringComparison.OrdinalIgnoreCase))
                 .ToList();
         }
         catch (ApiException ex)

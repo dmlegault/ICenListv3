@@ -54,6 +54,35 @@ public sealed class TagSelectorMatcherTests
         Assert.Equal("tag: env=demo", TagSelectorMatcher.DescribeScope(agent, Tags(("env", "demo"))));
     }
 
+    [Fact]
+    public void The_self_tag_matches_an_agent_name_in_any_case()
+    {
+        // Agent names are case-insensitive everywhere else in the system: the SQL collation, the
+        // bearer handler's route check, the hub's group check. Matching them exactly here meant a
+        // rule targeting "web-07" silently matched nothing on agent "WEB-07" - no error, no warning,
+        // no log line, just an application that never ran and a rule that looked right on screen.
+        var agent = Agent("WEB-07");
+
+        Assert.True(TagSelectorMatcher.Matches(agent, Tags(("agent", "web-07"))));
+        Assert.True(TagSelectorMatcher.Matches(agent, Tags(("agent", "WeB-07"))));
+        Assert.True(TagSelectorMatcher.IsSelfTargeted(agent, Tags(("agent", "web-07"))));
+
+        // A DIFFERENT name is still a different agent; case-insensitive is not lenient.
+        Assert.False(TagSelectorMatcher.Matches(agent, Tags(("agent", "web-08"))));
+    }
+
+    [Fact]
+    public void An_ordinary_tag_is_still_matched_exactly()
+    {
+        // Deliberately not extended to ordinary tags. Their keys and values are operator-chosen text,
+        // and deciding that "env=Prod" and "env=prod" mean the same thing is a policy judgement
+        // nobody has made. The self-tag is the exception because its value is an agent name.
+        var agent = Agent("A", ("env", "prod"));
+
+        Assert.True(TagSelectorMatcher.Matches(agent, Tags(("env", "prod"))));
+        Assert.False(TagSelectorMatcher.Matches(agent, Tags(("env", "Prod"))));
+    }
+
     private static readonly DateTimeOffset When = new(2026, 9, 9, 0, 0, 0, TimeSpan.Zero);
 
     private static AgentDto Agent(string name, params (string Key, string Value)[] tags) =>

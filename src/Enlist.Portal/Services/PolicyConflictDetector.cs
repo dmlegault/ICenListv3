@@ -15,29 +15,39 @@ namespace Enlist.Portal.Services;
 /// </summary>
 public static class PolicyConflictDetector
 {
-    public static bool Agree(IReadOnlyCollection<ApplicationPolicyDto> policies) =>
-        policies.Select(Canonical).Distinct().Count() <= 1;
+    public static bool Agree(IReadOnlyCollection<ApplicationPolicyDto> policies)
+    {
+        if (policies.Count <= 1)
+        {
+            return true;
+        }
+
+        var first = policies.First();
+        return policies.Skip(1).All(p => AgreesWith(first, p));
+    }
 
     /// <summary>
-    /// Must stay in step with the control plane's ResolveEffectivePoliciesForAgentAsync, which is the
-    /// authority — this is the portal predicting what the server will decide. Isolation joined that
-    /// comparison and has to be here too, or a rule differing only in process-vs-container would
-    /// be flagged by the agent and silently accepted by the portal.
+    /// A field-by-field mirror of the control plane's ResolveEffectivePoliciesForAgentAsync, which is
+    /// the authority; this is the portal predicting what the server will decide, so every comparison
+    /// here matches the server's EXACTLY - ordinal on the four scalar fields, and IsolationSpec's own
+    /// AgreesWith for the rest.
     ///
-    /// Isolation is rendered through AgreesWith rather than compared directly, because IsolationSpec is
-    /// a positional record whose Ports/Networks/Env compare by REFERENCE.
+    /// It used to be a hand-built canonical STRING instead, and the string quietly disagreed with the
+    /// authority in both directions: it dropped PortMapping.Name, which the server compares, so the
+    /// portal accepted rules the server rejected; and it compared Mode, Image and Networks
+    /// case-sensitively, which the server does not, so the portal flagged conflicts the server was
+    /// perfectly happy with. Calling the shared predicate is what makes "mirrors the control plane"
+    /// true rather than aspirational.
     /// </summary>
-    private static string Canonical(ApplicationPolicyDto p) =>
-        $"{p.Path}|{p.PackageDigest}|{p.DesiredState}|{string.Join(",", p.CronOverrides.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}={kv.Value}"))}|{CanonicalIsolation(p.Isolation)}";
+    private static bool AgreesWith(ApplicationPolicyDto a, ApplicationPolicyDto b) =>
+        a.Path == b.Path &&
+        a.PackageDigest == b.PackageDigest &&
+        a.DesiredState == b.DesiredState &&
+        CronOverridesAgree(a.CronOverrides, b.CronOverrides) &&
+        (a.Isolation ?? IsolationSpec.ProcessDefault).AgreesWith(b.Isolation ?? IsolationSpec.ProcessDefault);
 
-    private static string CanonicalIsolation(IsolationSpec? isolation)
-    {
-        var spec = isolation ?? IsolationSpec.ProcessDefault;
-        var ports = string.Join(",", (spec.Ports ?? []).Select(p => $"{p.ContainerPort}:{p.HostPort}/{p.Protocol}"));
-        var networks = string.Join(",", spec.Networks ?? []);
-        var env = string.Join(",", (spec.Env ?? new Dictionary<string, string>()).OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}={kv.Value}"));
-        return $"{spec.Mode}|{spec.Image}|{ports}|{networks}|{env}";
-    }
+    private static bool CronOverridesAgree(IReadOnlyDictionary<string, string> a, IReadOnlyDictionary<string, string> b) =>
+        a.Count == b.Count && a.All(kv => b.TryGetValue(kv.Key, out var other) && other == kv.Value);
 
     /// <summary>Every currently-registered agent that's matched by more than one of `policies`, where
     /// those matching rules disagree — keyed by agent name, valued by the disagreeing rules themselves.

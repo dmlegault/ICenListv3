@@ -28,6 +28,31 @@ public sealed class AgentRegistryTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_self_tag_selector_reaches_the_agent_whatever_case_the_name_was_typed_in()
+    {
+        // The bug this exists for cost nothing visible and everything real: agent names are
+        // case-insensitive in the SQL collation, in the bearer handler's route check and in the hub's
+        // group check, but the selector comparison matched them exactly. A rule targeting "web-07"
+        // resolved to nothing on agent "WEB-07". No error, no warning, no log line - the application
+        // simply never ran anywhere, and the rule looked perfectly correct on the policy screen.
+        var agentName = "CASE-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var appName = "CaseApp" + Guid.NewGuid().ToString("N")[..8];
+
+        // Registers the agent under its real, upper-case name.
+        await _client.GetAsync($"/api/agents/{agentName}/policies");
+
+        // The rule names it in lower case, the way a person typing into the portal well might.
+        var create = await _client.PostAsJsonAsync("/api/application-policies", new CreateApplicationPolicyRequest(
+            appName, "C:\\apps\\case", "Running", null,
+            TagSelector: new Dictionary<string, string> { ["agent"] = agentName.ToLowerInvariant() }));
+        create.EnsureSuccessStatusCode();
+
+        var resolved = await _client.GetFromJsonAsync<List<ApplicationPolicyDto>>($"/api/agents/{agentName}/policies");
+
+        Assert.Single(resolved!, p => p.ApplicationName == appName);
+    }
+
+    [Fact]
     public async Task An_agent_is_registered_automatically_the_first_time_it_fetches_its_policies()
     {
         var agentName = "auto-" + Guid.NewGuid().ToString("N")[..8];

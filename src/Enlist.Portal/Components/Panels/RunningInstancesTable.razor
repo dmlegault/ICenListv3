@@ -120,7 +120,7 @@ else
                 </MudTd>
                 <MudTd Style="width:110px;">
                     <MudStack Row="true" Justify="Justify.FlexEnd">
-                        @if (context.Type != "Conflict")
+                        @if (!context.IsConflict)
                         {
                             <AuthorizeView Policy="@PortalRoles.Operator" Context="access">
                                 <MudTooltip Text="@CommandDisabledReason(context)" Disabled="@(!CommandsDisabled(context))">
@@ -280,14 +280,15 @@ else
                 // says plainly why nothing here can be trusted, and skip the rest of this agent's rows.
                 rows.Add(new InstanceRow(
                     "Policy conflict",
-                    "—",
+                    "-",
                     agentName,
                     "multiple rules match",
                     null,
                     "Failed",
-                    "Two or more enabled policy rules disagree for this agent — resolve on the policy screen before it can start. Any services/jobs listed here would be stale, from before the conflict.",
+                    "Two or more policy rules disagree for this agent - resolve on the policy screen before it can start. Any services/jobs listed here would be stale, from before the conflict.",
                     false,
-                    stale));
+                    stale,
+                    IsConflict: true));
                 continue;
             }
 
@@ -385,7 +386,14 @@ else
         _ => Color.Default,
     };
 
-    private sealed record InstanceRow(string Name, string Type, string AgentName, string QualifiedVia, int? Version, string State, string? Description, bool Paused, bool Stale, string? IsolationMode = null, string? RuntimeId = null, List<ResolvedEndpointDto>? Endpoints = null);
+    /// <summary>
+    /// IsConflict is a flag rather than a magic value in Type, because Type is rendered and a
+    /// rendered string is a bad place to keep a decision. The command guard used to ask
+    /// `Type != "Conflict"` while the pseudo-row was built with Type set to a dash, so the guard
+    /// never matched and the Start/Stop button rendered on the conflict row - offering to send a
+    /// command for a target literally named "Policy conflict", which no runner has.
+    /// </summary>
+    private sealed record InstanceRow(string Name, string Type, string AgentName, string QualifiedVia, int? Version, string State, string? Description, bool Paused, bool Stale, string? IsolationMode = null, string? RuntimeId = null, List<ResolvedEndpointDto>? Endpoints = null, bool IsConflict = false);
 
     public async ValueTask DisposeAsync()
     {

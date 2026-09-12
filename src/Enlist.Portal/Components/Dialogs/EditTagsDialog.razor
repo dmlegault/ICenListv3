@@ -39,12 +39,16 @@
 
     private async Task SaveAsync()
     {
+        if (KeyedRows.DuplicateMessage(_rows.Select(r => r.Key), "tag key") is { } duplicates)
+        {
+            Snackbar.Add(duplicates, Severity.Warning);
+            return;
+        }
+
         _saving = true;
         try
         {
-            var tags = _rows
-                .Where(r => !string.IsNullOrWhiteSpace(r.Key))
-                .ToDictionary(r => r.Key, r => r.Value);
+            var tags = KeyedRows.Collapse(_rows.Select(r => (r.Key, r.Value)));
             await Api.SetAgentTagsAsync(AgentName, tags);
             MudDialog.Close(DialogResult.Ok(true));
         }

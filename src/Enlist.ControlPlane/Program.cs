@@ -1032,27 +1032,13 @@ static bool HasExactlyOne(bool a, bool b) => a ^ b;
 static Dictionary<string, string> DeserializeTags(string json) =>
     JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new Dictionary<string, string>();
 
-/// <summary>An agent's own stored tags, plus the implicit self-tag every agent carries without it ever being persisted — "target this one agent" is just the most specific possible selector, {"agent": name}. The synthesized value always wins over a same-named real tag (an operator setting an actual "agent" tag to something else would be confusing regardless; this keeps the self-tag authoritative rather than silently shadowable).</summary>
-static Dictionary<string, string> EffectiveAgentTags(string agentName, string agentTagsJson)
-{
-    var tags = DeserializeTags(agentTagsJson);
-    tags["agent"] = agentName;
-    return tags;
-}
+/// <summary>The stored tags plus the implicit self-tag — see AgentTags, which is where the rule lives now so the portal cannot drift from it.</summary>
+static Dictionary<string, string> EffectiveAgentTags(string agentName, string agentTagsJson) =>
+    AgentTags.Effective(agentName, DeserializeTags(agentTagsJson));
 
-/// <summary>True if tags contains every key/value pair in selector — an empty selector matches every agent.</summary>
-static bool SelectorMatches(IReadOnlyDictionary<string, string> tags, IReadOnlyDictionary<string, string> selector)
-{
-    foreach (var (key, value) in selector)
-    {
-        if (!tags.TryGetValue(key, out var actual) || actual != value)
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
+/// <summary>True if tags satisfies every pair in selector — see AgentTags.SelectorMatches for why the self-tag is the one key not matched exactly.</summary>
+static bool SelectorMatches(IReadOnlyDictionary<string, string> tags, IReadOnlyDictionary<string, string> selector) =>
+    AgentTags.SelectorMatches(tags, selector);
 
 static bool CronOverridesEqual(IReadOnlyDictionary<string, string> a, IReadOnlyDictionary<string, string> b)
 {
@@ -1172,7 +1158,9 @@ static List<(ApplicationPolicyEntity Entity, string? ConflictReason)> ApplyPortC
                 continue;
             }
 
-            var key = (hostPort, port.Protocol);
+            // Normalized, so 8080/tcp and 8080/TCP cannot each claim the port privately and both be
+            // told they got it. Validation accepts either spelling, so this is where they converge.
+            var key = (hostPort, port.NormalizedProtocol);
             if (!claims.TryGetValue(key, out var claimants))
             {
                 claims[key] = claimants = [];
