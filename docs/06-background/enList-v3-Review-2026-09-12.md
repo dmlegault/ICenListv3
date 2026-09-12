@@ -1,7 +1,8 @@
 # enList v3 — Full Regression Review, 12 September 2026
 
-**Status:** Findings only. **Nothing in this document has been fixed yet.** No code was
-changed during the review; the working tree was clean at `34007c9`.
+**Status:** A live worklist. It began as findings only — no code was changed during the review, and
+the working tree was clean at `34007c9` — and fixes have been landing against it since. Each section
+says what has been closed and by which commit; **§10 is the running order.**
 
 **How this was produced.** Seven reviewers read every line of their area: control plane +
 contracts, agent, both runners (file-by-file drift diff), portal + deploy + samples, all
@@ -19,9 +20,10 @@ a starting point for triage, not a verdict.
 ## 1. Fix first (correctness, security, data loss)
 
 **Fixed so far:** items 1, 7 and 8 (`a48da7a`), the command-ordering defect below (`75f9665`),
-items 2, 3, 4, 15, 16 and 17 (`8e17af8`), and items 5, 6, 9, 18, 21, 22 and 23 (`794aae9`).
+items 2, 3, 4, 15, 16 and 17 (`8e17af8`), items 5, 6, 9, 18, 21, 22 and 23 (`794aae9`), and items 10
+and 11 plus the whole of §4's case-sensitivity and portal-mirror set (`b91bf2f`).
 
-**Still open in this section: items 10, 11, 12, 13, 14, 19, 20 and 24.**
+**Still open in this section: items 12, 13, 14, 19, 20 and 24.**
 
 > **Correction.** `794aae9`'s own message claims it closed "item 12". It did not: that commit does
 > not touch `src/Enlist.Agent` at all, and item 12 is the `_pendingRetries` leak in `AgentHost`,
@@ -145,8 +147,8 @@ Authentication is done; a lot of prose still says it isn't.
 
 ## 4. Consistency and correctness-adjacent
 
-- **Case sensitivity, three places.** `ControlPlane/Program.cs:1008,1017` compares the implicit self-tag `{"agent": name}` case-sensitively while agent names are case-insensitive everywhere else (SQL collation, `EndpointPolicyHandler:66`, `ApplicationPolicyHub:35`) — so `{"agent":"web-07"}` never matches `WEB-07`. `Contracts/IsolationSpec.cs:49` compares `Protocol` by record equality (`tcp` ≠ `TCP`) while validation accepts either case, producing phantom conflicts and missed port collisions. Portal filters use ordinal `==` where the server groups `OrdinalIgnoreCase` (5 sites).
-- **Portal mirrors drifting from the authority they mirror.** `PolicyConflictDetector.CanonicalIsolation` drops `PortMapping.Name` and compares case-sensitively, so it flags what the server accepts and vice versa; the wizard's hypothetical rule omits `Isolation` entirely, previewing "agrees" where the server will flag a conflict.
+- ~~**Case sensitivity, three places.**~~ (**fixed**, `b91bf2f` - the rule now lives once, in `AgentTags`) `ControlPlane/Program.cs:1008,1017` compares the implicit self-tag `{"agent": name}` case-sensitively while agent names are case-insensitive everywhere else (SQL collation, `EndpointPolicyHandler:66`, `ApplicationPolicyHub:35`) — so `{"agent":"web-07"}` never matches `WEB-07`. `Contracts/IsolationSpec.cs:49` compares `Protocol` by record equality (`tcp` ≠ `TCP`) while validation accepts either case, producing phantom conflicts and missed port collisions. Portal filters use ordinal `==` where the server groups `OrdinalIgnoreCase` (5 sites).
+- ~~**Portal mirrors drifting from the authority they mirror.**~~ (**fixed**, `b91bf2f` - the detector calls `AgreesWith`, the wizard passes its real isolation) `PolicyConflictDetector.CanonicalIsolation` drops `PortMapping.Name` and compares case-sensitively, so it flags what the server accepts and vice versa; the wizard's hypothetical rule omits `Isolation` entirely, previewing "agrees" where the server will flag a conflict.
 - **Performance on the hot path.** `Program.cs:1341` allocates a `JsonSerializerOptions` per agent per request (STJ caches metadata *per instance*); `:1293-1298` runs one "latest report" query per agent — on the endpoint feed a reverse proxy polls continuously.
 - **400s that surface as 500s.** `CredentialIssuer.Expiry.Parse` overflows on `"99999999999h"`; ~~`CreateApiKeyAsync` races the filtered unique index~~ (**fixed**, `794aae9`); revoke matches an untrimmed name that create stored trimmed.
 - **Silently ignored input.** `Agent/Program.cs:60-92` and `Deploy/Program.cs:124-133` both ignore unknown flags and a trailing flag with no value — a typo'd `--api_key` sends no key and the 401 blames the wrong thing.
