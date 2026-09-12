@@ -10,6 +10,13 @@ internal static class RepoPaths
     /// <summary>The net472 sample, in the same deployed shape — one service, one job, one cancellable batch.</summary>
     public static string LegacySampleOutputDir() => Path.Combine(Root(), "deploy", "LegacySample");
 
+    /// <summary>
+    /// Plugins that fail on purpose, for the runner's failure paths. Deliberately NOT under deploy/:
+    /// everything there is demo material the portal shows and the demo script deploys, and every
+    /// service in here is broken by design. See tests/Enlist.TestPlugins.Misbehaving.
+    /// </summary>
+    public static string MisbehavingPluginsOutputDir() => Path.Combine(Root(), ".testplugins", "Misbehaving");
+
     /// <summary>The net472 runner's own build output. Located by path rather than referenced — see StubAgent.StartLegacyAsync.</summary>
     public static string LegacyRunnerExe() => Path.Combine(Root(), "src", "Enlist.Runner.Legacy", "bin", "Debug", "net472", "enlist-runner.exe");
 

@@ -74,6 +74,11 @@ PackageBlobs/
 /deploy/*
 !/deploy/README.md
 
+# Built test plugins. Same idea as deploy/, kept out of it on purpose: everything
+# under deploy/ is demo material the portal shows, and these are broken by design
+# (tests/Enlist.TestPlugins.Misbehaving).
+/.testplugins/
+
 # --- OS cruft ----------------------------------------------------------------
 Thumbs.db
 ehthumbs.db

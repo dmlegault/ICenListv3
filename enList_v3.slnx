@@ -20,6 +20,7 @@
     <Project Path="tests/Enlist.Deploy.Tests/Enlist.Deploy.Tests.csproj" />
     <Project Path="tests/Enlist.Portal.Tests/Enlist.Portal.Tests.csproj" />
     <Project Path="tests/Enlist.Runner.Tests/Enlist.Runner.Tests.csproj" />
+    <Project Path="tests/Enlist.TestPlugins.Misbehaving/Enlist.TestPlugins.Misbehaving.csproj" />
     <Project Path="tests/Enlist.TestSupport/Enlist.TestSupport.csproj" />
   </Folder>
 </Solution>

@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Enlist.TestPlugins.Misbehaving</RootNamespace>
+    <IsPackable>false</IsPackable>
+
+    <!--
+      An application directory like any other, so a test can point enlist-runner at it exactly as it
+      points at a sample. NOT under deploy/, because everything there is demo material that the
+      portal shows and the demo script deploys - and every service in here is broken on purpose.
+    -->
+    <OutputPath>..\..\.testplugins\Misbehaving\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <!-- The attribute contract as SOURCE, the same way every real plugin takes it. -->
+  <Import Project="..\..\contracts\Enlist.Contracts.props" />
+
+</Project>

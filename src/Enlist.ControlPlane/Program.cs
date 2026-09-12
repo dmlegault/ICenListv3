@@ -215,6 +215,20 @@ app.MapPost("/api/agents/enroll", async (EnrollAgentRequest request, HttpContext
 
     var now = DateTimeOffset.UtcNow;
 
+    // A name holds at most one live credential. This is the 409 that replaces the silent corruption
+    // two same-named agents used to cause; to move an agent, revoke the old credential first.
+    //
+    // Checked BEFORE the join token is charged, so a refused enrollment does not silently consume one
+    // of a single-use token's uses and leave an operator with a token that no longer works and no
+    // agent to show for it.
+    var existing = await db.AgentCredentials.FindAsync(request.AgentName);
+    if (existing is not null && existing.RevokedAtUtc is null)
+    {
+        return Results.Conflict(
+            $"'{request.AgentName}' already holds a live credential. Two agents with one name silently corrupt each other's reports, " +
+            "so this is refused. If that agent has been replaced, revoke its credential first (revoke-agent, or DELETE /api/agents/{name}).");
+    }
+
     if (authentication.Value.IsRequired)
     {
         var joinId = Guid.Parse(http.User.FindFirstValue(EnlistClaims.Credential)!);
@@ -224,20 +238,23 @@ app.MapPost("/api/agents/enroll", async (EnrollAgentRequest request, HttpContext
             return Results.Unauthorized();
         }
 
-        if (join.UsesRemaining is { } uses)
+        if (join.UsesRemaining is not null)
         {
-            join.UsesRemaining = uses - 1;
-        }
-    }
+            // Claimed in the DATABASE, conditionally, rather than read-modify-written here. Two
+            // agents presenting the same single-use token at the same moment both read
+            // UsesRemaining = 1 and both wrote 0, so one use enrolled two agents - which is the
+            // entire thing a use count exists to prevent. The row count is what says whether THIS
+            // caller got the use; losing the race is indistinguishable from presenting a spent token,
+            // and is answered the same way.
+            var claimed = await db.JoinTokens
+                .Where(t => t.Id == joinId && t.UsesRemaining > 0)
+                .ExecuteUpdateAsync(t => t.SetProperty(x => x.UsesRemaining, x => x.UsesRemaining - 1));
 
-    // A name holds at most one live credential. This is the 409 that replaces the silent corruption
-    // two same-named agents used to cause; to move an agent, revoke the old credential first.
-    var existing = await db.AgentCredentials.FindAsync(request.AgentName);
-    if (existing is not null && existing.RevokedAtUtc is null)
-    {
-        return Results.Conflict(
-            $"'{request.AgentName}' already holds a live credential. Two agents with one name silently corrupt each other's reports, " +
-            "so this is refused. If that agent has been replaced, revoke its credential first (revoke-agent, or DELETE /api/agents/{name}).");
+            if (claimed == 0)
+            {
+                return Results.Unauthorized();
+            }
+        }
     }
 
     var agent = await db.Agents.FindAsync(request.AgentName);
@@ -261,7 +278,21 @@ app.MapPost("/api/agents/enroll", async (EnrollAgentRequest request, HttpContext
         existing.RevokedAtUtc = null;
     }
 
-    await db.SaveChangesAsync();
+    try
+    {
+        await db.SaveChangesAsync();
+    }
+    catch (DbUpdateException)
+    {
+        // Two enrollments of the same brand-new name at once: both found no existing credential
+        // above, and both inserted. One wins on the primary key, and the loser used to surface as a
+        // 500 for precisely the condition the check above answers with 409. The winner's credential
+        // is live by the time this runs, so the answer is the same one that check would have given.
+        return Results.Conflict(
+            $"'{request.AgentName}' already holds a live credential. Two agents with one name silently corrupt each other's reports, " +
+            "so this is refused. If that agent has been replaced, revoke its credential first (revoke-agent, or DELETE /api/agents/{name}).");
+    }
+
     return Results.Created($"/api/agents/{request.AgentName}", new EnrollAgentResponse(request.AgentName, token));
 });
 

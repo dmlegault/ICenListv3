@@ -27,25 +27,62 @@ public sealed class PackageBlobStore
         long size;
         string digest;
 
-        await using (var tempFile = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
-        using (var sha256 = SHA256.Create())
-        await using (var hashingStream = new CryptoStream(tempFile, sha256, CryptoStreamMode.Write))
+        try
         {
+            await using var tempFile = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
+            using var sha256 = SHA256.Create();
+            await using var hashingStream = new CryptoStream(tempFile, sha256, CryptoStreamMode.Write);
+
             await content.CopyToAsync(hashingStream, ct).ConfigureAwait(false);
             await hashingStream.FlushFinalBlockAsync(ct).ConfigureAwait(false);
             digest = Convert.ToHexStringLower(sha256.Hash!);
             size = tempFile.Length;
         }
+        catch
+        {
+            // A client that abandons a 500 MB upload, a full disk, a cancelled request. Without this
+            // the partial .tmp stayed under the blob root forever: nothing sweeps it, because the
+            // retention sweep walks package ROWS and this upload never produced one.
+            TryDeleteFile(tempPath);
+            throw;
+        }
 
         var finalPath = PathFor(digest);
         if (File.Exists(finalPath))
         {
-            File.Delete(tempPath);
+            TryDeleteFile(tempPath);
             return (digest, new FileInfo(finalPath).Length, AlreadyExisted: true);
         }
 
-        File.Move(tempPath, finalPath);
+        try
+        {
+            File.Move(tempPath, finalPath);
+        }
+        catch (IOException) when (File.Exists(finalPath))
+        {
+            // Two uploads of identical bytes in flight at once: both saw no file, and the loser's
+            // Move lands on one that exists by the time it runs. This is not a failure - the name IS
+            // the hash of the content, so the bytes now on disk are byte-for-byte what this caller
+            // was uploading. Only this copy of them is redundant. It used to be a 500 for a package
+            // that was, in fact, successfully stored.
+            TryDeleteFile(tempPath);
+            return (digest, new FileInfo(finalPath).Length, AlreadyExisted: true);
+        }
+
         return (digest, size, AlreadyExisted: false);
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+            // Best-effort cleanup of a file nothing references. Worth disk space, never worth failing
+            // the request that was on its way to succeeding.
+        }
     }
 
     public bool Exists(string digest) => File.Exists(PathFor(digest));

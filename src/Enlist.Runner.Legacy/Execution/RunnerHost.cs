@@ -269,6 +269,12 @@ public sealed class RunnerHost
         }
         catch (Exception ex)
         {
+            // StateChanged BEFORE the fault, exactly as the catch at the end of this method does.
+            // AgentHost tracks service state from StateChangedMessage and only LOGS a FaultedMessage,
+            // so a fault with no state change beside it left the service parked at Starting for the
+            // life of the runner: a service that never even got constructed, reported as one that is
+            // still starting, with the reason visible only to whoever read the log.
+            Send(new StateChangedMessage(service.Name, RunnerTargetKind.Service, RunnerState.Faulted));
             Send(new FaultedMessage(service.Name, $"Could not construct {service.TypeName}: {Describe(ex)}"));
             return;
         }
@@ -331,6 +337,26 @@ public sealed class RunnerHost
             // actually kills the process if this matters.
             Log(service.Name, LogLevel.Warning, $"[EnlistStop] did not return within {timeout.TotalSeconds:0}s.");
             Send(new StateChangedMessage(service.Name, RunnerTargetKind.Service, RunnerState.Stopping));
+
+            // The invocation is still running and this method is the last thing holding it, so its
+            // eventual outcome is reported from here or not at all. Dropped, it left the service at
+            // Stopping permanently: a lone StopServiceCommand does not make the agent kill the
+            // process, so nothing else was coming to correct the state, and a second Stop was
+            // answered with "not running - ignored" because the registry entry is already gone.
+            _ = stopInvocation.ContinueWith(
+                finished =>
+                {
+                    if (finished.IsFaulted)
+                    {
+                        Send(new FaultedMessage(service.Name, Describe(finished.Exception!)));
+                    }
+
+                    Send(new StateChangedMessage(service.Name, RunnerTargetKind.Service, RunnerState.Stopped));
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.None,
+                TaskScheduler.Default);
+
             return;
         }
 
@@ -523,11 +549,23 @@ public sealed class RunnerHost
         return ctor.Invoke(null);
     }
 
-    private static Dictionary<string, string> MergeSettings(IReadOnlyDictionary<string, string> baseSettings, IReadOnlyDictionary<string, string> overrides)
+    /// <summary>
+    /// overrides is declared non-nullable on RunJobCommand and can still arrive null: a command whose
+    /// JSON simply omits "settings" deserializes to exactly that. Unguarded, this threw an
+    /// NullReferenceException AFTER StateChanged(Starting) had gone out and BEFORE the try that turns
+    /// a job failure into a JobResultMessage - so the run was announced, never reported, and the
+    /// agent's in-flight entry for it was never cleared.
+    /// </summary>
+    private static Dictionary<string, string> MergeSettings(IReadOnlyDictionary<string, string> baseSettings, IReadOnlyDictionary<string, string>? overrides)
     {
         // net472's Dictionary<TKey,TValue> has no constructor accepting IReadOnlyDictionary (only
         // IDictionary) — the netcoreapp-only overload the modern runner relies on here.
         var merged = baseSettings.ToDictionary(kv => kv.Key, kv => kv.Value);
+        if (overrides is null)
+        {
+            return merged;
+        }
+
         foreach (var (key, value) in overrides)
         {
             merged[key] = value;
@@ -567,6 +605,27 @@ public sealed class RunnerHost
         catch (IOException)
         {
             // The pipe went away (agent process died, or killed us mid-shutdown). Nothing more to send to.
+        }
+        catch (Exception ex)
+        {
+            // Anything else - an ObjectDisposedException from a stream torn down underneath this is
+            // the realistic one. Left to fault the task, it was rethrown by `await pump` at the end of
+            // RunAsync and escaped Main: a non-zero exit that the agent reads as a crash and retries,
+            // for a runner that was shutting down cleanly. And every Log and Send after that point
+            // queued into a channel with no reader, so the diagnosis went into the queue too.
+            //
+            // Written to the REAL stderr, not Console.Error: Program.cs redirects that back into this
+            // very channel, so reporting the pump's death through it would be the one message
+            // guaranteed never to arrive.
+            try
+            {
+                using var stderr = new StreamWriter(Console.OpenStandardError()) { AutoFlush = true };
+                stderr.WriteLine($"enlist-runner: the outbound message pump stopped and nothing more will be sent - {ex}");
+            }
+            catch
+            {
+                // There is no third place to report this to.
+            }
         }
     }
 }

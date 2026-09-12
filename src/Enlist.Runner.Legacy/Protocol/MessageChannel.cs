@@ -70,7 +70,7 @@ public sealed class MessageChannel<TOut, TIn> : IDisposable
     {
         while (true)
         {
-            var line = await ReadLineAsync().ConfigureAwait(false);
+            var line = await ReadLineAsync(ct).ConfigureAwait(false);
             if (line is null)
             {
                 return default;
@@ -99,11 +99,46 @@ public sealed class MessageChannel<TOut, TIn> : IDisposable
     }
 
     /// <summary>
+    /// net472's StreamReader.ReadAsync has no CancellationToken overload, which is the whole of this
+    /// method's reason for existing. Without it the token reaching ReceiveAsync was accepted and
+    /// ignored: the read blocked until the far end sent something or closed, so RunnerHost's
+    /// `catch (OperationCanceledException)` around its receive loop was unreachable and the dev
+    /// host's "Forcing exit" could not interrupt a runner that had not yet been told to shut down.
+    /// The modern runner threads the token all the way down and behaved correctly; this is the one
+    /// place the two genuinely diverged in behaviour rather than syntax.
+    ///
+    /// The read itself cannot be stopped - nothing on net472 can stop it - so what is cancelled is
+    /// the WAIT. The abandoned read may still complete later and write into _readBuffer; that is
+    /// harmless because cancellation here only ever happens on the way out, and its exception is
+    /// observed below so it cannot surface as an unobserved task fault.
+    /// </summary>
+    private async Task<int> ReadWithCancellationAsync(CancellationToken ct)
+    {
+        var read = _reader.ReadAsync(_readBuffer, 0, _readBuffer.Length);
+        if (!ct.CanBeCanceled || read.IsCompleted)
+        {
+            return await read.ConfigureAwait(false);
+        }
+
+        var cancelled = new TaskCompletionSource<bool>();
+        using (ct.Register(() => cancelled.TrySetResult(true)))
+        {
+            if (await Task.WhenAny(read, cancelled.Task).ConfigureAwait(false) != read)
+            {
+                _ = read.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+                throw new OperationCanceledException(ct);
+            }
+        }
+
+        return await read.ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// A line, without its newline, or null at end of stream; an empty string for a line that was
     /// dropped for length (already reported). Reads in chunks and keeps what follows a newline for the
     /// next call, so a line arriving in pieces or several lines arriving at once both come out right.
     /// </summary>
-    private async Task<string?> ReadLineAsync()
+    private async Task<string?> ReadLineAsync(CancellationToken ct)
     {
         _line.Clear();
         var overLimit = false;
@@ -112,7 +147,7 @@ public sealed class MessageChannel<TOut, TIn> : IDisposable
         {
             if (_bufferedStart == _bufferedEnd)
             {
-                var read = _endOfStream ? 0 : await _reader.ReadAsync(_readBuffer, 0, _readBuffer.Length).ConfigureAwait(false);
+                var read = _endOfStream ? 0 : await ReadWithCancellationAsync(ct).ConfigureAwait(false);
                 if (read == 0)
                 {
                     _endOfStream = true;

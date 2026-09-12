@@ -63,7 +63,28 @@ public static class CredentialIssuer
             ExpiresAtUtc = expires,
         };
         db.ApiKeys.Add(entity);
-        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        catch (DbUpdateException)
+        {
+            // The check above is a courtesy that produces the good message in the ordinary case; the
+            // filtered unique index on live names is the actual guarantee, and two callers creating
+            // the same name at once BOTH pass the check. The loser used to surface as a 500 for the
+            // one condition this method documents as a 409.
+            db.Entry(entity).State = EntityState.Detached;
+
+            // Ask the database whether it really is a name clash, rather than reading a
+            // provider-specific error number: a genuine failure must not be relabelled as a taken name.
+            if (await db.ApiKeys.AnyAsync(k => k.Name == name && k.RevokedAtUtc == null, ct).ConfigureAwait(false))
+            {
+                throw new CredentialRequestException($"An API key named '{name}' already exists. Revoke it first, or pick another name.", conflict: true);
+            }
+
+            throw;
+        }
+
         return (entity, key);
     }
 
