@@ -9,7 +9,7 @@
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-1" Wrap="Wrap.Wrap">
     <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="@(() => Nav.NavigateTo("/"))" title="Back to Applications" />
-    <MudText Typo="Typo.h4">@AppName — Application Policy</MudText>
+    <MudText Typo="Typo.h4">@AppName - Application Policy</MudText>
 </MudStack>
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4" Wrap="Wrap.Wrap">
     <MudSpacer />
@@ -26,7 +26,7 @@
 }
 else if (_policies.Count == 0)
 {
-    <MudAlert Severity="Severity.Info">No policy rules yet for this application — add one to declare where it runs.</MudAlert>
+    <MudAlert Severity="Severity.Info">No policy rules yet for this application - add one to declare where it runs.</MudAlert>
 }
 else
 {
@@ -58,7 +58,7 @@ else
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning">every agent</MudChip>
                 }
             </MudTd>
-            <MudTd DataLabel="Source">@(context.PackageDigest is not null ? $"package {context.PackageDigest[..Math.Min(12, context.PackageDigest.Length)]}…" : context.Path)</MudTd>
+            <MudTd DataLabel="Source">@(context.PackageDigest is not null ? $"package {context.PackageDigest[..Math.Min(12, context.PackageDigest.Length)]}..." : context.Path)</MudTd>
             <MudTd DataLabel="State">
                 @{
                     var rowEnabled = context.DesiredState == DesiredStates.Running;
@@ -81,7 +81,7 @@ else
                     }
                     @if (conflictAgents.Count > 0)
                     {
-                        <MudTooltip Text="@($"Disagrees with another enabled rule already matching {string.Join(", ", conflictAgents)} — {(conflictAgents.Count == 1 ? "that agent" : "those agents")} will report Failed instead of resolving cleanly.")">
+                        <MudTooltip Text="@($"Disagrees with another enabled rule already matching {string.Join(", ", conflictAgents)} - {(conflictAgents.Count == 1 ? "that agent" : "those agents")} will report Failed instead of resolving cleanly.")">
                             <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Error">conflict</MudChip>
                         </MudTooltip>
                     }

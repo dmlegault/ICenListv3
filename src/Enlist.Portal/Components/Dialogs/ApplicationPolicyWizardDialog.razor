@@ -26,7 +26,7 @@
                 <MudText Typo="Typo.body1">@ApplicationName</MudText>
 
                 <MudAutocomplete T="string" @bind-Value="_packageDigest" Label="Package" SearchFunc="SearchPackagesAsync" ToStringFunc="DescribePackage" CoerceValue="true" Required="true"
-                                  HelperText="@(_packages.Count == 0 ? "No packages uploaded yet — publish one with enlist-deploy first." : null)" />
+                                  HelperText="@(_packages.Count == 0 ? "No packages uploaded yet - publish one with enlist-deploy first." : null)" />
 
                 <MudSelect T="string" @bind-Value="_desiredState" Label="State">
                     <MudSelectItem T="string" Value="@DesiredStates.Running">Enabled</MudSelectItem>
@@ -72,7 +72,7 @@
             {
                 <MudText Typo="Typo.body2" Color="Color.Info">
                     Every agent whose tags contain ALL of these key/value pairs qualifies. Every agent also carries an
-                    implicit "agent" tag equal to its own name — leave the key below as "agent" and fill in a name to
+                    implicit "agent" tag equal to its own name - leave the key below as "agent" and fill in a name to
                     target one specific agent, or change it (and add more rows) to target by tag instead. No rows at
                     all matches EVERY agent.
                 </MudText>
@@ -101,7 +101,7 @@
                 @if (CurrentSelector.Count == 0)
                 {
                     <MudAlert Severity="Severity.Warning" Dense="true">
-                        No tags at all — this rule targets EVERY agent, present and future.
+                        No tags at all - this rule targets EVERY agent, present and future.
                     </MudAlert>
                 }
                 else
@@ -153,12 +153,12 @@
                     @if (!_resolvingPreview && _conflicts.Count > 0)
                     {
                         <MudAlert Severity="Severity.Warning" Dense="true">
-                            <div>This disagrees with an existing rule already matching @_conflicts.Select(c => c.AgentName).Distinct().Count() of those agent(s) — saving will make them report Failed instead of resolving cleanly:</div>
+                            <div>This disagrees with an existing rule already matching @_conflicts.Select(c => c.AgentName).Distinct().Count() of those agent(s) - saving will make them report Failed instead of resolving cleanly:</div>
                             <ul style="margin:6px 0 0 20px;">
                                 @foreach (var conflict in _conflicts.DistinctBy(c => c.AgentName))
                                 {
                                     <li>
-                                        <b>@conflict.AgentName</b> — already governed by a rule on @DescribePackage(conflict.ExistingPolicy.PackageDigest ?? "")
+                                        <b>@conflict.AgentName</b> - already governed by a rule on @DescribePackage(conflict.ExistingPolicy.PackageDigest ?? "")
                                         (@(conflict.ExistingPolicy.DesiredState == DesiredStates.Running ? "enabled" : "disabled"))
                                     </li>
                                 }
@@ -219,7 +219,7 @@
 
     // Read during render, so it must never throw - see KeyedRows.
     private Dictionary<string, string> CurrentSelector =>
-        KeyedRows.Collapse(_tagRows.Select(r => (r.Key, r.Value)));
+        KeyedRows.Collapse(_tagRows, r => r.Key, r => r.Value);
 
     protected override async Task OnInitializedAsync()
     {
@@ -319,7 +319,7 @@
     }
 
     private Dictionary<string, string> BuildCronOverrides() =>
-        KeyedRows.Collapse(_cronRows.Select(r => (r.JobName, r.Cron)));
+        KeyedRows.Collapse(_cronRows, r => r.JobName, r => r.Cron);
 
     private Task<IEnumerable<string>> SearchPackagesAsync(string? value, CancellationToken ct)
     {
@@ -341,7 +341,7 @@
         }
 
         var package = _packages.FirstOrDefault(p => p.Digest == digest);
-        var shortDigest = digest.Length > 12 ? digest[..12] + "…" : digest;
+        var shortDigest = digest.Length > 12 ? digest[..12] + "..." : digest;
 
         if (package is null)
         {
@@ -349,7 +349,7 @@
         }
 
         var version = package.VersionNumber is { } v ? $"v{v}" : "unversioned";
-        return $"{version} — {package.UploadedAtUtc.ToLocalTime():g} — {shortDigest}";
+        return $"{version} - {package.UploadedAtUtc.ToLocalTime():g} - {shortDigest}";
     }
 
     /// <summary>
@@ -414,7 +414,7 @@
             var plural = _conflicts.Select(c => c.AgentName).Distinct().Count() > 1;
             var confirmed = await DialogService.ShowMessageBox(
                 "Save despite conflict?",
-                $"This disagrees with an existing rule already matching {names} — saving will make " +
+                $"This disagrees with an existing rule already matching {names} - saving will make " +
                 $"{(plural ? "those agents" : "that agent")} report Failed instead of resolving cleanly. Save anyway?",
                 yesText: "Save anyway",
                 cancelText: "Cancel");

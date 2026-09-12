@@ -6,14 +6,14 @@
 @if (Policies.Count == 0)
 {
     <MudAlert Severity="Severity.Info" Dense="true">
-        No policy rule exists yet for this application — use the policy screen ("✎ policy" above) to
-        declare where it runs.
+        No policy rule exists yet for this application - use the Edit policy button on the
+        application's row above to declare where it runs.
     </MudAlert>
 }
 else if (AgentNames.Count == 0)
 {
     <MudAlert Severity="Severity.Info" Dense="true">
-        This application's policy rule(s) don't currently resolve to any registered agent — a tag
+        This application's policy rule(s) don't currently resolve to any registered agent - a tag
         selector with no current match, most likely.
     </MudAlert>
 }
@@ -77,7 +77,7 @@ else
                         @context.AgentName
                         @if (context.Stale)
                         {
-                            <MudTooltip Text="No recent report from this agent — treat this status as presumed stopped, not current.">
+                            <MudTooltip Text="No recent report from this agent - treat this status as presumed stopped, not current.">
                                 <MudIcon Icon="@Icons.Material.Filled.WarningAmber" Color="Color.Warning" Size="Size.Small" />
                             </MudTooltip>
                         }
@@ -103,16 +103,16 @@ else
                                 @* Host address first, because that is the part someone pastes into a browser
                                    or a curl. The container port and name follow as context. *@
                                 <MudText Typo="Typo.caption" Style="font-variant-numeric: tabular-nums;">
-                                    @e.HostAddress:@e.HostPort → @e.ContainerPort/@e.Protocol@(string.IsNullOrWhiteSpace(e.Name) ? "" : $" ({e.Name})")
+                                    @e.HostAddress:@e.HostPort -> @e.ContainerPort/@e.Protocol@(string.IsNullOrWhiteSpace(e.Name) ? "" : $" ({e.Name})")
                                 </MudText>
                             }
                         </MudStack>
                     }
                     else
                     {
-                        @* An em dash, not blank: "enList published nothing here" is a real answer, and the
-                           common one — most jobs and services never expose a port at all. *@
-                        <MudText Typo="Typo.caption" Color="Color.Info">—</MudText>
+                        @* A dash, not blank: "enList published nothing here" is a real answer, and the
+                           common one - most jobs and services never expose a port at all. *@
+                        <MudText Typo="Typo.caption" Color="Color.Info">-</MudText>
                     }
                 </MudTd>
                 <MudTd DataLabel="State">
@@ -327,7 +327,7 @@ else
 
     private string CommandDisabledReason(InstanceRow row) =>
         row.Stale
-            ? "This agent hasn't reported recently — a command sent now has nowhere to go and would silently do nothing."
+            ? "This agent hasn't reported recently - a command sent now has nowhere to go and would silently do nothing."
             : "This application isn't running on this agent, so there's no process to send a command to.";
 
     /// <summary>Fire-and-forget from the control plane's own point of view — the command is delivered to the agent's hub connection, not necessarily acted on by the time this returns.</summary>
@@ -370,7 +370,7 @@ else
         }
 
         var shortId = row.RuntimeId[..Math.Min(12, row.RuntimeId.Length)];
-        return "Running in a container on this agent — docker logs " + shortId;
+        return "Running in a container on this agent - docker logs " + shortId;
     }
 
     private static bool IsOnline(DateTimeOffset lastSeenUtc) => DateTimeOffset.UtcNow - lastSeenUtc < TimeSpan.FromMinutes(5);

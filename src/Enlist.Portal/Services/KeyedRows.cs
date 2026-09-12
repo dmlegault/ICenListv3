@@ -17,15 +17,21 @@ namespace Enlist.Portal.Services;
 /// </summary>
 public static class KeyedRows
 {
-    /// <summary>Rows to a dictionary, blank keys dropped, keys trimmed, last occurrence winning. Never throws.</summary>
-    public static Dictionary<string, string> Collapse(IEnumerable<(string? Key, string? Value)> rows)
+    /// <summary>
+    /// Rows to a dictionary, blank keys dropped, keys trimmed, last occurrence winning. Never throws.
+    ///
+    /// Takes the row type and two selectors rather than a tuple, because C# tuples are invariant: a
+    /// caller holding (string, string) rows cannot pass them where (string?, string?) is expected,
+    /// and every call site would need a cast that exists only to satisfy the signature.
+    /// </summary>
+    public static Dictionary<string, string> Collapse<T>(IEnumerable<T> rows, Func<T, string?> key, Func<T, string?> value)
     {
         var collapsed = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var (key, value) in rows)
+        foreach (var row in rows)
         {
-            if (!string.IsNullOrWhiteSpace(key))
+            if (key(row) is { } k && !string.IsNullOrWhiteSpace(k))
             {
-                collapsed[key.Trim()] = value ?? "";
+                collapsed[k.Trim()] = value(row) ?? "";
             }
         }
 

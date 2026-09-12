@@ -44,19 +44,33 @@ public sealed class AgentReconcileQuietTests : IAsyncLifetime
 
     private string LogRoot => Path.Combine(_dataRoot, "Logs");
 
-    /// <summary>Every agent-*.log at once, so a run straddling midnight does not read half its own output.</summary>
+    /// <summary>
+    /// Every agent-*.log at once, so a run straddling midnight does not read half its own output.
+    ///
+    /// Opened with FileShare.ReadWrite, which File.ReadAllLines does NOT do: the sink is appending to
+    /// this file the whole time the test is reading it, and a reader that refuses to share throws
+    /// exactly the sharing violation the sink was just taught to avoid. The test hit it about one run
+    /// in six.
+    /// </summary>
     private string AgentLog()
     {
         try
         {
             return string.Join(Environment.NewLine, Directory
                 .EnumerateFiles(LogRoot, "agent-*.log", SearchOption.TopDirectoryOnly)
-                .SelectMany(File.ReadAllLines));
+                .Select(ReadShared));
         }
         catch (DirectoryNotFoundException)
         {
             return "";
         }
+    }
+
+    private static string ReadShared(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 
     private static int Occurrences(string haystack, string needle)

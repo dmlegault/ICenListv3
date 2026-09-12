@@ -34,7 +34,7 @@
         @if (Manifests.Count == 0)
         {
             <MudAlert Severity="Severity.Info" Dense="true">
-                No status report has described @ApplicationName's services or jobs yet — check back once an
+                No status report has described @ApplicationName's services or jobs yet - check back once an
                 agent running it has reported in.
             </MudAlert>
         }
@@ -45,7 +45,7 @@
         else
         {
             <MudText Typo="Typo.body2" Color="Color.Primary" Class="mb-2">
-                @ApplicationName currently has @Manifests.Count versions in play — shown separately since a
+                @ApplicationName currently has @Manifests.Count versions in play - shown separately since a
                 canary and a fallback build can legitimately differ.
             </MudText>
             <MudTabs Rounded="true">

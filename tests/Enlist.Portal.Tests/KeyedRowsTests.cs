@@ -17,7 +17,7 @@ public sealed class KeyedRowsTests
     [Fact]
     public void A_duplicate_key_collapses_instead_of_throwing()
     {
-        var collapsed = KeyedRows.Collapse([("env", "demo"), ("env", "prod")]);
+        var collapsed = KeyedRows.Collapse([("env", "demo"), ("env", "prod")], r => r.Item1, r => r.Item2);
 
         // Last wins, and - the point - it returns at all.
         Assert.Equal("prod", collapsed["env"]);
@@ -29,7 +29,7 @@ public sealed class KeyedRowsTests
     {
         // An empty row is a row someone is about to fill in, not an error, and " env" is a typo that
         // would otherwise become a second, invisible tag.
-        var collapsed = KeyedRows.Collapse([("", "ignored"), ("   ", "ignored"), (" env ", "demo"), (null, "ignored")]);
+        var collapsed = KeyedRows.Collapse([("", "ignored"), ("   ", "ignored"), (" env ", "demo"), (null, "ignored")], r => r.Item1, r => r.Item2);
 
         Assert.Equal(new[] { "env" }, collapsed.Keys);
         Assert.Equal("demo", collapsed["env"]);
@@ -38,7 +38,9 @@ public sealed class KeyedRowsTests
     [Fact]
     public void A_missing_value_is_an_empty_string_not_a_null()
     {
-        Assert.Equal("", KeyedRows.Collapse([("env", null)])["env"]);
+        var rows = new[] { ("env", (string?)null) };
+
+        Assert.Equal("", KeyedRows.Collapse(rows, r => r.Item1, r => r.Item2)["env"]);
     }
 
     [Fact]

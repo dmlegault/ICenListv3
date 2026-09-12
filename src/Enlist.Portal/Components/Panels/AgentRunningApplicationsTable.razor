@@ -37,7 +37,7 @@ else
                     @context.Name
                     @if (context.Conflict)
                     {
-                        <MudTooltip Text="Two or more policy rules match this agent for this application and disagree on what to run — the agent can't resolve which one wins.">
+                        <MudTooltip Text="Two or more policy rules match this agent for this application and disagree on what to run - the agent can't resolve which one wins.">
                             <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Error" Class="ml-2">conflict</MudChip>
                         </MudTooltip>
                     }
@@ -166,7 +166,7 @@ else
             return "Running in a container on this agent.";
         }
 
-        return "Running in a container on this agent — docker logs " + row.RuntimeId[..Math.Min(12, row.RuntimeId.Length)];
+        return "Running in a container on this agent - docker logs " + row.RuntimeId[..Math.Min(12, row.RuntimeId.Length)];
     }
 
     private static Color StateColor(string? state) => state switch

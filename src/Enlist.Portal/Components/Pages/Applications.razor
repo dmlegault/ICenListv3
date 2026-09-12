@@ -17,7 +17,7 @@ else if (_applications.Count == 0)
         <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" title="Refresh" />
     </MudStack>
     <MudAlert Severity="Severity.Info">
-        No applications yet — an application appears here as soon as a package has been uploaded for it
+        No applications yet - an application appears here as soon as a package has been uploaded for it
         (enlist-deploy), even before it has a policy rule declaring where it runs.
     </MudAlert>
 }
@@ -71,7 +71,7 @@ else
                     <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
                         @if (app.Policies.Count == 0)
                         {
-                            <MudTooltip Text="No policy rules — this application will never run anywhere until one is added.">
+                            <MudTooltip Text="No policy rules - this application will never run anywhere until one is added.">
                                 <MudIcon Icon="@Icons.Material.Filled.WarningAmber" Color="Color.Warning" Size="Size.Small" />
                             </MudTooltip>
                             <MudText Color="Color.Warning">0 rules</MudText>
@@ -82,7 +82,7 @@ else
                             @if (app.ConflictsByAgent.Count > 0)
                             {
                                 var conflictAgents = app.ConflictsByAgent.Keys.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
-                                <MudTooltip Text="@($"Two or more enabled rules disagree for {string.Join(", ", conflictAgents)} — {(conflictAgents.Count == 1 ? "that agent" : "those agents")} will report Failed instead of resolving cleanly.")">
+                                <MudTooltip Text="@($"Two or more enabled rules disagree for {string.Join(", ", conflictAgents)} - {(conflictAgents.Count == 1 ? "that agent" : "those agents")} will report Failed instead of resolving cleanly.")">
                                     <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Error">conflict</MudChip>
                                 </MudTooltip>
                             }
@@ -102,7 +102,7 @@ else
                         @if (app.AgentNames.Count == 0)
                         {
                             <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
-                                <MudTooltip Text="No agent currently qualifies for this application's policy rule(s) — it isn't running anywhere.">
+                                <MudTooltip Text="No agent currently qualifies for this application's policy rule(s) - it isn't running anywhere.">
                                     <MudIcon Icon="@Icons.Material.Filled.WarningAmber" Color="Color.Warning" Size="Size.Small" />
                                 </MudTooltip>
                                 <MudText Color="Color.Warning">0 agents</MudText>
@@ -226,7 +226,7 @@ else
             { d => d.ApplicationName, app.Name },
             { d => d.Manifests, app.Manifests },
         };
-        return DialogService.ShowAsync<ApplicationContentsDialog>($"{app.Name} — Services & Jobs", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        return DialogService.ShowAsync<ApplicationContentsDialog>($"{app.Name} - Services & Jobs", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
     }
 
     /// <summary>Every policy rule's TagSelector fans out to every CURRENTLY registered agent matching it (see TagSelectorMatcher, which also handles the "target this one agent" self-tag shape) — a live resolution, not stored anywhere, so it moves as agents register or their tags change.</summary>

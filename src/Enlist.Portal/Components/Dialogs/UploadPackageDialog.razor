@@ -6,12 +6,12 @@
         <MudStack Spacing="3">
             <MudTextField T="string" @bind-Value="_applicationName" Label="Application name" Required="true"
                           Immediate="true" HelperText="Whatever this package's own [EnlistApplication] name is, or any name you want it tracked under."
-                          Error="@NameIsInvalid" ErrorText="Letters, digits, '-', '_' and '.', starting with a letter or digit — this becomes a folder and a process name on every agent." />
+                          Error="@NameIsInvalid" ErrorText="Letters, digits, '-', '_' and '.', starting with a letter or digit - this becomes a folder and a process name on every agent." />
 
             @if (NameAlreadyExists)
             {
                 <MudAlert Severity="Severity.Info" Dense="true">
-                    "@_applicationName" already has package(s) uploaded — this adds another version alongside
+                    "@_applicationName" already has package(s) uploaded - this adds another version alongside
                     them. No existing policy rule changes automatically; edit one afterward (or add a new
                     rule) to point it at this version.
                 </MudAlert>
@@ -20,7 +20,7 @@
             <InputFile OnChange="OnFileSelected" accept=".zip" />
             @if (_selectedFile is not null)
             {
-                <MudText Typo="Typo.body2" Color="Color.Info">@_selectedFile.Name — @FormatSize(_selectedFile.Size)</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Info">@_selectedFile.Name - @FormatSize(_selectedFile.Size)</MudText>
             }
             @if (_fileError is not null)
             {
@@ -69,7 +69,7 @@
         if (!file.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
         {
             _selectedFile = null;
-            _fileError = $"'{file.Name}' isn't a .zip file — enlist-deploy packages are always a zip of the build output.";
+            _fileError = $"'{file.Name}' isn't a .zip file - enlist-deploy packages are always a zip of the build output.";
             return;
         }
 
@@ -103,7 +103,7 @@
                 // action, possibly already referenced by a policy. Not this dialog's place to judge
                 // whether IT was useless; only a digest freshly created BY this upload is safe to
                 // second-guess and remove again.
-                Snackbar.Add($"'{_applicationName}' — this exact build is already on the control plane, nothing new to do.", Severity.Success);
+                Snackbar.Add($"'{_applicationName}' - this exact build is already on the control plane, nothing new to do.", Severity.Success);
                 MudDialog.Close(DialogResult.Ok(true));
                 return;
             }
@@ -136,7 +136,7 @@
                 }
 
                 Snackbar.Add(
-                    $"'{_applicationName}' was discarded — the scan found no [EnlistService]/[EnlistJob] types in it, " +
+                    $"'{_applicationName}' was discarded - the scan found no [EnlistService]/[EnlistJob] types in it, " +
                     "so nothing was added to the package store.",
                     Severity.Warning);
                 _selectedFile = null;

@@ -29,6 +29,9 @@ public static class RepoPaths
     /// </summary>
     public static string UniqueAppName() => "SampleSvc" + Guid.NewGuid().ToString("N")[..8];
 
+    /// <summary>The repository root, for a test whose subject is the source tree itself rather than anything built from it — see AsciiTextRuleTests.</summary>
+    public static string RepositoryRoot() => Root();
+
     private static string Root()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

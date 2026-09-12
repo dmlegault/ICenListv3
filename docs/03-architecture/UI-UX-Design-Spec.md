@@ -163,7 +163,7 @@ This defect has now been fixed twice: once for the per-service action buttons dr
 | `Service` | `Autorenew` (looping arrows) | `Color.Primary` | Runs **continuously** |
 | `Job` | `Schedule` (clock) | `Color.Info` → `--mud-palette-info-lighten` (§2.3) | Runs **on a schedule**, idle in between |
 
-The icons are the point: they encode the same distinction that drives the state vocabulary in §7, so the badge reinforces an existing idea rather than introducing a new one. Any value that is neither `Service` nor `Job` (the `Policy conflict` pseudo-row's em dash) renders as plain text — a badge there would imply an instance kind the row does not have.
+The icons are the point: they encode the same distinction that drives the state vocabulary in §7, so the badge reinforces an existing idea rather than introducing a new one. Any value that is neither `Service` nor `Job` (the `Policy conflict` pseudo-row's dash) renders as plain text — a badge there would imply an instance kind the row does not have.
 
 ### 4.4 Tooltips on potentially-disabled elements
 
@@ -224,6 +224,35 @@ An application with **0 policy rules**, or a policy matching **0 agents**, shows
 - `MudTable` inside the expanded panels sets a `Breakpoint` so rows collapse to a stacked layout on narrow viewports.
 - Navigation collapses from the app-bar row into a hamburger `MudMenu` below `Breakpoint.SmAndDown` (§3).
 - `MudContainer MaxWidth="MaxWidth.ExtraLarge"` caps content width on very wide viewports.
+
+## 8a. Text is plain ASCII
+
+Every character a user can see is plain ASCII. That has always been the project rule for runtime
+strings — log lines, console output, API messages — and **as of 2026-09-12 it covers Razor markup
+too**, which is the text a user reads most.
+
+| Instead of | Write |
+|---|---|
+| `—` or `–` | ` - ` |
+| `…` | `...` |
+| `→` | `->` |
+| `·` as a separator | ` \| ` |
+| `✎`, `✓` and other glyphs | the icon itself (§9), or the control's real label |
+
+**Why, since the portal renders UTF-8 perfectly well.** The same strings travel to places that do
+not: a Windows Event Log entry, a console with a code page from 1995, an operator's `curl` piped
+through `findstr`, a log shipper that re-encodes. A dash that survives all of those is worth more
+than a typographically correct one that does not, and having one rule for every surface is worth
+more than remembering which surface you are on.
+
+**Comments are exempt, deliberately.** They are for whoever is reading the source, they use em
+dashes heavily and well, and holding them to this would be a large diff that improves nothing.
+
+Markup was never written down as an exception — it was simply never enforced there, which is not the
+same thing and produced the same result as having no rule: 150 em dashes, four ellipses, two arrows,
+a middle dot and a pencil glyph, against a control plane and an agent that were spotless.
+`AsciiTextRuleTests` now enforces it, so this section describes something true rather than something
+hoped for.
 
 ## 9. Iconography
 

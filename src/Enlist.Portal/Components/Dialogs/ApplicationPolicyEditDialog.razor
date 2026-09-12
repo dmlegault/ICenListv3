@@ -1,7 +1,7 @@
 <MudDialog>
     <DialogContent>
         <MudStack Spacing="4">
-            <MudText Typo="Typo.subtitle2">Target (fixed at creation — see the wizard to create a new rule instead)</MudText>
+            <MudText Typo="Typo.subtitle2">Target (fixed at creation - see the wizard to create a new rule instead)</MudText>
             @if (_targetAgent is not null && TagSelectorMatcher.IsSelfTargeted(_targetAgent, Existing.TagSelector))
             {
                 <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Dns" Color="Color.Info">@_targetAgent.Name</MudChip>
@@ -23,7 +23,7 @@
             <MudStack Spacing="2">
                 <MudText Typo="Typo.subtitle2">Package</MudText>
                 <MudAutocomplete T="string" @bind-Value="_packageDigest" Label="Package" SearchFunc="SearchPackagesAsync" ToStringFunc="DescribePackage" CoerceValue="true" Required="true"
-                                  HelperText="@(_packages.Count == 0 ? "No packages uploaded yet — publish one with enlist-deploy first." : null)" />
+                                  HelperText="@(_packages.Count == 0 ? "No packages uploaded yet - publish one with enlist-deploy first." : null)" />
             </MudStack>
 
             <MudSelect T="string" @bind-Value="_desiredState" Label="State">
@@ -44,7 +44,7 @@
                 <MudText Typo="Typo.caption" Color="@(_isolationMode == IsolationModes.Container ? Color.Default : Color.Warning)">
                     @(_isolationMode == IsolationModes.Container
                         ? $"Container settings from creation, kept on save: {_containerDetails}"
-                        : $"Switching to a process discards the container settings from creation ({_containerDetails}) — to get them back, create a new rule with the wizard.")
+                        : $"Switching to a process discards the container settings from creation ({_containerDetails}) - to get them back, create a new rule with the wizard.")
                 </MudText>
             }
 
@@ -66,7 +66,7 @@
                         @* Read once in OnInitializedAsync and never refreshed, so the wording must not promise
                            otherwise — it would send someone to wait at a dialog that will never update. *@
                         No agent matching this rule had reported this application when this dialog opened, so there
-                        are no job names to suggest. This list is read once on open and does not refresh — if an
+                        are no job names to suggest. This list is read once on open and does not refresh - if an
                         agent has reported since, close and reopen. Either way, you can type a job name directly.
                     </MudText>
                 }
@@ -202,7 +202,7 @@
     private string DescribePackage(string digest)
     {
         var package = _packages.FirstOrDefault(p => p.Digest == digest);
-        var shortDigest = digest.Length > 12 ? digest[..12] + "…" : digest;
+        var shortDigest = digest.Length > 12 ? digest[..12] + "..." : digest;
 
         if (package is null)
         {
@@ -210,7 +210,7 @@
         }
 
         var version = package.VersionNumber is { } v ? $"v{v}" : "unversioned";
-        return $"{version} — {package.UploadedAtUtc.ToLocalTime():g} — {shortDigest}";
+        return $"{version} - {package.UploadedAtUtc.ToLocalTime():g} - {shortDigest}";
     }
 
     private async Task SaveAsync()
@@ -230,7 +230,7 @@
         _saving = true;
         try
         {
-            var cronOverrides = KeyedRows.Collapse(_cronRows.Select(r => (r.JobName, r.Cron)));
+            var cronOverrides = KeyedRows.Collapse(_cronRows, r => r.JobName, r => r.Cron);
 
             var request = new UpdateApplicationPolicyRequest(
                 Path: null,
@@ -271,7 +271,7 @@
         if (isolation.Ports is { Count: > 0 } ports)
         {
             parts.Add("ports " + string.Join(", ", ports.Select(p =>
-                $"{p.ContainerPort}→{p.HostPort?.ToString() ?? "auto"}/{p.Protocol}{(p.Name is null ? "" : $" ({p.Name})")}")));
+                $"{p.ContainerPort}->{p.HostPort?.ToString() ?? "auto"}/{p.Protocol}{(p.Name is null ? "" : $" ({p.Name})")}")));
         }
 
         if (isolation.Networks is { Count: > 0 } networks)
@@ -284,7 +284,7 @@
             parts.Add("env " + string.Join(", ", env.Select(kv => $"{kv.Key}={kv.Value}")));
         }
 
-        return parts.Count == 0 ? null : string.Join(" · ", parts);
+        return parts.Count == 0 ? null : string.Join(" | ", parts);
     }
 
     /// <summary>The same rule the control plane applies (CronExpressions), so a typo is red here rather than a 400 after Save.</summary>

@@ -18,7 +18,7 @@ else if (_agents.Count == 0)
         <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" title="Refresh" />
     </MudStack>
     <MudAlert Severity="Severity.Info">
-        No agents have registered yet — an agent appears here automatically the first time it fetches
+        No agents have registered yet - an agent appears here automatically the first time it fetches
         its policies, or you can pre-register one with tags before that happens. A control plane that
         requires authentication admits an agent only once it has enrolled with a join token: Enroll agent.
     </MudAlert>
@@ -164,7 +164,7 @@ else
 @code {
     /// <summary>The version is the proof the probe genuinely reached a daemon rather than just finding the CLI on PATH.</summary>
     private static string ContainerReadyTooltip(ContainerEngineStatus e) =>
-        $"{EngineLabel(e)} reachable{(string.IsNullOrWhiteSpace(e.Version) ? "" : $" (v{e.Version})")} — image {e.Image}. Checked {e.CheckedAtUtc.ToLocalTime():HH:mm:ss}.";
+        $"{EngineLabel(e)} reachable{(string.IsNullOrWhiteSpace(e.Version) ? "" : $" (v{e.Version})")} - image {e.Image}. Checked {e.CheckedAtUtc.ToLocalTime():HH:mm:ss}.";
 
     private static string EngineLabel(ContainerEngineStatus e) => e.Engine switch
     {
@@ -304,7 +304,7 @@ else
         {
             var confirmed = await DialogService.ShowMessageBox(
                 "Disable this agent",
-                $"'{agent.Name}' will stop running everything it currently hosts and won't pick up any policy rule — even one that already matches it — until it's re-enabled. Continue?",
+                $"'{agent.Name}' will stop running everything it currently hosts and won't pick up any policy rule - even one that already matches it - until it's re-enabled. Continue?",
                 yesText: "Disable",
                 cancelText: "Cancel");
 

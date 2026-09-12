@@ -8,7 +8,7 @@
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4" Wrap="Wrap.Wrap">
     <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="@(() => Nav.NavigateTo($"/applications/{Uri.EscapeDataString(AppName)}/policy"))" title="Back to policy" />
-    <MudText Typo="Typo.h4">@AppName — Packages</MudText>
+    <MudText Typo="Typo.h4">@AppName - Packages</MudText>
     <MudSpacer />
     <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" title="Refresh" />
 </MudStack>
@@ -20,7 +20,7 @@
 else if (_packages.Count == 0)
 {
     <MudAlert Severity="Severity.Info">
-        No packages uploaded yet for this application — publish one with the enlist-deploy CLI.
+        No packages uploaded yet for this application - publish one with the enlist-deploy CLI.
     </MudAlert>
 }
 else
@@ -106,7 +106,7 @@ else
             return "Delete package";
         }
 
-        return $"In use by {string.Join(", ", apps)} — repoint or delete {(apps.Count == 1 ? "that policy rule" : "those policy rules")} first";
+        return $"In use by {string.Join(", ", apps)} - repoint or delete {(apps.Count == 1 ? "that policy rule" : "those policy rules")} first";
     }
 
     private async Task DeleteAsync(PackageInfo package)
@@ -114,7 +114,7 @@ else
         var confirmed = await DialogService.ShowMessageBox(
             "Delete package",
             $"Permanently delete '{AppName}'{(package.VersionNumber is { } v ? $" v{v}" : "")} " +
-            $"({package.Digest[..12]}…)? This cannot be undone — there's no policy rule currently referencing it, so nothing will break, but if you need it again later you'll have to re-upload the same build.",
+            $"({package.Digest[..12]}...)? This cannot be undone - there's no policy rule currently referencing it, so nothing will break, but if you need it again later you'll have to re-upload the same build.",
             yesText: "Delete",
             cancelText: "Cancel");
 

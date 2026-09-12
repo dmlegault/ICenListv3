@@ -48,7 +48,7 @@
         _saving = true;
         try
         {
-            var tags = KeyedRows.Collapse(_rows.Select(r => (r.Key, r.Value)));
+            var tags = KeyedRows.Collapse(_rows, r => r.Key, r => r.Value);
             await Api.SetAgentTagsAsync(AgentName, tags);
             MudDialog.Close(DialogResult.Ok(true));
         }
