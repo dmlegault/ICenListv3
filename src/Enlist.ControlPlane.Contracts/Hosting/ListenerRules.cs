@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+
 namespace Enlist.ControlPlane.Contracts;
 
 /// <summary>
@@ -11,6 +13,60 @@ public static class ListenerRules
 {
     /// <summary>What Kestrel listens on when nothing is configured at all.</summary>
     private const string KestrelDefault = "http://localhost:5000";
+
+    /// <summary>
+    /// Every place a listen address can come from, in ONE place because both hosts ask the same
+    /// question and a second copy is how this drifts: --urls / ASPNETCORE_URLS (the "urls" key),
+    /// Kestrel endpoint configuration, and ASPNETCORE_HTTP_PORTS / ASPNETCORE_HTTPS_PORTS (which
+    /// arrive as the HTTP_PORTS / HTTPS_PORTS keys and bind every interface, not loopback).
+    ///
+    /// The port variables matter more than they look: the official ASP.NET Core container images
+    /// set ASPNETCORE_HTTP_PORTS=8080 themselves, so a containerised control plane has a
+    /// non-loopback listener that nobody wrote down anywhere. Reading only "urls" and Kestrel
+    /// config, as this did until 2026-09-12, meant Mode=Off in a container passed the rule while
+    /// binding 0.0.0.0 - the exact state the rule exists to make unconfigurable.
+    ///
+    /// Deliberately a UNION rather than a model of Kestrel's precedence. Where the sources disagree
+    /// this may refuse a configuration that would in fact have bound only loopback; that costs a
+    /// startup and a clear message, whereas guessing precedence wrongly in the other direction
+    /// costs an unauthenticated control plane on a network.
+    /// </summary>
+    public static IReadOnlyList<string> ConfiguredUrls(IConfiguration configuration)
+    {
+        var urls = new List<string>();
+
+        if (configuration["urls"] is { } fromUrls && !string.IsNullOrWhiteSpace(fromUrls))
+        {
+            urls.AddRange(fromUrls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+
+        foreach (var endpoint in configuration.GetSection("Kestrel:Endpoints").GetChildren())
+        {
+            if (endpoint["Url"] is { } url && !string.IsNullOrWhiteSpace(url))
+            {
+                urls.Add(url);
+            }
+        }
+
+        AddPorts(configuration["HTTP_PORTS"], "http", urls);
+        AddPorts(configuration["HTTPS_PORTS"], "https", urls);
+
+        return urls;
+    }
+
+    /// <summary>A bare port list binds every interface, so each port becomes "scheme://*:port" - not loopback, by Kestrel's own rule.</summary>
+    private static void AddPorts(string? ports, string scheme, List<string> urls)
+    {
+        if (string.IsNullOrWhiteSpace(ports))
+        {
+            return;
+        }
+
+        foreach (var port in ports.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            urls.Add($"{scheme}://*:{port}");
+        }
+    }
 
     /// <param name="component">Named in the message: "control plane" or "portal".</param>
     public static string? Violation(IEnumerable<string> urls, string? mode, string component)

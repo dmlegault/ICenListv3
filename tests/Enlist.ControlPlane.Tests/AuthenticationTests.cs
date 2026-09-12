@@ -180,6 +180,26 @@ public sealed class AuthenticationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Authentication_cannot_be_turned_off_on_a_port_variable_either()
+    {
+        // The container case. No --urls at all, so the listener comes from ASPNETCORE_HTTP_PORTS -
+        // which the official ASP.NET Core images set to 8080 themselves - and a bare port list binds
+        // every interface. ListenerRules read only --urls and Kestrel:Endpoints until 2026-09-12, so
+        // this exact configuration started an unauthenticated control plane on the network and the
+        // hard rule said nothing. Port 0 keeps the test off any real port: it is refused before
+        // Kestrel ever binds.
+        var off = new Dictionary<string, string>
+        {
+            ["Authentication__Mode"] = "Off",
+            ["ASPNETCORE_HTTP_PORTS"] = "8080",
+        };
+
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => ControlPlaneTestServer.StartAsync(Ready, off, listenUrls: ""));
+        Assert.Contains("off loopback", refused.Message);
+        Assert.Contains("8080", refused.Message);
+    }
+
+    [Fact]
     public async Task Required_refuses_plain_http_on_an_address_that_is_not_loopback()
     {
         var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => ControlPlaneTestServer.StartAsync(Ready, Required, listenUrls: "http://0.0.0.0:0"));

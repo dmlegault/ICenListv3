@@ -17,4 +17,14 @@
     <PackageReference Include="Cronos" Version="0.11.0" />
   </ItemGroup>
 
+  <!--
+    Configuration.Abstractions is here for the same reason Cronos is: ListenerRules.ConfiguredUrls
+    is the ONE definition of where a listen address can come from, and the control plane and the
+    portal both ask it. They each had their own copy until 2026-09-12, and both copies were blind to
+    ASPNETCORE_HTTP_PORTS — which is exactly the drift a shared definition prevents.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.0" />
+  </ItemGroup>
+
 </Project>

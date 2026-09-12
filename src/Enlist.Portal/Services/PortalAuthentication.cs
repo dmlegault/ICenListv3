@@ -47,33 +47,12 @@ public static class PortalAuthentication
     /// <summary>The hard rules first (R3: the portal has the same two), then the middleware. Throws so that under the SCM the reason lands in the Event Log.</summary>
     public static void UsePortalAuthentication(this WebApplication app, PortalAuthenticationOptions options)
     {
-        if (ListenerRules.Violation(ConfiguredUrls(app.Configuration), options.Mode, "portal") is { } violation)
+        if (ListenerRules.Violation(ListenerRules.ConfiguredUrls(app.Configuration), options.Mode, "portal") is { } violation)
         {
             throw new InvalidOperationException(violation);
         }
 
         app.UseAuthentication();
         app.UseAuthorization();
-    }
-
-    /// <summary>Every place a listen address can come from: --urls / ASPNETCORE_URLS (the "urls" key) and Kestrel endpoint configuration.</summary>
-    private static IReadOnlyList<string> ConfiguredUrls(IConfiguration configuration)
-    {
-        var urls = new List<string>();
-
-        if (configuration["urls"] is { } fromUrls && !string.IsNullOrWhiteSpace(fromUrls))
-        {
-            urls.AddRange(fromUrls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-        }
-
-        foreach (var endpoint in configuration.GetSection("Kestrel:Endpoints").GetChildren())
-        {
-            if (endpoint["Url"] is { } url && !string.IsNullOrWhiteSpace(url))
-            {
-                urls.Add(url);
-            }
-        }
-
-        return urls;
     }
 }

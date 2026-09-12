@@ -132,6 +132,95 @@ public sealed class AccessEndpointsTests : IAsyncLifetime
         Assert.DoesNotContain("Audit: POST /api/agents/WEB-34/report", output);
     }
 
+    [Fact]
+    public async Task A_write_that_throws_is_audited_too_and_says_it_faulted()
+    {
+        // The line an administrative write leaves when it FAILS is the one most worth having, and
+        // until 2026-09-12 it was the only one that was never written: the exception unwound past
+        // the logging call and the request vanished from the audit trail entirely.
+        //
+        // The fault is provoked without relying on any bug: the blob root is removed underneath a
+        // running control plane, so the upload's first FileStream has nowhere to go. Put back in the
+        // finally, because the rest of this class shares the server.
+        var blobRoot = _server!.PackageStorageRoot;
+        Directory.Delete(blobRoot, recursive: true);
+        try
+        {
+            var upload = new HttpRequestMessage(HttpMethod.Post, "/api/packages?application=AuditFault")
+            {
+                Content = new ByteArrayContent(new byte[] { 1, 2, 3, 4 }),
+            };
+            upload.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _operatorKey);
+            upload.Headers.TryAddWithoutValidation("X-Enlist-Operator", @"CORP\bob");
+
+            var response = await _http.SendAsync(upload);
+            Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+
+            await WaitForOutputAsync("Audit: POST /api/packages");
+
+            // No status code on this path, on purpose: the exception handler upstream has not run
+            // yet, so Response.StatusCode is still 200 and printing it would put a lie in the trail.
+            Assert.Contains(@"Audit: POST /api/packages -> faulted with DirectoryNotFoundException by key 'tests' for CORP\bob", _server.Output);
+        }
+        finally
+        {
+            Directory.CreateDirectory(blobRoot);
+        }
+    }
+
+    [Fact]
+    public async Task A_forged_operator_header_cannot_stretch_or_break_the_audit_line()
+    {
+        // X-Enlist-Operator is supplied by the caller, so it is attacker-controlled for anyone
+        // holding an Operator key, and it lands in both the audit line and a CreatedBy column. It
+        // was written through verbatim until 2026-09-12: no length limit at all, so a megabyte of
+        // padding went into the log and into nvarchar(max).
+        var padded = new string('a', 400);
+        var write = await SendAsync(HttpMethod.Put, "/api/agents/WEB-36/tags", _operatorKey, new SetAgentTagsRequest(new Dictionary<string, string> { ["env"] = "test" }), operatorName: padded);
+        Assert.True(write.IsSuccessStatusCode);
+
+        await WaitForOutputAsync("Audit: PUT /api/agents/WEB-36/tags");
+
+        Assert.Contains("for " + new string('a', 100), _server!.Output);
+        Assert.DoesNotContain(new string('a', 101), _server.Output);
+    }
+
+    [Fact]
+    public async Task A_newline_in_the_operator_header_never_becomes_a_second_audit_line()
+    {
+        // Why the middleware strips control characters: the audit trail in v1 IS the log
+        // (Authentication-Design.md 6.3), and a log reader splits on newlines, so a CR or LF here
+        // would forge whole entries.
+        //
+        // MEASURED, because it decides how much this test is worth: the HTTP stack truncates the
+        // value at the control character, so what reaches the middleware is already just "eve" -
+        // the assertions below hold with or without the stripping in AuditIdentity.Sanitize. The
+        // stripping stays as defence in depth (the same value reaches a CreatedBy column, and
+        // nothing here guarantees every future caller arrives over HTTP/1.1), but the REACHABLE half
+        // of this is the length cap, which has its own test above.
+        //
+        // The WEB-37 assertion is what keeps this honest: it proves the request was processed and
+        // audited rather than refused at the door, so the absence of a forged line means something.
+        var forgery = "eve\r\nAudit: DELETE /api/api-keys/tests -> 204 by key 'root'";
+        var request = new HttpRequestMessage(HttpMethod.Put, "/api/agents/WEB-37/tags")
+        {
+            Content = JsonContent.Create(new SetAgentTagsRequest(new Dictionary<string, string> { ["env"] = "test" })),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _operatorKey);
+        request.Headers.TryAddWithoutValidation("X-Enlist-Operator", forgery);
+
+        await _http.SendAsync(request);
+        await WaitForOutputAsync("Audit: PUT /api/agents/WEB-37/tags");
+
+        Assert.Contains("for eve", _server!.Output);
+        Assert.DoesNotContain("by key 'root'", _server.Output);
+        Assert.DoesNotContain("DELETE /api/api-keys/tests -> 204", _server.Output);
+
+        // Not merely absent as a separate line: absent inline too, which is what would happen if the
+        // forgery arrived whole and only the newlines were removed.
+        Assert.DoesNotContain("eveAudit", _server.Output);
+    }
+
     private async Task WaitForOutputAsync(string text)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);

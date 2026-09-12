@@ -65,7 +65,8 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
     /// real 30-day/6-hour defaults — or Authentication__Mode, which this class sets to Off by default so
     /// every existing test keeps calling the API anonymously (loopback, so the control plane allows it).
     /// listenUrls exists for the tests of the startup rules themselves, which need an address that is
-    /// deliberately NOT loopback.
+    /// deliberately NOT loopback; passing it empty omits --urls entirely, for the rule tests that
+    /// need the listener to come from somewhere else (ASPNETCORE_HTTP_PORTS).
     /// </summary>
     public static async Task<ControlPlaneTestServer> StartAsync(TimeSpan readyTimeout, IReadOnlyDictionary<string, string>? extraEnvironment, string listenUrls = "http://127.0.0.1:0")
     {
@@ -200,8 +201,16 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
             RedirectStandardError = true,
         };
         psi.ArgumentList.Add(dll);
-        psi.ArgumentList.Add("--urls");
-        psi.ArgumentList.Add(urls);
+
+        // An EMPTY listenUrls deliberately passes no --urls at all, so the child falls through to
+        // whatever else configures a listener - which is the only way to exercise
+        // ASPNETCORE_HTTP_PORTS, the variable the official ASP.NET Core container images set and
+        // the one ListenerRules was blind to until 2026-09-12.
+        if (!string.IsNullOrWhiteSpace(urls))
+        {
+            psi.ArgumentList.Add("--urls");
+            psi.ArgumentList.Add(urls);
+        }
         psi.Environment["ConnectionStrings__ControlPlane"] = connectionString;
         psi.Environment["PackageStorage__Root"] = packageStorageRoot;
         psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Development";

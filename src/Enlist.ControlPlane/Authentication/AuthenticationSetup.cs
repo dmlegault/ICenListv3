@@ -43,7 +43,7 @@ public static class AuthenticationSetup
     public static void UseEnlistAuthentication(this WebApplication app)
     {
         var options = app.Services.GetRequiredService<IOptions<AuthenticationOptions>>().Value;
-        if (ListenerRules.Violation(ConfiguredUrls(app.Configuration), options.Mode, "control plane") is { } violation)
+        if (ListenerRules.Violation(ListenerRules.ConfiguredUrls(app.Configuration), options.Mode, "control plane") is { } violation)
         {
             throw new InvalidOperationException(violation);
         }
@@ -51,26 +51,5 @@ public static class AuthenticationSetup
         app.UseAuthentication();
         app.UseAuthorization();
         app.UseMiddleware<AuditMiddleware>();
-    }
-
-    /// <summary>Every place a listen address can come from: --urls / ASPNETCORE_URLS (the "urls" key) and Kestrel endpoint configuration.</summary>
-    public static IReadOnlyList<string> ConfiguredUrls(IConfiguration configuration)
-    {
-        var urls = new List<string>();
-
-        if (configuration["urls"] is { } fromUrls && !string.IsNullOrWhiteSpace(fromUrls))
-        {
-            urls.AddRange(fromUrls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-        }
-
-        foreach (var endpoint in configuration.GetSection("Kestrel:Endpoints").GetChildren())
-        {
-            if (endpoint["Url"] is { } url && !string.IsNullOrWhiteSpace(url))
-            {
-                urls.Add(url);
-            }
-        }
-
-        return urls;
     }
 }
