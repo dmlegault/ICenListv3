@@ -19,9 +19,14 @@ a starting point for triage, not a verdict.
 ## 1. Fix first (correctness, security, data loss)
 
 **Fixed so far:** items 1, 7 and 8 (`a48da7a`), the command-ordering defect below (`75f9665`),
-items 2, 3, 4, 15, 16 and 17 (`8e17af8`), and items 5, 6, 9, 12, 18, 21, 22 and 23 (`794aae9`).
+items 2, 3, 4, 15, 16 and 17 (`8e17af8`), and items 5, 6, 9, 18, 21, 22 and 23 (`794aae9`).
 
-**Still open in this section: items 10, 11, 13, 14, 19, 20 and 24.**
+**Still open in this section: items 10, 11, 12, 13, 14, 19, 20 and 24.**
+
+> **Correction.** `794aae9`'s own message claims it closed "item 12". It did not: that commit does
+> not touch `src/Enlist.Agent` at all, and item 12 is the `_pendingRetries` leak in `AgentHost`,
+> still open. The eighth fix in that commit is the API-key name race, which lives in §4 rather than
+> here. The message cannot be corrected without rewriting pushed history, so it is corrected here.
 
 The table keeps every finding's original wording, because what a finding said when it was found is
 the useful record; the commits carry the detail of what changed. Two things learned along the way are
@@ -143,7 +148,7 @@ Authentication is done; a lot of prose still says it isn't.
 - **Case sensitivity, three places.** `ControlPlane/Program.cs:1008,1017` compares the implicit self-tag `{"agent": name}` case-sensitively while agent names are case-insensitive everywhere else (SQL collation, `EndpointPolicyHandler:66`, `ApplicationPolicyHub:35`) — so `{"agent":"web-07"}` never matches `WEB-07`. `Contracts/IsolationSpec.cs:49` compares `Protocol` by record equality (`tcp` ≠ `TCP`) while validation accepts either case, producing phantom conflicts and missed port collisions. Portal filters use ordinal `==` where the server groups `OrdinalIgnoreCase` (5 sites).
 - **Portal mirrors drifting from the authority they mirror.** `PolicyConflictDetector.CanonicalIsolation` drops `PortMapping.Name` and compares case-sensitively, so it flags what the server accepts and vice versa; the wizard's hypothetical rule omits `Isolation` entirely, previewing "agrees" where the server will flag a conflict.
 - **Performance on the hot path.** `Program.cs:1341` allocates a `JsonSerializerOptions` per agent per request (STJ caches metadata *per instance*); `:1293-1298` runs one "latest report" query per agent — on the endpoint feed a reverse proxy polls continuously.
-- **400s that surface as 500s.** `CredentialIssuer.Expiry.Parse` overflows on `"99999999999h"`; `CreateApiKeyAsync` races the filtered unique index; revoke matches an untrimmed name that create stored trimmed.
+- **400s that surface as 500s.** `CredentialIssuer.Expiry.Parse` overflows on `"99999999999h"`; ~~`CreateApiKeyAsync` races the filtered unique index~~ (**fixed**, `794aae9`); revoke matches an untrimmed name that create stored trimmed.
 - **Silently ignored input.** `Agent/Program.cs:60-92` and `Deploy/Program.cs:124-133` both ignore unknown flags and a trailing flag with no value — a typo'd `--api_key` sends no key and the 401 blames the wrong thing.
 - `Location` headers on three `Created` responses point at routes that have no GET.
 - `Portal/Components/Pages/_Imports.razor:3` puts `[Authorize(Policy=Viewer)]` on `Error.razor` and `NotFound.razor`, so a non-admitted user gets AccessDenied instead of the error page.
