@@ -18,9 +18,22 @@ a starting point for triage, not a verdict.
 
 ## 1. Fix first (correctness, security, data loss)
 
-**Fixed so far:** items 1, 7 and 8 (`a48da7a`), the command-ordering defect below (`75f9665`), and
-items 2, 3, 4, 15, 16 and 17 (`8e17af8`). The table keeps their original wording, because what a
-finding said when it was found is the useful record; the commits carry the detail of what changed.
+**Fixed so far:** items 1, 7 and 8 (`a48da7a`), the command-ordering defect below (`75f9665`),
+items 2, 3, 4, 15, 16 and 17 (`8e17af8`), and items 5, 6, 9, 12, 18, 21, 22 and 23 (`794aae9`).
+
+**Still open in this section: items 10, 11, 13, 14, 19, 20 and 24.**
+
+The table keeps every finding's original wording, because what a finding said when it was found is
+the useful record; the commits carry the detail of what changed. Two things learned along the way are
+worth more than any single fix:
+
+- **A comment asserting a guarantee is not a guarantee.** The ordering defect survived review because
+  the field's doc comment described the property the code was supposed to have, and read as a
+  decision already made rather than an intention.
+- **A test of a race has to say how many times it looked.** One start/stop pair caught the ordering
+  defect a quarter of the time and passed the rest, so the suite reported green while the guarantee
+  went unverified. Several of the concurrency tests added since are opportunistic for the same
+  reason, and now say so in place rather than implying more than they prove.
 
 | # | Where | What | Fix |
 |---|---|---|---|
@@ -239,6 +252,6 @@ Two skips can hide real failures: `PortalAuthenticationTests.cs:119` skips on **
 5. §6 — docs, starting with the ten "wrong" items.
 6. ~~§8 — actually read the ops docs and scripts.~~ **Done**, `97725d0`.
 
-Still open in §1: items 5, 6, 9-14 and 18-24. Several are runner and control-plane concurrency
-findings of the same family as the ordering defect that was fixed — worth reading together rather
-than one at a time.
+Still open in §1: items 10, 11, 13, 14, 19, 20 and 24. The runner and control-plane concurrency
+family has been done; what is left is mostly input validation and reporting detail, worth reading
+together rather than one at a time.
