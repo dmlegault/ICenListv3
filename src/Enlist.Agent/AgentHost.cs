@@ -39,6 +39,13 @@ public sealed class AgentHost : IAsyncDisposable
     private readonly IReadOnlyDictionary<string, string> _runnerBinDirectories;
     private readonly string _stagingRoot;
     private readonly AgentFileLogSink _logSink;
+
+    /// <summary>Kept only so StopAsync can dispose it, which is what gives its buffered lines a final flush. The sink is what actually uses it.</summary>
+    private readonly ILogForwarder? _logForwarder;
+
+    /// <summary>How long shutdown will wait for the control plane to accept the agent's last word. Long enough for a healthy control plane on a busy host, short enough that an unreachable one cannot hold up a service stop.</summary>
+    private static readonly TimeSpan FinalSnapshotTimeout = TimeSpan.FromSeconds(5);
+
     private readonly AgentStatusWriter _statusWriter;
     private readonly AgentHostOptions _options;
     private readonly CrashBackoff _backoff;
@@ -173,6 +180,7 @@ public sealed class AgentHost : IAsyncDisposable
 
         _runnerBinDirectories = runnerBinDirectories;
         _stagingRoot = stagingRoot;
+        _logForwarder = logForwarder;
         _logSink = new AgentFileLogSink(logRoot, logForwarder);
         _statusWriter = new AgentStatusWriter(logRoot);
         _options = options ?? AgentHostOptions.Default;
@@ -258,9 +266,29 @@ public sealed class AgentHost : IAsyncDisposable
             }
         }
 
-        var initial = await _assignmentSource.GetCurrentAsync(_shutdownCts.Token).ConfigureAwait(false);
-        await ReconcileAsync(initial).ConfigureAwait(false);
-        await PruneAssignmentSourcePackageCacheAsync(_shutdownCts.Token).ConfigureAwait(false);
+        // Guarded exactly as the reconciliation loop guards the same two calls, and for a sharper
+        // reason. Unguarded, one unresolvable package digest at boot - a 404, a hash that does not
+        // match - threw out of StartAsync, the hosted service failed to start, and the SCM restart-
+        // looped the whole agent: an agent that starts NOTHING, forever, because one application
+        // could not be resolved. Mid-life the identical failure costs one reconcile pass.
+        //
+        // The control-plane-is-down signal is deliberately left where it belongs: ConnectAsync in
+        // Program.cs, before this host is ever constructed.
+        try
+        {
+            var initial = await _assignmentSource.GetCurrentAsync(_shutdownCts.Token).ConfigureAwait(false);
+            await ReconcileAsync(initial).ConfigureAwait(false);
+            await PruneAssignmentSourcePackageCacheAsync(_shutdownCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_shutdownCts.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            await _logSink.WriteAgentLogAsync(
+                $"Initial reconciliation failed - starting anyway, and retrying on the next change or refetch: {ex}").ConfigureAwait(false);
+        }
 
         _reconciliationLoop = RunReconciliationLoopAsync(_shutdownCts.Token);
 
@@ -323,29 +351,29 @@ public sealed class AgentHost : IAsyncDisposable
 
         foreach (var (name, app) in newByName)
         {
-            _appState.GetOrAdd(name, _ => new AppTrackedState());
+            var state = _appState.GetOrAdd(name, _ => new AppTrackedState());
+
+            // Does this pass carry anything NEW about this application? It usually does not. The
+            // source has a three-minute refetch floor, so WaitForChangeAsync completes on a timer
+            // whether or not anything changed, and this method then runs over an identical list.
+            //
+            // Treating every pass as news meant a Stopped application re-logged "not starting" and a
+            // Failed one re-logged its failure and pushed a fresh status snapshot, every three
+            // minutes, forever - and worse, see StartApplicationAsync's give-up check.
+            var isNew = !previousByName.TryGetValue(name, out var previous);
+            var changed = !isNew && !SameAssignment(previous!, app);
+            var news = isNew || changed;
 
             if (app.DesiredState != DesiredState.Running)
             {
-                _appState[name].State = ApplicationState.Stopped;
-                await _logSink.WriteAgentLogAsync($"{app.Name}: desired state is {app.DesiredState} - not starting.").ConfigureAwait(false);
+                state.State = ApplicationState.Stopped;
+                if (news)
+                {
+                    await _logSink.WriteAgentLogAsync($"{app.Name}: desired state is {app.DesiredState} - not starting.").ConfigureAwait(false);
+                }
+
                 continue;
             }
-
-            var changed = previousByName.TryGetValue(name, out var previous) &&
-                (previous.Path != app.Path || previous.RuntimeFlavor != app.RuntimeFlavor ||
-                 previous.ConflictReason != app.ConflictReason || !CronOverridesEqual(previous.CronOverrides, app.CronOverrides) ||
-
-                 // Isolation belongs in this list for the same reason Path does: it decides HOW the
-                 // application is hosted, and a running instance cannot adopt a change to it. Without
-                 // this, flipping a rule from process to container did nothing until some unrelated
-                 // event forced a restart — silently defeating the migrate-one-agent-at-a-time workflow
-                 // that is the whole point of isolation being a policy field.
-                 //
-                 // AgreesWith, never ==: the spec is a positional record whose Ports/Networks/Env
-                 // compare by REFERENCE under the compiler-generated equality, so == would report every
-                 // deserialized-fresh spec as different and restart the application on every poll.
-                 !previous.Isolation.AgreesWith(app.Isolation));
 
             // Stop-then-start for a changed assignment happens under ONE hold of the gate, so nothing
             // else — a crash-retry, most likely — can slip in between and start the old assignment.
@@ -358,7 +386,7 @@ public sealed class AgentHost : IAsyncDisposable
                 }
 
                 // A no-op when the application is already running — the common case on every pass.
-                await StartApplicationAsync(app).ConfigureAwait(false);
+                await StartApplicationAsync(app, news).ConfigureAwait(false);
             }).ConfigureAwait(false);
         }
 
@@ -415,6 +443,52 @@ public sealed class AgentHost : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// A configuration-level failure with no transient component: a policy conflict, a runtime flavor
+    /// this agent cannot host, an isolation mode it has no backend for. Retrying cannot help, so the
+    /// application goes straight to Failed without touching the crash-backoff machinery.
+    ///
+    /// Said out loud only when it is news — the first time the application enters Failed, or when the
+    /// assignment changed. An unchanged refetch pass is silent: none of these conditions can resolve
+    /// on their own, the state is already Failed, and the heartbeat goes on reporting it. Repeating
+    /// the line every three minutes only buries the pass where it first happened.
+    /// </summary>
+    private async Task FailWithoutRetryAsync(AppTrackedState state, string applicationName, string reason, bool announce)
+    {
+        var alreadyFailed = state.State == ApplicationState.Failed;
+        state.State = ApplicationState.Failed;
+
+        if (!announce && alreadyFailed)
+        {
+            return;
+        }
+
+        await _logSink.WriteAgentLogAsync($"{applicationName}: {reason}").ConfigureAwait(false);
+        await WriteStatusSnapshotAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Whether two assignments for one application say the same thing — i.e. whether a reconcile pass
+    /// is carrying news. Every field a running instance cannot adopt without being restarted is here,
+    /// which is why this doubles as the restart test.
+    ///
+    /// Isolation belongs in it for the same reason Path does: it decides HOW the application is
+    /// hosted. Without it, flipping a rule from process to container did nothing until some unrelated
+    /// event forced a restart — silently defeating the migrate-one-agent-at-a-time workflow that is
+    /// the whole point of isolation being a policy field.
+    ///
+    /// AgreesWith, never ==: the spec is a positional record whose Ports/Networks/Env compare by
+    /// REFERENCE under the compiler-generated equality, so == would report every deserialized-fresh
+    /// spec as different and restart the application on every single pass.
+    /// </summary>
+    private static bool SameAssignment(ApplicationAssignment previous, ApplicationAssignment current) =>
+        previous.DesiredState == current.DesiredState &&
+        previous.Path == current.Path &&
+        previous.RuntimeFlavor == current.RuntimeFlavor &&
+        previous.ConflictReason == current.ConflictReason &&
+        CronOverridesEqual(previous.CronOverrides, current.CronOverrides) &&
+        previous.Isolation.AgreesWith(current.Isolation);
+
     private static bool CronOverridesEqual(IReadOnlyDictionary<string, string> a, IReadOnlyDictionary<string, string> b)
     {
         if (a.Count != b.Count)
@@ -433,8 +507,15 @@ public sealed class AgentHost : IAsyncDisposable
         return true;
     }
 
-    /// <summary>Callers hold the application's lifecycle gate — see WithLifecycleGateAsync.</summary>
-    private async Task StartApplicationAsync(ApplicationAssignment app)
+    /// <summary>
+    /// Callers hold the application's lifecycle gate — see WithLifecycleGateAsync.
+    ///
+    /// freshIntent says whether this call carries new intent — a new or changed assignment, or an
+    /// explicit retry once a backoff has elapsed — as opposed to the three-minute refetch coming
+    /// round again over an identical list. The distinction decides whether a given-up application is
+    /// touched at all, and whether a terminal failure is worth saying out loud again.
+    /// </summary>
+    private async Task StartApplicationAsync(ApplicationAssignment app, bool freshIntent)
     {
         if (_instances.ContainsKey(app.Name))
         {
@@ -450,6 +531,25 @@ public sealed class AgentHost : IAsyncDisposable
             return;
         }
 
+        var gaveUp = state.State == ApplicationState.Failed && state.ConsecutiveFailures > _backoff.MaxAttempts;
+
+        if (gaveUp && !freshIntent)
+        {
+            // It gave up, and nothing has changed since. "Not retrying again automatically" has to
+            // mean that. Without this check the next refetch pass started the entire backoff cycle
+            // over - and the one after that, every three minutes for as long as the agent ran - so an
+            // application the agent had declared dead flapped Failed to Starting to Failed forever,
+            // saying so in the log each time. Changing the assignment is what un-gives-up.
+            return;
+        }
+
+        if (gaveUp)
+        {
+            // New intent after a give-up starts the count again, so the backoff measures THIS
+            // assignment's failures instead of resuming a streak that belonged to the old one.
+            state.ConsecutiveFailures = 0;
+        }
+
         if (app.ConflictReason is not null)
         {
             // Also a configuration problem, not a transient one, and also discovered before any of the
@@ -457,9 +557,7 @@ public sealed class AgentHost : IAsyncDisposable
             // even evaluate a runtime flavor against, since the control plane found two or more
             // disagreeing policy rules and refused to guess which one should win (see
             // ApplicationPolicyDto.ConflictReason).
-            state.State = ApplicationState.Failed;
-            await _logSink.WriteAgentLogAsync($"{app.Name}: {app.ConflictReason}").ConfigureAwait(false);
-            await WriteStatusSnapshotAsync().ConfigureAwait(false);
+            await FailWithoutRetryAsync(state, app.Name, app.ConflictReason, freshIntent).ConfigureAwait(false);
             return;
         }
 
@@ -467,11 +565,9 @@ public sealed class AgentHost : IAsyncDisposable
         {
             // A configuration problem, not a transient one — retrying won't make a runner-bin appear,
             // so this goes straight to Failed rather than through the crash-backoff/retry machinery.
-            state.State = ApplicationState.Failed;
-            await _logSink.WriteAgentLogAsync(
-                $"{app.Name}: requires runtime flavor '{app.RuntimeFlavor}', but this agent has no runner-bin configured for it - not starting. " +
-                $"Configured flavors: [{string.Join(", ", _runnerBinDirectories.Keys)}].").ConfigureAwait(false);
-            await WriteStatusSnapshotAsync().ConfigureAwait(false);
+            await FailWithoutRetryAsync(state, app.Name,
+                $"requires runtime flavor '{app.RuntimeFlavor}', but this agent has no runner-bin configured for it - not starting. " +
+                $"Configured flavors: [{string.Join(", ", _runnerBinDirectories.Keys)}].", freshIntent).ConfigureAwait(false);
             return;
         }
 
@@ -481,11 +577,9 @@ public sealed class AgentHost : IAsyncDisposable
             // agent with no container engine configured will not grow one by being retried. The most
             // likely cause by far is a policy asking for container isolation on an agent that was never
             // set up for it, so the message names the mode and what this agent actually supports.
-            state.State = ApplicationState.Failed;
-            await _logSink.WriteAgentLogAsync(
-                $"{app.Name}: requires '{app.Isolation.Mode}' isolation, but this agent has no backend configured for it - not starting. " +
-                $"Configured isolation modes: [{string.Join(", ", _runnerBackends.Keys)}].").ConfigureAwait(false);
-            await WriteStatusSnapshotAsync().ConfigureAwait(false);
+            await FailWithoutRetryAsync(state, app.Name,
+                $"requires '{app.Isolation.Mode}' isolation, but this agent has no backend configured for it - not starting. " +
+                $"Configured isolation modes: [{string.Join(", ", _runnerBackends.Keys)}].", freshIntent).ConfigureAwait(false);
             return;
         }
 
@@ -856,7 +950,9 @@ public sealed class AgentHost : IAsyncDisposable
             return;
         }
 
-        await WithLifecycleGateAsync(app.Name, () => StartApplicationAsync(current)).ConfigureAwait(false);
+        // freshIntent: this IS an attempt the agent decided to make, not a re-examination of an
+        // unchanged list, so its outcome is worth reporting even if it fails the same way as last time.
+        await WithLifecycleGateAsync(app.Name, () => StartApplicationAsync(current, freshIntent: true)).ConfigureAwait(false);
     }
 
     private static string DescribeExitCode(IRunnerInstance instance)
@@ -1090,14 +1186,19 @@ public sealed class AgentHost : IAsyncDisposable
     private Task WriteSyntheticAsync(string applicationName, LogLevel level, string text) =>
         _logSink.WriteAppLogAsync(applicationName, new LogMessage("agent", level, text, DateTimeOffset.UtcNow));
 
-    private async Task WriteStatusSnapshotAsync()
+    /// <summary>
+    /// reportToken overrides the token the control-plane report is made with. It exists for exactly
+    /// one caller — the final snapshot in StopAsync — because by then the shutdown token is already
+    /// cancelled and reporting under it is a guaranteed no-op. See StopAsync.
+    /// </summary>
+    private async Task WriteStatusSnapshotAsync(CancellationToken? reportToken = null)
     {
         // One at a time, end to end: generating and reporting are both inside the lock, so a snapshot
         // taken earlier cannot land at the control plane after one taken later.
         await _snapshotLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            await WriteStatusSnapshotCoreAsync().ConfigureAwait(false);
+            await WriteStatusSnapshotCoreAsync(reportToken ?? _shutdownCts.Token).ConfigureAwait(false);
         }
         finally
         {
@@ -1105,7 +1206,7 @@ public sealed class AgentHost : IAsyncDisposable
         }
     }
 
-    private async Task WriteStatusSnapshotCoreAsync()
+    private async Task WriteStatusSnapshotCoreAsync(CancellationToken reportToken)
     {
         var apps = _appState.Select(kvp =>
         {
@@ -1139,7 +1240,7 @@ public sealed class AgentHost : IAsyncDisposable
 
         // Best-effort by construction (see ControlPlaneStatusReporter) — a report failing must never
         // block or fail anything else this method's callers are in the middle of doing.
-        await _statusReporter.ReportAsync(snapshot, _shutdownCts.Token).ConfigureAwait(false);
+        await _statusReporter.ReportAsync(snapshot, reportToken).ConfigureAwait(false);
     }
 
     private async Task RunRetentionSweepLoopAsync(CancellationToken ct)
@@ -1277,11 +1378,32 @@ public sealed class AgentHost : IAsyncDisposable
             await WithLifecycleGateAsync(name, () => StopApplicationAsync(name)).ConfigureAwait(false);
         }
 
-        await WriteStatusSnapshotAsync().ConfigureAwait(false);
+        // The LAST thing the control plane hears from this agent, and the one snapshot that must not
+        // be reported under the shutdown token. _shutdownCts was cancelled at the top of this method,
+        // so passing it here - as this did until 2026-09-12 - made the reporter throw immediately and
+        // swallow it as "shutting down": the agent stopped every application and then never said so.
+        // The portal went on showing them Running until the staleness window expired minutes later.
+        //
+        // Bounded independently instead, because shutdown cannot wait on an unreachable control plane.
+        using (var finalReport = new CancellationTokenSource(FinalSnapshotTimeout))
+        {
+            await WriteStatusSnapshotAsync(finalReport.Token).ConfigureAwait(false);
+        }
 
         if (_assignmentSource is IAsyncDisposable disposableSource)
         {
             await disposableSource.DisposeAsync().ConfigureAwait(false);
+        }
+
+        // After the final snapshot and after every application's last log line, so the flush on the
+        // way out has everything to carry. Nothing disposed the forwarder before 2026-09-12, so its
+        // "final best-effort flush on shutdown" never ran and the last flush interval of forwarded
+        // lines - which is where "stopped." lives - was dropped on every clean shutdown. Disposed
+        // here for the same reason the assignment source is: this host is what owns its lifetime once
+        // it has been handed one.
+        if (_logForwarder is IAsyncDisposable disposableForwarder)
+        {
+            await disposableForwarder.DisposeAsync().ConfigureAwait(false);
         }
 
         // Every instance above already exited (gracefully or killed) before this runs, so nothing is

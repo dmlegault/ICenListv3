@@ -1,18 +1,31 @@
+using System.Collections.Concurrent;
+
 using Enlist.Runner.Protocol;
 
 namespace Enlist.Agent.Logging;
 
 /// <summary>
 /// Persists to disk what the runner ships over the pipe — design doc section 7: "The agent persists
-/// to disk and forwards to the control plane." Forwarding is the control plane's job (nothing to forward to
-/// yet); this is the local half. A log write failing must never take the agent down, so every write
-/// here swallows its own exceptions rather than letting a full disk or a sharing violation cascade
-/// into losing a running application.
+/// to disk and forwards to the control plane." Both halves are here: the file on disk is the durable
+/// copy, and every application line is also handed to an ILogForwarder, which mirrors it to the
+/// control plane for the portal's log tail. A log write failing must never take the agent down, so
+/// every write here swallows its own exceptions rather than letting a full disk cascade into losing a
+/// running application.
 /// </summary>
 public sealed class AgentFileLogSink
 {
     private readonly string _logRoot;
     private readonly ILogForwarder _forwarder;
+
+    /// <summary>
+    /// One gate per file, because appends to the SAME file genuinely do overlap: an application's
+    /// receive loop and a job firing on the scheduler both write that application's log, and every
+    /// application plus the agent itself shares the agent log. File.AppendAllTextAsync opens with
+    /// FileShare.Read, so two concurrent appends throw a sharing violation — which the catch below
+    /// then swallowed, losing the line outright. That is the worst way for a log to fail: silently,
+    /// and most often under load, which is exactly when it is being read.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _fileGates = new(StringComparer.OrdinalIgnoreCase);
 
     public AgentFileLogSink(string logRoot, ILogForwarder? forwarder = null)
     {
@@ -61,6 +74,11 @@ public sealed class AgentFileLogSink
                     if (File.GetLastWriteTimeUtc(file) < cutoffUtc)
                     {
                         File.Delete(file);
+
+                        // Its gate goes with it. Files are date-partitioned, so a deleted one is from
+                        // a past day and will never be appended to again; without this the dictionary
+                        // would grow by one entry per application per day for the life of the process.
+                        _fileGates.TryRemove(file, out _);
                     }
                 }
                 catch
@@ -70,15 +88,26 @@ public sealed class AgentFileLogSink
         });
     }
 
-    private static async Task AppendAsync(string directory, string fileName, string line)
+    private async Task AppendAsync(string directory, string fileName, string line)
     {
+        var path = Path.Combine(directory, fileName);
+        var gate = _fileGates.GetOrAdd(path, _ => new SemaphoreSlim(1, 1));
+
+        await gate.WaitAsync().ConfigureAwait(false);
         try
         {
             Directory.CreateDirectory(directory);
-            await File.AppendAllTextAsync(Path.Combine(directory, fileName), line).ConfigureAwait(false);
+            await File.AppendAllTextAsync(path, line).ConfigureAwait(false);
         }
         catch
         {
+            // Still swallowed, and still deliberately: a full disk must not stop an application. What
+            // changed is that a sharing violation caused by THIS class writing over itself is no
+            // longer one of the things being swallowed.
+        }
+        finally
+        {
+            gate.Release();
         }
     }
 }

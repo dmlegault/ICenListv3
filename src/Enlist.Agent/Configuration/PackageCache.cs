@@ -71,17 +71,42 @@ public sealed class PackageCache
     /// </summary>
     public Task PruneUnusedAsync(IReadOnlySet<string> digestsInUse, CancellationToken ct) => Task.Run(() =>
     {
+        // Every digest the cache root mentions, in any of the three ways it can mention one: a
+        // completion marker, an extracted directory, or a downloaded zip.
+        //
+        // Markers alone were enumerated until 2026-09-12, which meant the one case worth reclaiming
+        // was the one case never reclaimed. An interrupted extraction leaves a directory and/or a zip
+        // and NO marker - that absence is precisely how EnsureExtractedAsync recognises the
+        // interruption - so those bytes were invisible to every sweep that followed and stayed on
+        // disk until someone deleted the cache by hand. The comment on the old zip delete claimed to
+        // cover it, but only ever ran for a digest that had a marker.
+        var digests = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var markerFile in SafeEnumerateFiles(_cacheRoot, "*.complete"))
         {
-            var digest = Path.GetFileNameWithoutExtension(markerFile);
+            digests.Add(Path.GetFileNameWithoutExtension(markerFile));
+        }
+
+        foreach (var zipFile in SafeEnumerateFiles(_cacheRoot, "*.zip"))
+        {
+            digests.Add(Path.GetFileNameWithoutExtension(zipFile));
+        }
+
+        foreach (var directory in SafeEnumerateDirectories(_cacheRoot))
+        {
+            digests.Add(Path.GetFileName(directory));
+        }
+
+        foreach (var digest in digests)
+        {
             if (digestsInUse.Contains(digest))
             {
                 continue;
             }
 
             TryDeleteDirectory(Path.Combine(_cacheRoot, digest));
-            TryDeleteFile(markerFile);
-            TryDeleteFile(Path.Combine(_cacheRoot, digest + ".zip")); // an orphaned partial download, if extraction was ever interrupted
+            TryDeleteFile(Path.Combine(_cacheRoot, digest + ".complete"));
+            TryDeleteFile(Path.Combine(_cacheRoot, digest + ".zip"));
         }
     }, ct);
 
@@ -90,6 +115,18 @@ public sealed class PackageCache
         try
         {
             return Directory.EnumerateFiles(path, pattern, SearchOption.TopDirectoryOnly).ToList();
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    private static IEnumerable<string> SafeEnumerateDirectories(string path)
+    {
+        try
+        {
+            return Directory.EnumerateDirectories(path, "*", SearchOption.TopDirectoryOnly).ToList();
         }
         catch
         {

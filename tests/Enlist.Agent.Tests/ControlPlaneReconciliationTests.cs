@@ -89,6 +89,30 @@ public sealed class ControlPlaneReconciliationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_control_plane_is_told_the_agent_stopped_before_the_agent_exits()
+    {
+        // The agent's last word, and until 2026-09-12 it was never spoken. StopAsync cancels the
+        // shutdown token first, and the final snapshot was reported under that same cancelled token,
+        // so the reporter threw instantly and swallowed it as "shutting down". The agent stopped
+        // every application and then told nobody: the portal went on showing them Running until the
+        // staleness window expired minutes later, which reads as a crashed agent rather than a
+        // stopped one.
+        var appName = RepoPaths.UniqueAppName();
+        await CreatePolicyAsync(appName);
+
+        var host = await StartAgentAsync();
+        Assert.True(host.Instances.ContainsKey(appName), "the application never started, so there is nothing to prove about stopping it.");
+
+        await host.StopAsync();
+        _host = null;
+
+        var report = await _adminClient!.GetFromJsonAsync<AgentStatusSnapshot>($"/api/agents/{_agentName}/report/latest");
+
+        var reported = Assert.Single(report!.Applications, a => a.Name == appName);
+        Assert.Equal(ApplicationState.Stopped, reported.State);
+    }
+
+    [Fact]
     public async Task Creating_a_new_policy_rule_while_the_agent_is_already_running_starts_it_without_restarting_the_agent()
     {
         var host = await StartAgentAsync();

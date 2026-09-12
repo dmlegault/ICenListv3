@@ -22,6 +22,34 @@ public sealed class AgentFileLogSinkTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Concurrent_writes_to_one_log_file_lose_no_lines()
+    {
+        var sink = new AgentFileLogSink(_root);
+
+        // These all land in the SAME file. The agent log is partitioned by date, not by writer, and
+        // every context in AgentHost writes it: the reconciliation loop, crash retries on the thread
+        // pool, Process.Exited, the hub command handler, and one receive loop per running
+        // application. File.AppendAllTextAsync opens with FileShare.Read, so before these writes were
+        // serialized the overlapping ones threw a sharing violation - which the sink swallowed by
+        // design, and the line was simply gone. Silently, and worst under load.
+        const int lines = 300;
+        await Task.WhenAll(Enumerable.Range(0, lines).Select(i => sink.WriteAgentLogAsync($"line-{i:D3}")));
+
+        // Every agent-*.log, not today's by name: a run that straddles midnight would otherwise lose
+        // half its lines to a second file and fail for a reason that has nothing to do with the point.
+        var written = Directory.EnumerateFiles(_root, "agent-*.log", SearchOption.TopDirectoryOnly)
+            .SelectMany(File.ReadAllLines)
+            .ToList();
+
+        Assert.Equal(lines, written.Count);
+        for (var i = 0; i < lines; i++)
+        {
+            var expected = $"line-{i:D3}";
+            Assert.True(written.Any(l => l.EndsWith(expected, StringComparison.Ordinal)), $"'{expected}' never reached the file.");
+        }
+    }
+
+    [Fact]
     public async Task PruneOldLogsAsync_deletes_files_older_than_retention_and_keeps_fresh_ones()
     {
         var sink = new AgentFileLogSink(_root);
