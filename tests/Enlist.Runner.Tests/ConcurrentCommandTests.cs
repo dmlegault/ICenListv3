@@ -74,6 +74,12 @@ public sealed class ConcurrentCommandTests
     /// own task. Without that, a Stop can begin while the Start it follows is still executing, and the
     /// service ends up reported Running by a Start that finished after the Stop — a stopped service
     /// with a live-looking state.
+    ///
+    /// This test found that defect for real on 2026-09-12, and then showed why one pass is not
+    /// enough: a semaphore per service granted mutual exclusion but not ORDER, the two dispatch tasks
+    /// raced to reach it, and the Stop won roughly one run in four. For months the rest of the time
+    /// it passed, so the suite reported green while the ordering guarantee it exists to prove was
+    /// unverified. Repeated now, for the same reason its sibling above is.
     /// </summary>
     [Fact]
     public async Task Start_then_stop_for_one_service_are_applied_in_order()
@@ -82,23 +88,43 @@ public sealed class ConcurrentCommandTests
         await Receive<ReadyMessage>(agent);
 
         const string service = "Order Intake Listener";
-        await agent.Channel.SendAsync(new StartServiceCommand(service));
-        await agent.Channel.SendAsync(new StopServiceCommand(service, TimeoutMs: 5000));
 
-        var states = new List<RunnerState>();
-        using var cts = new CancellationTokenSource(Step);
-        while (states.LastOrDefault() != RunnerState.Stopped)
+        // Twelve cycles, not one: at the observed one-in-four this is the difference between a guard
+        // that catches an ordering regression 25% of the time and one that catches it about 97%.
+        for (var attempt = 1; attempt <= 12; attempt++)
         {
-            var message = await agent.Channel.ReceiveAsync(cts.Token)
-                ?? throw new InvalidOperationException("channel closed before the service reported Stopped");
+            await agent.Channel.SendAsync(new StartServiceCommand(service));
+            await agent.Channel.SendAsync(new StopServiceCommand(service, TimeoutMs: 5000));
 
-            if (message is StateChangedMessage { TargetKind: RunnerTargetKind.Service } sc && sc.Target == service)
+            var states = new List<RunnerState>();
+            using var cts = new CancellationTokenSource(Step);
+            while (states.LastOrDefault() != RunnerState.Stopped)
             {
-                states.Add(sc.State);
-            }
-        }
+                var message = await agent.Channel.ReceiveAsync(cts.Token)
+                    ?? throw new InvalidOperationException($"attempt {attempt}: channel closed before the service reported Stopped");
 
-        Assert.Equal([RunnerState.Starting, RunnerState.Running, RunnerState.Stopping, RunnerState.Stopped], states);
+                switch (message)
+                {
+                    case StateChangedMessage { TargetKind: RunnerTargetKind.Service } sc when sc.Target == service:
+                        states.Add(sc.State);
+                        break;
+
+                    // The defect's exact signature: the Stop overtook the Start, found nothing in
+                    // _runningServices and returned silently, so no terminal state was ever sent and
+                    // the loop above had nothing to wait for. Fail on it by name rather than blocking
+                    // for the full step and reporting only "the operation was canceled".
+                    case LogMessage { Level: LogLevel.Warning } log when log.Text.Contains("not running - ignored"):
+                        Assert.Fail($"attempt {attempt}: the Stop was applied before the Start it followed - '{log.Text}'");
+                        break;
+
+                    case FaultedMessage f:
+                        Assert.Fail($"attempt {attempt}: service '{f.Target}' faulted: {f.Error}");
+                        break;
+                }
+            }
+
+            Assert.Equal([RunnerState.Starting, RunnerState.Running, RunnerState.Stopping, RunnerState.Stopped], states);
+        }
 
         await agent.Channel.SendAsync(new ShutdownCommand(5000));
         Assert.True(await DrainUntilExitAsync(agent));

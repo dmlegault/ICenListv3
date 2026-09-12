@@ -32,13 +32,24 @@ public sealed class RunnerHost
     private readonly ConcurrentDictionary<string, RunningJobState> _runningJobs = new();
 
     /// <summary>
-    /// One gate per service name, so Start and Stop for the SAME service are applied in the order they
-    /// arrived even though each runs on its own task. Without it a Stop can begin while the Start it
-    /// follows is still executing, and the service ends up reported Running by a Start that finished
-    /// after the Stop. Jobs are deliberately not gated: a CancelJobCommand queued behind the very run it
-    /// is meant to cancel would never arrive in time to matter.
+    /// One task chain per service name, so Start and Stop for the SAME service are applied in the
+    /// order they ARRIVED.
+    ///
+    /// A semaphore was here until 2026-09-12 and cannot deliver that. It grants mutual exclusion, but
+    /// the two commands run on separate pool tasks that RACE to reach it, and about one run in four
+    /// the Stop got there first: it found nothing in _runningServices, logged "not running -
+    /// ignored", and sent no state message at all. The Start then reported Running, leaving a service
+    /// that had been told to stop sitting in Running with no terminal message ever sent - and
+    /// ConcurrentCommandTests blocking until its own timeout.
+    ///
+    /// The chain is extended on the read loop, which is the only place arrival order exists at all.
+    /// Jobs are deliberately not chained: a CancelJobCommand queued behind the very run it is meant
+    /// to cancel would never arrive in time to matter.
     /// </summary>
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _serviceGates = new();
+    private readonly Dictionary<string, Task> _serviceQueues = new Dictionary<string, Task>(StringComparer.Ordinal);
+
+    /// <summary>Guards _serviceQueues. Only the read loop extends a chain today; the lock is what keeps that from being a silent requirement on whoever edits Dispatch next.</summary>
+    private readonly object _serviceQueueLock = new object();
 
     // Log calls can arrive from arbitrary plugin threads/tasks (background work a service kicked off,
     // or Console.WriteLine from inside a job). Routing them through a Channel rather than calling
@@ -119,17 +130,21 @@ public sealed class RunnerHost
                 break;
             }
 
-            // Task.Run, NOT a bare `_ = DispatchAsync(command)`. An async method runs synchronously
-            // until its first await that actually yields, and a plugin method returning void never
-            // yields at all — InvocationHelper calls method.Invoke and it runs to completion inline.
-            // So a bare call would execute the ENTIRE job or service body on this thread, and the loop
-            // would not call ReceiveAsync again until it finished: a long synchronous job made Cancel,
-            // Stop and even Shutdown sit unread until it was over.
+            // Dispatch DECIDES WHERE each command runs and returns immediately; it never runs one
+            // here. That matters twice over. An async method runs synchronously until its first await
+            // that actually yields, and a plugin method returning void never yields at all -
+            // InvocationHelper calls method.Invoke and it runs to completion inline - so running a
+            // command on this thread would execute the ENTIRE job or service body before the loop
+            // called ReceiveAsync again: a long synchronous job made Cancel, Stop and even Shutdown
+            // sit unread until it was over.
+            //
+            // And this loop is the only place that knows the order commands ARRIVED in, so it is the
+            // only place that can preserve it. See _serviceQueues.
             //
             // Known limitation: a StartService still in flight when Shutdown arrives is not waited
             // for — a service that finishes starting after StopAllAsync took its snapshot exits with
             // the process rather than through its [EnlistStop].
-            _ = Task.Run(() => DispatchAsync(command));
+            Dispatch(command);
         }
 
         // Guarded, because this is the one place an exception has nowhere to go: the read loop is
@@ -149,43 +164,78 @@ public sealed class RunnerHost
         await pump.ConfigureAwait(false);
     }
 
-    private async Task DispatchAsync(AgentCommand command)
+    /// <summary>
+    /// Runs on the read loop and returns without executing anything: it only places each command on
+    /// the right piece of machinery. Service commands join their service's chain, in arrival order;
+    /// everything else goes straight to the pool.
+    /// </summary>
+    private void Dispatch(AgentCommand command)
     {
-        try
+        switch (command)
         {
-            switch (command)
-            {
-                case StartServiceCommand c:
-                    await WithServiceGateAsync(c.Service, () => HandleStartServiceAsync(c)).ConfigureAwait(false);
-                    break;
-                case StopServiceCommand c:
-                    await WithServiceGateAsync(c.Service, () => HandleStopServiceAsync(c)).ConfigureAwait(false);
-                    break;
-                case RunJobCommand c:
-                    await HandleRunJobAsync(c).ConfigureAwait(false);
-                    break;
-                case CancelJobCommand c:
+            case StartServiceCommand c:
+                QueueForService(c.Service, command, () => HandleStartServiceAsync(c));
+                break;
+
+            case StopServiceCommand c:
+                QueueForService(c.Service, command, () => HandleStopServiceAsync(c));
+                break;
+
+            case RunJobCommand c:
+                Task.Run(() => GuardedAsync(command, () => HandleRunJobAsync(c)));
+                break;
+
+            case CancelJobCommand c:
+                Task.Run(() => GuardedAsync(command, () =>
+                {
                     HandleCancelJob(c);
-                    break;
-            }
-        }
-        catch (Exception ex)
-        {
-            Log("runner", LogLevel.Error, $"Unhandled error dispatching {command.GetType().Name}: {ex}");
+                    return Task.FromResult(0);
+                }));
+                break;
         }
     }
 
-    private async Task WithServiceGateAsync(string serviceName, Func<Task> action)
+    /// <summary>
+    /// Appends to this service's chain so it runs after everything already queued for the same
+    /// service, and so two commands read in one order are never applied in the other.
+    /// </summary>
+    private void QueueForService(string serviceName, AgentCommand command, Func<Task> action)
     {
-        var gate = _serviceGates.GetOrAdd(serviceName, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync().ConfigureAwait(false);
+        lock (_serviceQueueLock)
+        {
+            Task tail;
+            var previous = _serviceQueues.TryGetValue(serviceName, out tail) ? tail : Task.FromResult(0);
+
+            // TaskScheduler.Default and NOT ExecuteSynchronously: the continuation must never run on
+            // the thread that completed the previous link, which on the first link is this one - the
+            // read loop. Inlining it here would reintroduce exactly the blockage Dispatch exists to
+            // avoid.
+            var next = previous.ContinueWith(
+                _ => GuardedAsync(command, action),
+                CancellationToken.None,
+                TaskContinuationOptions.None,
+                TaskScheduler.Default).Unwrap();
+
+            // The chain is the tail only. A completed link is not kept, so this never grows beyond
+            // one task per service name that has ever been commanded.
+            _serviceQueues[serviceName] = next;
+        }
+    }
+
+    /// <summary>
+    /// The catch that used to live in DispatchAsync. Nothing above these calls can handle an
+    /// exception - a service chain has no caller waiting on it, and a job runs on a bare Task.Run -
+    /// so anything escaping here would be an unobserved task exception and silence.
+    /// </summary>
+    private async Task GuardedAsync(AgentCommand command, Func<Task> action)
+    {
         try
         {
             await action().ConfigureAwait(false);
         }
-        finally
+        catch (Exception ex)
         {
-            gate.Release();
+            Log("runner", LogLevel.Error, $"Unhandled error dispatching {command.GetType().Name}: {ex}");
         }
     }
 

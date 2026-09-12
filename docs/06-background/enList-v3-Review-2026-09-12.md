@@ -45,27 +45,41 @@ a starting point for triage, not a verdict.
 | 23 | `Runner/Execution/RunnerHost.cs:358-360,474-477` | A `RunJobCommand` with no `settings` gives `Settings == null`; `MergeSettings` throws NRE *after* `StateChanged(Starting)`, so **no `JobResultMessage` ever follows** and the agent's in-flight entry never clears | Treat null overrides as empty, or merge inside the try |
 | 24 | `Tests/Enlist.Agent.Tests/JobOverlapTests.cs:13` | `IAsyncDisposable` is never invoked by xunit 2.9.3 (two other test classes already record this measured finding). Cleanup never runs: **a live runner and a temp dir leak every run** | Use `IAsyncLifetime` like every sibling class |
 
-### Item 22 is not a theory - it is reproducible today
+### A command-ordering defect, found and fixed on 2026-09-12 — FIXED
 
-While verifying the section 1 security fixes on 2026-09-12, the full suite failed on a test nobody
-had touched. It reproduces roughly **one run in four**:
+While verifying the section 1 security fixes the full suite failed on a test nobody had touched,
+reproducing roughly **one run in four**:
 
 ```
 Enlist.Runner.Tests.ConcurrentCommandTests.Start_then_stop_for_one_service_are_applied_in_order
 System.OperationCanceledException : The operation was canceled.
    at Enlist.Runner.Protocol.MessageChannel`2.ReceiveAsync(...) MessageChannel.cs:line 72
-   at ConcurrentCommandTests.Start_then_stop_for_one_service_are_applied_in_order() line 92
 ```
 
-The test sends `StartServiceCommand` then `StopServiceCommand` for one service and reads state
-messages until it sees `Stopped`. On a failing run `Stopped` never arrives and the read blocks for
-the full 20-second step, which is the exact shape item 22 predicts: when the stop invocation
-overruns its timeout, `RunnerHost` removes the service from `_runningServices` and drops the
-still-running stop task, so nothing ever reports the terminal state. Item 5 is a candidate too.
+**I first attributed this to item 22 above. That was wrong**, and the correction is the interesting
+part. The cause was `RunnerHost`'s command dispatch: each command ran on its own `Task.Run`, and the
+per-service `SemaphoreSlim` that was supposed to keep Start and Stop in order granted only mutual
+EXCLUSION. The two tasks raced to reach the semaphore, and when the Stop won it found nothing in
+`_runningServices`, logged "not running - ignored" and returned silently, sending no state message at
+all. The Start then reported `Running`. A service that had been told to stop sat in `Running` with no
+terminal message ever sent.
 
-This matters beyond one flake. That test is the regression guard for ordering, so while it fails
-intermittently it is also **hiding whether ordering still holds**, and the suite has been reporting
-232 green on runs where it happened to pass. Worth fixing before the rest of section 1.
+The field's own doc comment claimed the guarantee the code did not provide, which is how it survived
+review: the comment read as a decision already made.
+
+Fixed by establishing order where it actually exists. The read loop is the only place that knows
+what arrived first, so it now extends a per-service task chain synchronously instead of handing both
+commands to the pool and hoping. Both runners changed in one commit, per the drift discipline.
+
+Item 22 remains open and unproven: the stop-overrun path really does drop the still-running stop
+task, but that is not what this flake was.
+
+**The wider lesson, worth more than the fix.** That test is the regression guard for ordering, and a
+single start/stop pair caught the defect only about one run in four. The other three runs it passed,
+so the suite reported green while the guarantee went unverified. It now repeats twelve cycles, which
+turns a 25% chance of catching a regression into roughly 97%, and fails by name on the
+"not running - ignored" signature instead of blocking twenty seconds to report only that a token was
+cancelled. **Any test whose subject is a race needs to say how many times it looked.**
 
 ## 2. Stale comments and doc-comments (source)
 
