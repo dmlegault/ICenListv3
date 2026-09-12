@@ -46,10 +46,10 @@ public sealed class RunnerHost
     /// Jobs are deliberately not chained: a CancelJobCommand queued behind the very run it is meant
     /// to cancel would never arrive in time to matter.
     /// </summary>
-    private readonly Dictionary<string, Task> _serviceQueues = new Dictionary<string, Task>(StringComparer.Ordinal);
+    private readonly Dictionary<string, Task> _serviceQueues = new(StringComparer.Ordinal);
 
     /// <summary>Guards _serviceQueues. Only the read loop extends a chain today; the lock is what keeps that from being a silent requirement on whoever edits Dispatch next.</summary>
-    private readonly object _serviceQueueLock = new object();
+    private readonly object _serviceQueueLock = new();
 
     // Log calls can arrive from arbitrary plugin threads/tasks (background work a service kicked off,
     // or Console.WriteLine from inside a job). Routing them through a Channel rather than calling
@@ -182,14 +182,14 @@ public sealed class RunnerHost
                 break;
 
             case RunJobCommand c:
-                Task.Run(() => GuardedAsync(command, () => HandleRunJobAsync(c)));
+                _ = Task.Run(() => GuardedAsync(command, () => HandleRunJobAsync(c)));
                 break;
 
             case CancelJobCommand c:
-                Task.Run(() => GuardedAsync(command, () =>
+                _ = Task.Run(() => GuardedAsync(command, () =>
                 {
                     HandleCancelJob(c);
-                    return Task.FromResult(0);
+                    return Task.CompletedTask;
                 }));
                 break;
         }
@@ -203,8 +203,7 @@ public sealed class RunnerHost
     {
         lock (_serviceQueueLock)
         {
-            Task tail;
-            var previous = _serviceQueues.TryGetValue(serviceName, out tail) ? tail : Task.FromResult(0);
+            var previous = _serviceQueues.TryGetValue(serviceName, out var tail) ? tail : Task.CompletedTask;
 
             // TaskScheduler.Default and NOT ExecuteSynchronously: the continuation must never run on
             // the thread that completed the previous link, which on the first link is this one - the
