@@ -5,8 +5,8 @@ changed during the review; the working tree was clean at `34007c9`.
 
 **How this was produced.** Seven reviewers read every line of their area: control plane +
 contracts, agent, both runners (file-by-file drift diff), portal + deploy + samples, all
-test projects, architecture + requirements docs, and ops docs + scripts + config. Six
-finished. **The seventh (ops docs, scripts, config) never ran** — see §8.
+test projects, architecture + requirements docs, and ops docs + scripts + config. The
+seventh needed four attempts; its findings are in §8 and in a companion document.
 
 **Confidence.** Line numbers are as reported at `34007c9` and will drift as fixes land.
 Items marked **[V]** were verified directly against the source during consolidation;
