@@ -18,6 +18,10 @@ a starting point for triage, not a verdict.
 
 ## 1. Fix first (correctness, security, data loss)
 
+**Fixed so far:** items 1, 7 and 8 (`a48da7a`), the command-ordering defect below (`75f9665`), and
+items 2, 3, 4, 15, 16 and 17 (`8e17af8`). The table keeps their original wording, because what a
+finding said when it was found is the useful record; the commits carry the detail of what changed.
+
 | # | Where | What | Fix |
 |---|---|---|---|
 | 1 | `ControlPlane/Authentication/AuthenticationSetup.cs:57-75` + `Contracts/Hosting/ListenerRules.cs:26-29` | **[V]** `ConfiguredUrls` reads only `urls` and `Kestrel:Endpoints:*:Url`. It cannot see `ASPNETCORE_HTTP_PORTS`/`HTTPS_PORTS` (which bind `http://*:port`) or IIS bindings, and `ListenerRules` then assumes the Kestrel default `http://localhost:5000`. So `Authentication:Mode=Off` + `ASPNETCORE_HTTP_PORTS=8080` starts an **unauthenticated control plane on all interfaces** — the one thing the hard rule exists to prevent | Read `HTTP_PORTS`/`HTTPS_PORTS`; better, check `IServerAddressesFeature` after start so the rule sees what Kestrel actually bound. Same gap in the portal's private copy, `Portal/Services/PortalAuthentication.cs:60-78` **[V]** |
@@ -228,9 +232,13 @@ Two skips can hide real failures: `PortalAuthenticationTests.cs:119` skips on **
 
 ## 10. Suggested order of work
 
-1. §1 items 1, 7, 8 — the security-shaped ones. Small, and each wants a test.
-2. §1 items 2-4, 15-17 — the agent's logging, shutdown and refetch behaviour. One area, one commit.
+1. ~~§1 items 1, 7, 8 — the security-shaped ones.~~ **Done**, `a48da7a`.
+2. ~~§1 items 2-4, 15-17 — the agent's logging, shutdown and refetch behaviour.~~ **Done**, `8e17af8`.
 3. §5 — the ASCII sweep. Mechanical, and decide the markup question while there.
 4. §2, §3 — comments and dead code. Nearly free once the code above settles.
 5. §6 — docs, starting with the ten "wrong" items.
-6. §8 — actually read the ops docs and scripts.
+6. ~~§8 — actually read the ops docs and scripts.~~ **Done**, `97725d0`.
+
+Still open in §1: items 5, 6, 9-14 and 18-24. Several are runner and control-plane concurrency
+findings of the same family as the ordering defect that was fixed — worth reading together rather
+than one at a time.
