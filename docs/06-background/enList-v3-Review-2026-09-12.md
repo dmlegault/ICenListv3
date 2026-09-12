@@ -136,13 +136,53 @@ Separately, **razor markup** carries ~25 more em dashes. That is user-visible te
 - **[V]** `.gitignore` is correct: `.env`, `PackageBlobs/`, `.demo/`, `deploy/` generated content, `bin`/`obj`, `.vs/`, `.claude/settings.local.json` are all covered, and `deploy/README.md` stays tracked.
 - **[V]** Test counts match the documented 232 exactly: Runner 50, Deploy 5, ControlPlane 72, Agent 72, Portal 33.
 
-## 8. Not reviewed
+## 8. Ops docs, scripts and config
 
-**Ops docs, scripts and config were never read** — that reviewer died on a rate limit three times.
+Read on the fourth attempt, after three rate-limit deaths. **43 findings across 18 files live in
+their own document: [review-2026-09-12-ops.md](review-2026-09-12-ops.md)**, which keeps each
+finding's quoted text and cited code lookup. Headlines only here.
 
-Still unexamined: `docs/05-operations/*` (Runbook, Test-Plan, Installer-UI-Design, Demo-Install-Design, and most of Deployment-IaC), `docs/06-background/Aware-Architecture-Notes.md`, both building-applications guides, `demo/*.ps1` logic, and every `.csproj`/`appsettings`/`launchSettings` as a set.
+**Instructions that cannot work as written.** Four documents show control planes and portals that
+would refuse to start today under the two listener rules: `Deployment-IaC.md` §4.1 and §4.2 (the
+aspnet image defaults to `http://+:8080`, and neither example sets a mode or a key),
+`Installer-UI-Design.md:119,131,160,264,266` (`http://+:5293` and `http://+:5231` as page defaults
+and in the silent-install example), and `Container-Developer-Guide.md:152`
+(`--urls http://0.0.0.0:5293`). These are the lines someone copies.
 
-The `[V]` items in §6 and §7 are what the mechanical scans caught in that area incidentally — they are not a substitute for reading it.
+**Runbook §3.13 cannot find what it is looking for.** Its duplicate-agent recipe matches
+`enlist-agent.exe`, but §3.6 on the same page says the process name is literally `dotnet.exe` in the
+development setup, which is the setup where duplicate agents actually happen. Both demo scripts
+match `dotnet.exe` plus a command-line fragment for exactly this reason. §4, the escalation table,
+also sits stranded in the middle of §3 with no rows for the authentication-era entries printed below
+it.
+
+**Two health checks probe the wrong endpoint.** `Runbook.md:10-16` and `demo/start-demo.ps1:121`
+both use `GET /api/agents`, which is Viewer-policed and answers 401 under `Required`. `/health` was
+built for this and is anonymous. The same mistake sits in `Installer-UI-Design.md:192`, whose
+duplicate-name warning calls a Viewer endpoint while holding at most a join token.
+
+**Script defects.** `start-demo.ps1` leaks five environment variables into the caller's shell and
+never restores them, including `Authentication__Mode=Off` and a connection string containing the SA
+password; it swallows the first-run 1.5 GB image pull behind `Out-Null`; and it leaves the control
+plane running when its readiness check throws. `demo-db.ps1:333` prints the SA password to the
+console on every `up`. `demo-status.ps1:78,91` uses the bare `2>$null` that `demo-db.ps1` documents
+at length as a PowerShell 5.1 trap and routes every call through a wrapper to avoid.
+
+**Config.** The `Dockerfile` never copies `Directory.Build.props`, so the runner inside the image is
+version 1.0.0 while every host build is 3.0.0 — independently confirming §7. There is no
+`.dockerignore`, so the documented build ships the whole repository root as context, including
+`demo/sql-server/.env` and its SA password. The base `appsettings.json` carries a LocalDB connection
+string that applies in Production, where a forgotten override fails as what looks like a network
+error.
+
+**Stale numbers, each a one-line edit:** "121 tests" twice, "800/800" once, "five tables / three
+migrations" twice, and the migration-collapse narrative that predates two later collapses.
+
+**Verified correct and deliberately not touched:** every numeric default in Deployment-IaC §1.3; the
+authentication story across five documents and the code; all 17 projects in the solution file; test
+package versions uniform across all five test projects; and the launch and appsettings defaults,
+which sit on the safe side of both listener rules. `Application-Developer-Guide.md` had one wrong
+line in 421. `deploy/README.md` was clean.
 
 ## 9. Coverage gaps in the suite
 
