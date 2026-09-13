@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The .NET runtimes the bundle installs before anything else, as remote payloads.
+
+  GENERATED METADATA, NOT A GENERATED FILE. The hashes and sizes below came from
+  `wix burn remotepayload` run against the official installers; `tools/refresh-prerequisites.ps1`
+  regenerates them. The binaries are never committed - the bundle carries only the URL, hash and
+  size, and Burn downloads and verifies at install time. That keeps a 42 MB pair of Microsoft
+  installers out of the repository and out of the bundle, at the cost of an install needing network
+  access, which it needs anyway to reach a control plane.
+
+  TWO PACKAGES, NOT ONE, because the two install types need different things: an agent needs only
+  Microsoft.NETCore.App, while the control plane and portal also need Microsoft.AspNetCore.App. The
+  ASP.NET Core installer is the smaller of the two precisely because it does not carry the base
+  runtime, so a Server install genuinely needs both.
+
+  A CORRECTION TO THE DESIGN. Installer-UI-Design.md section 4 names the ASP.NET Core HOSTING BUNDLE
+  for the control plane and portal. That is the right package for something hosted by IIS, and it is
+  117 MB against 11 MB, because the extra is the IIS ASP.NET Core Module. Nothing enList installs
+  runs under IIS: the control plane and the portal are Kestrel behind a Windows service, which is the
+  only hosting the pages offer. So the plain ASP.NET Core Runtime is used instead. If IIS hosting is
+  ever offered, this is the package to revisit.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Fragment>
+    <!--
+      Detection reads a VALUE NAMED FOR THE VERSION, which is how the .NET installers record
+      themselves: the key holds one DWORD per installed version rather than a "latest" value. So this
+      asks whether one specific version is present, and a newer patch that is installed does NOT
+      satisfy it.
+
+      That is a deliberate trade rather than an oversight. Getting it wrong in this direction costs a
+      redundant prerequisite install, which the Microsoft installers detect and no-op in a few
+      seconds. Getting it wrong the other way - treating any 10.x as sufficient - would let a machine
+      with only a broken partial install through to a service that will not start.
+
+      Note also that no Win64 attribute appears here. The Burn engine is 32-bit, so it reads
+      SOFTWARE\dotnet through the WOW6432Node view, which is exactly where these values live. Adding
+      Win64="yes" makes every check fail on every machine, and the symptom is the prerequisite being
+      installed on a machine that already has it.
+    -->
+    <util:RegistrySearch
+      Id="SearchNetCoreRuntime"
+      Variable="NetCoreRuntimeDetected"
+      Root="HKLM"
+      Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.NETCore.App"
+      Value="$(DotnetRuntimeVersion)"
+      Result="exists" />
+
+    <util:RegistrySearch
+      Id="SearchAspNetCoreRuntime"
+      Variable="AspNetCoreRuntimeDetected"
+      Root="HKLM"
+      Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.AspNetCore.App"
+      Value="$(DotnetRuntimeVersion)"
+      Result="exists" />
+
+    <PackageGroup Id="Prerequisites">
+
+      <!--
+        The base runtime, needed by all three components. Installed whenever anything is being
+        installed, which is why it carries no InstallCondition.
+      -->
+      <ExePackage
+        Id="NetCoreRuntime"
+        DisplayName="Microsoft .NET Runtime $(DotnetRuntimeVersion) (x64)"
+        Permanent="yes"
+        Vital="yes"
+        Cache="remove"
+        PerMachine="yes"
+        DetectCondition="NetCoreRuntimeDetected"
+        InstallArguments="/install /quiet /norestart"
+        RepairArguments="/repair /quiet /norestart"
+        UninstallArguments="/uninstall /quiet /norestart">
+        <ExePackagePayload
+          Name="dotnet-runtime-$(DotnetRuntimeVersion)-win-x64.exe"
+          ProductName="Microsoft .NET Runtime - $(DotnetRuntimeVersion) (x64)"
+          Description="Microsoft .NET Runtime - $(DotnetRuntimeVersion) (x64)"
+          DownloadUrl="https://builds.dotnet.microsoft.com/dotnet/Runtime/$(DotnetRuntimeVersion)/dotnet-runtime-$(DotnetRuntimeVersion)-win-x64.exe"
+          Hash="B937AE539C4AB21F885B033178DADEA98018BAAD777252C76251E760D81C18463B2F802E86B6A67EA066690E9EDE2D66A6BC3C3E614E391505E98C4C41121400"
+          Size="30663104"
+          Version="10.0.12.36422" />
+      </ExePackage>
+
+      <!--
+        ASP.NET Core, needed only when a control plane or a portal is being installed. An agent-only
+        install skips it, which is 11 MB and a reboot-free minute saved on every machine in a fleet.
+
+        Permanent: uninstalling enList must not remove a shared .NET runtime that anything else on the
+        machine may now depend on.
+      -->
+      <ExePackage
+        Id="AspNetCoreRuntime"
+        DisplayName="Microsoft ASP.NET Core Runtime $(DotnetRuntimeVersion) (x64)"
+        Permanent="yes"
+        Vital="yes"
+        Cache="remove"
+        PerMachine="yes"
+        DetectCondition="AspNetCoreRuntimeDetected"
+        InstallCondition="INSTALLTYPE = &quot;Server&quot; OR InstallControlPlane = &quot;1&quot; OR InstallPortal = &quot;1&quot;"
+        InstallArguments="/install /quiet /norestart"
+        RepairArguments="/repair /quiet /norestart"
+        UninstallArguments="/uninstall /quiet /norestart">
+        <ExePackagePayload
+          Name="aspnetcore-runtime-$(DotnetRuntimeVersion)-win-x64.exe"
+          ProductName="Microsoft ASP.NET Core Runtime - $(DotnetRuntimeVersion) (x64)"
+          Description="Microsoft ASP.NET Core Runtime - $(DotnetRuntimeVersion) (x64)"
+          DownloadUrl="https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/$(DotnetRuntimeVersion)/aspnetcore-runtime-$(DotnetRuntimeVersion)-win-x64.exe"
+          Hash="1BD1CF3CC23A05611BF266046281C7BFB6C3231A9690482DDC31EA74EDE62EADED12517C362983976AA7E20C57108812DCD04F67884957B85A6829CD56CEAAC5"
+          Size="11262864"
+          Version="10.0.12.36422" />
+      </ExePackage>
+
+    </PackageGroup>
+  </Fragment>
+</Wix>

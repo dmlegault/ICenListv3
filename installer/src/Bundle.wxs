@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  enList-<version>-Setup.exe - the one thing a person runs.
+
+  A Burn bundle chaining the two .NET runtimes and the three MSIs. What it adds over running the
+  MSIs by hand is the whole reason it exists (Installer-UI-Design.md section 2): it installs
+  prerequisites an MSI cannot, it presents three independently-installable packages as one product,
+  and it is the single command line an IaC pipeline calls.
+
+  WHICH PACKAGES RUN is decided entirely by each package's InstallCondition, which compares
+  INSTALLTYPE and the three component switches. "Agent only" is therefore not a special mode in the
+  chain - it is the ordinary chain with two conditions false. See the variables below for the
+  combinations that produces.
+
+  THE BOOTSTRAPPER here is the WiX standard one, which gives a license page, a progress page and full
+  silent support. The managed wizard from section 6 replaces it: those pages need a URL verified with
+  a spinner, a database connection tested, and container engines detected, none of which MSI or the
+  standard BA can express. Splitting it this way means the silent surface - the one section 10
+  specifies and the one IaC actually calls - is finished and testable before any UI exists.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <?include Common.wxi ?>
+
+  <Bundle
+    Name="enList $(ProductVersion)"
+    Manufacturer="$(Manufacturer)"
+    Version="$(ProductVersion)"
+    UpgradeCode="D4E6A821-5C93-4F17-B0A8-6E2D9F30C574"
+    Compressed="yes">
+
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication
+        Theme="hyperlinkLicense"
+        LicenseUrl=""
+        SuppressOptionsUI="yes" />
+    </BootstrapperApplication>
+
+    <!--
+      Server, AgentOnly or Custom. Demo is designed separately (Demo-Install-Design.md) and is not a
+      chain variant: it runs everything as a session launcher rather than as services, which is a
+      different product shape, not a different set of packages.
+    -->
+    <Variable Name="INSTALLTYPE" bal:Overridable="yes" Type="string" Value="Server" />
+
+    <!--
+      The three components, as switches a Custom install sets directly.
+
+      They are NOT derived from INSTALLTYPE, because Burn cannot: a variable can reference another
+      variable but cannot compare one, so "InstallControlPlane = (INSTALLTYPE is Server)" has no
+      declarative spelling. Each package's InstallCondition does the comparison instead, which means
+      INSTALLTYPE and these switches ADD rather than override:
+
+          INSTALLTYPE=Server                          control plane + portal
+          INSTALLTYPE=AgentOnly                       agent
+          INSTALLTYPE=Server InstallAgent=1           control plane + portal + a local agent
+          INSTALLTYPE=Custom InstallPortal=1          portal alone
+
+      That covers section 3's four rows, including "Server, optionally a local Agent" - which is off
+      unless asked for, because an agent nobody requested on the box hosting the control plane is the
+      kind of thing found months later. To leave a component OUT of a Server install, say Custom and
+      name the ones you want; that is what Custom is for.
+    -->
+    <Variable Name="InstallControlPlane" bal:Overridable="yes" Type="string" Value="0" />
+    <Variable Name="InstallPortal" bal:Overridable="yes" Type="string" Value="0" />
+    <Variable Name="InstallAgent" bal:Overridable="yes" Type="string" Value="0" />
+
+    <!--
+      Every property section 10 documents, declared here so the bundle can pass it on and a silent
+      command line can set it. A variable that is not declared is silently ignored by Burn, which is
+      the failure mode this list exists to prevent: the install succeeds and the service is
+      configured with defaults nobody chose.
+    -->
+    <Variable Name="CP_INSTALLDIR" bal:Overridable="yes" Type="string" Value="" />
+    <Variable Name="CP_DATADIR" bal:Overridable="yes" Type="string" Value="" />
+    <Variable Name="CP_URLS" bal:Overridable="yes" Type="string" Value="https://+:5293" />
+    <Variable Name="CP_ACCOUNT" bal:Overridable="yes" Type="string" Value="NT AUTHORITY\NetworkService" />
+    <Variable Name="CP_PASSWORD" bal:Overridable="yes" Type="string" Value="" />
+
+    <Variable Name="DB_SERVER" bal:Overridable="yes" Type="string" Value="" />
+    <Variable Name="DB_NAME" bal:Overridable="yes" Type="string" Value="EnlistControlPlane" />
+    <Variable Name="DB_AUTH" bal:Overridable="yes" Type="string" Value="Windows" />
+
+    <Variable Name="PORTAL_INSTALLDIR" bal:Overridable="yes" Type="string" Value="" />
+    <Variable Name="PORTAL_DATADIR" bal:Overridable="yes" Type="string" Value="" />
+    <Variable Name="PORTAL_URLS" bal:Overridable="yes" Type="string" Value="https://+:5231" />
+    <Variable Name="PORTAL_CPURL" bal:Overridable="yes" Type="string" Value="" />
+    <Variable Name="PORTAL_ACCOUNT" bal:Overridable="yes" Type="string" Value="NT AUTHORITY\NetworkService" />
+    <Variable Name="PORTAL_PASSWORD" bal:Overridable="yes" Type="string" Value="" />
+
+    <Variable Name="AGENT_INSTALLDIR" bal:Overridable="yes" Type="string" Value="" />
+    <Variable Name="AGENT_DATADIR" bal:Overridable="yes" Type="string" Value="" />
+    <Variable Name="AGENT_NAME" bal:Overridable="yes" Type="string" Value="" />
+    <Variable Name="AGENT_CPURL" bal:Overridable="yes" Type="string" Value="" />
+    <Variable Name="AGENT_ENGINE" bal:Overridable="yes" Type="string" Value="" />
+    <Variable Name="AGENT_IMAGE" bal:Overridable="yes" Type="string" Value="enlist/runner:$(ProductVersion)" />
+    <Variable Name="AGENT_ACCOUNT" bal:Overridable="yes" Type="string" Value="LocalSystem" />
+    <Variable Name="AGENT_PASSWORD" bal:Overridable="yes" Type="string" Value="" />
+
+    <Chain>
+      <PackageGroupRef Id="Prerequisites" />
+
+      <!--
+        Control plane first, portal second, agent last - the order the wizard collects them in, and
+        the order that lets each later one point at the earlier. An agent installed before a control
+        plane exists is not wrong, it just has nothing to talk to yet.
+      -->
+      <MsiPackage
+        Id="ControlPlane"
+        SourceFile="$(OutDir)\Enlist.ControlPlane.msi"
+        Vital="yes"
+        InstallCondition="INSTALLTYPE = &quot;Server&quot; OR InstallControlPlane = &quot;1&quot;">
+        <MsiProperty Name="CP_INSTALLDIR" Value="[CP_INSTALLDIR]" />
+        <MsiProperty Name="CP_DATADIR" Value="[CP_DATADIR]" />
+        <MsiProperty Name="CP_URLS" Value="[CP_URLS]" />
+        <MsiProperty Name="CP_ACCOUNT" Value="[CP_ACCOUNT]" />
+        <MsiProperty Name="CP_PASSWORD" Value="[CP_PASSWORD]" />
+        <MsiProperty Name="DB_SERVER" Value="[DB_SERVER]" />
+        <MsiProperty Name="DB_NAME" Value="[DB_NAME]" />
+        <MsiProperty Name="DB_AUTH" Value="[DB_AUTH]" />
+      </MsiPackage>
+
+      <MsiPackage
+        Id="Portal"
+        SourceFile="$(OutDir)\Enlist.Portal.msi"
+        Vital="yes"
+        InstallCondition="INSTALLTYPE = &quot;Server&quot; OR InstallPortal = &quot;1&quot;">
+        <MsiProperty Name="PORTAL_INSTALLDIR" Value="[PORTAL_INSTALLDIR]" />
+        <MsiProperty Name="PORTAL_DATADIR" Value="[PORTAL_DATADIR]" />
+        <MsiProperty Name="PORTAL_URLS" Value="[PORTAL_URLS]" />
+        <MsiProperty Name="PORTAL_CPURL" Value="[PORTAL_CPURL]" />
+        <MsiProperty Name="PORTAL_ACCOUNT" Value="[PORTAL_ACCOUNT]" />
+        <MsiProperty Name="PORTAL_PASSWORD" Value="[PORTAL_PASSWORD]" />
+      </MsiPackage>
+
+      <MsiPackage
+        Id="Agent"
+        SourceFile="$(OutDir)\Enlist.Agent.msi"
+        Vital="yes"
+        InstallCondition="INSTALLTYPE = &quot;AgentOnly&quot; OR InstallAgent = &quot;1&quot;">
+        <MsiProperty Name="AGENT_INSTALLDIR" Value="[AGENT_INSTALLDIR]" />
+        <MsiProperty Name="AGENT_DATADIR" Value="[AGENT_DATADIR]" />
+        <MsiProperty Name="AGENT_NAME" Value="[AGENT_NAME]" />
+        <MsiProperty Name="AGENT_CPURL" Value="[AGENT_CPURL]" />
+        <MsiProperty Name="AGENT_ENGINE" Value="[AGENT_ENGINE]" />
+        <MsiProperty Name="AGENT_IMAGE" Value="[AGENT_IMAGE]" />
+        <MsiProperty Name="AGENT_ACCOUNT" Value="[AGENT_ACCOUNT]" />
+        <MsiProperty Name="AGENT_PASSWORD" Value="[AGENT_PASSWORD]" />
+      </MsiPackage>
+    </Chain>
+  </Bundle>
+</Wix>

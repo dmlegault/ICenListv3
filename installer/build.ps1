@@ -23,6 +23,10 @@
 .PARAMETER SkipPublish
     Reuse whatever is already in publish\. Saves about a minute when only the WiX changed.
 
+.PARAMETER DotnetRuntimeVersion
+    The .NET patch the bundle requires and, when it is missing, downloads. The payload hashes for it
+    live in src\Prerequisites.wxs; tools\refresh-prerequisites.ps1 regenerates them for a new version.
+
 .EXAMPLE
     .\build.ps1
     .\build.ps1 -SkipPublish
@@ -30,7 +34,8 @@
 [CmdletBinding()]
 param(
     [string] $Configuration = 'Release',
-    [switch] $SkipPublish
+    [switch] $SkipPublish,
+    [string] $DotnetRuntimeVersion = '10.0.12'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,17 +67,26 @@ $components = @(
     @{ Name = 'runner-legacy';       Project = 'src\Enlist.Runner.Legacy\Enlist.Runner.Legacy.csproj'; ServiceExe = $null }
 )
 
-# The toolchain, restored rather than assumed. dotnet-tools.json pins the WiX version; the extension
-# is a separate restore that `wix build -ext` does NOT do for itself, and its absence surfaces as a
+# The toolchain, restored rather than assumed. dotnet-tools.json pins the WiX version; extensions are
+# a separate restore that `wix build -ext` does NOT do for itself, and their absence surfaces as a
 # schema error about an unknown namespace rather than as anything about a missing extension.
+#
+# BootstrapperApplications, not Bal: the package WixToolset.Bal.wixext still exists on NuGet, but in
+# WiX 5 its contents were renamed. Adding it under the old name caches an extension the toolset then
+# reports as "damaged", which is a confusing way to learn about a rename.
+$extensions = @('WixToolset.Util.wixext', 'WixToolset.BootstrapperApplications.wixext')
 Push-Location $installerRoot
 try {
     & dotnet tool restore | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'dotnet tool restore failed.' }
-    if (-not (& dotnet wix extension list | Select-String -Quiet 'WixToolset.Util.wixext')) {
-        Write-Host '  restoring the WiX Util extension' -ForegroundColor DarkGray
-        & dotnet wix extension add WixToolset.Util.wixext/5.0.2
-        if ($LASTEXITCODE -ne 0) { throw 'Could not add WixToolset.Util.wixext.' }
+
+    $present = (& dotnet wix extension list) -join "`n"
+    foreach ($extension in $extensions) {
+        if ($present -notmatch [regex]::Escape($extension)) {
+            Write-Host "  restoring $extension" -ForegroundColor DarkGray
+            & dotnet wix extension add "$extension/5.0.2"
+            if ($LASTEXITCODE -ne 0) { throw "Could not add $extension." }
+        }
     }
 }
 finally { Pop-Location }
@@ -129,6 +143,16 @@ try {
         & dotnet @args
         if ($LASTEXITCODE -ne 0) { throw "wix build failed for $($p.Msi)" }
     }
+
+    # The bundle, last, because it embeds the three MSIs built above.
+    $setup = Join-Path $outRoot "enList-$version-Setup.exe"
+    Write-Host "  building $(Split-Path -Leaf $setup)" -ForegroundColor DarkGray
+    $args = @('wix', 'build', '-arch', 'x64',
+        '-ext', 'WixToolset.Util.wixext', '-ext', 'WixToolset.BootstrapperApplications.wixext', '-I', 'src',
+        '-d', "ProductVersion=$version", '-d', "DotnetRuntimeVersion=$DotnetRuntimeVersion", '-d', "OutDir=$outRoot",
+        '-o', $setup, 'src\Bundle.wxs', 'src\Prerequisites.wxs')
+    & dotnet @args
+    if ($LASTEXITCODE -ne 0) { throw 'wix build failed for the bundle' }
 }
 finally { Pop-Location }
 

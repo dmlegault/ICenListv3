@@ -1,6 +1,6 @@
-# enList installer — the three MSIs
+# enList installer — three MSIs and the bundle that chains them
 
-Three Windows Installer packages, built from `src/*.wxs`:
+`enList-3.0.0-Setup.exe` is the one thing a person runs. It chains two .NET runtimes and three Windows Installer packages:
 
 | Package | Installs | Service |
 |---|---|---|
@@ -8,16 +8,31 @@ Three Windows Installer packages, built from `src/*.wxs`:
 | `Enlist.Portal.msi` | `%ProgramFiles%\enList\Portal` | `enlist-portal` |
 | `Enlist.Agent.msi` | `%ProgramFiles%\enList\Agent`, plus `runner\` and `runner-legacy\` | `enlist-agent` |
 
-They are designed page by page in [`Installer-UI-Design.md`](../docs/05-operations/Installer-UI-Design.md), which is the document to read first. This directory is the second of the seven steps that document implies: the packages themselves, with no user interface at all.
+They are designed page by page in [`Installer-UI-Design.md`](../docs/05-operations/Installer-UI-Design.md), which is the document to read first.
 
 ## Build and check
 
 ```powershell
-.\build.ps1              # publish everything, then build the three MSIs
+.\build.ps1              # publish everything, build the MSIs, then the bundle
 .\build.ps1 -SkipPublish # reuse publish\, for when only the WiX changed
-.\verify.ps1             # 28 checks, no administrator rights needed
+.\verify.ps1             # 48 checks, no administrator rights needed
 .\verify.ps1 -Live       # really install, upgrade and uninstall (elevated shell)
 ```
+
+## What the bundle decides
+
+Which packages run is settled entirely by each package's install condition, comparing `INSTALLTYPE` against the three component switches:
+
+```powershell
+enList-3.0.0-Setup.exe /quiet INSTALLTYPE=AgentOnly AGENT_NAME=WEB-07 AGENT_CPURL=https://enlist.corp.local:5293
+enList-3.0.0-Setup.exe /quiet INSTALLTYPE=Server DB_SERVER=sql01.corp.local
+enList-3.0.0-Setup.exe /quiet INSTALLTYPE=Server InstallAgent=1     # and a local agent
+enList-3.0.0-Setup.exe /quiet INSTALLTYPE=Custom InstallPortal=1    # the portal alone
+```
+
+`INSTALLTYPE` and the switches **add** rather than override, because Burn cannot derive one variable from a comparison of another. To leave a component out of a Server install, say `Custom` and name the ones you want.
+
+**The .NET runtimes are downloaded, not carried.** The bundle holds a URL, a SHA-512 hash and a size for each; Burn fetches and verifies them at install time. An agent-only install skips ASP.NET Core entirely, which is 11 MB and a minute saved on every machine in a fleet. `tools\refresh-prerequisites.ps1` regenerates the hashes when the required .NET patch changes.
 
 `build.ps1` reads the product version from `Directory.Build.props`, so there is no version to keep in step here.
 
@@ -46,6 +61,12 @@ So the offline half opens each package as a real Windows Installer session, sets
 - **It parses every command line with `CommandLineToArgvW`**, the parser .NET actually uses, rather than matching on the string. That is what caught the defect where every directory argument ended in a backslash immediately before its closing quote: Windows reads `\"` as an escaped quote, so `--runner-bin "…\runner\"` swallowed the next flag whole and the agent would have started with a garbled path. Looking right and parsing right are different things.
 - **It evaluates each action's condition before running it.** A custom action's condition lives in the sequence table, not in the action, so `Session.DoAction` runs it whether the condition holds or not. The first version of this script did exactly that and reported every conditional argument as present in every case — passing loudly while testing nothing.
 
+## One correction to the design
+
+Section 4 names the ASP.NET Core **Hosting Bundle** as the prerequisite for the control plane and portal. That is the right package for something hosted by IIS, and it is 117 MB against 11 MB, the difference being the IIS module. Nothing enList installs runs under IIS: the control plane and portal are Kestrel behind a Windows service, which is the only hosting the pages offer. The plain ASP.NET Core Runtime is used instead. If IIS hosting is ever offered, that is the package to revisit.
+
 ## What is not here yet
 
-Steps four through seven of the plan: the Burn bundle that chains these three plus the .NET 10 hosting bundle, the managed bootstrapper that collects the properties, the pages that mint a join token and the portal's key, and the upgrade and repair verification across all three packages rather than just the agent. Section 12 of the design also lists the open decisions, including code signing, which nothing here does.
+The managed bootstrapper, and the wizard pages in section 6. The bundle currently uses WiX's standard bootstrapper, which gives a license page, a progress page and complete silent support — so the surface section 10 specifies, and the one an IaC pipeline actually calls, is finished and tested without any custom UI existing. What the standard bootstrapper cannot do is the interactive part: verifying a URL with a spinner, testing a database connection, detecting `wslc` and Docker and greying out what is missing, and minting a join token and the portal's key before the services are created.
+
+Also outstanding: upgrade and repair verification across all three packages rather than the agent alone, and the open decisions in section 12, including code signing, which nothing here does.

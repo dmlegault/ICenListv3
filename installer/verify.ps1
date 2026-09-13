@@ -228,6 +228,65 @@ $line = Get-ServiceCommandLine `
     -ArgsProperty 'PORTAL_SERVICE_ARGS' -ServiceExe 'Enlist.Portal.exe'
 Assert-That ($line -notmatch 'BaseUrl') 'an unset control plane URL is omitted rather than passed empty'
 
+# ---- The bundle ----------------------------------------------------------------------------------
+<#
+  The bundle is checked by reading the manifest Burn will actually execute, extracted from the built
+  setup executable. Everything that decides WHAT gets installed lives there: the chain order, each
+  package's install condition, and the variables a silent command line is allowed to override. None
+  of it can be confirmed by reading the .wxs, because a variable that is not declared Overridable is
+  accepted on the command line and silently ignored - the install succeeds, and the service is
+  configured with defaults nobody chose.
+#>
+Write-Host ""
+Write-Host "  Bundle manifest"
+$setup = Get-ChildItem $OutDir -Filter 'enList-*-Setup.exe' | Select-Object -First 1
+if (-not $setup) {
+    Assert-That $false 'the setup executable was built'
+}
+else {
+    $extract = Join-Path ([IO.Path]::GetTempPath()) "enlist-bundle-$([guid]::NewGuid().ToString('N'))"
+    try {
+        Push-Location $PSScriptRoot
+        try { & dotnet wix burn extract $setup.FullName -o $extract -oba (Join-Path $extract 'ba') | Out-Null }
+        finally { Pop-Location }
+
+        $manifest = Get-Content (Join-Path $extract 'ba\manifest.xml') -Raw
+
+        # The order matters: a runtime installed after the thing that needs it is no runtime at all.
+        $chain = @([regex]::Matches($manifest, '<(?:MsiPackage|ExePackage)[^>]*\sId="([^"]+)"') | ForEach-Object { $_.Groups[1].Value })
+        Assert-That ($chain.Count -eq 5) "the chain has five packages, two runtimes and three MSIs (found $($chain.Count))"
+
+        $conditions = @([regex]::Matches($manifest, 'InstallCondition="([^"]*)"') | ForEach-Object { $_.Groups[1].Value -replace '&quot;', '"' })
+        Assert-That (@($conditions | Where-Object { $_ -eq 'INSTALLTYPE = "Server" OR InstallControlPlane = "1"' }).Count -eq 1) 'the control plane installs on Server, or when asked for directly'
+        Assert-That (@($conditions | Where-Object { $_ -eq 'INSTALLTYPE = "Server" OR InstallPortal = "1"' }).Count -eq 1) 'the portal installs on Server, or when asked for directly'
+        Assert-That (@($conditions | Where-Object { $_ -eq 'INSTALLTYPE = "AgentOnly" OR InstallAgent = "1"' }).Count -eq 1) 'the agent installs on AgentOnly, or when asked for directly'
+        Assert-That (@($conditions | Where-Object { $_ -match 'InstallPortal' -and $_ -match 'InstallControlPlane' }).Count -eq 1) 'ASP.NET Core is skipped entirely on an agent-only install'
+
+        # No condition on the base runtime: every component needs it.
+        Assert-That ($conditions.Count -eq 4) 'the base .NET runtime carries no install condition, because all three components need it'
+
+        <#
+          Every property section 10 documents must be declared AND overridable, and the two live in
+          different files. manifest.xml declares the variables; whether the standard bootstrapper will
+          ACCEPT one from a command line is recorded separately, in BootstrapperApplicationData.xml,
+          as a WixStdbaOverridableVariable. A variable declared but not listed there is taken on the
+          command line and silently ignored - the install succeeds and the service is configured with
+          defaults nobody chose, which is the failure this check exists for. (That file is UTF-16;
+          Get-Content follows its byte-order mark.)
+        #>
+        $baData = Get-Content (Join-Path $extract 'ba\BootstrapperApplicationData.xml') -Raw
+        $overridable = @([regex]::Matches($baData, '<WixStdbaOverridableVariable\s+Name="([^"]+)"') | ForEach-Object { $_.Groups[1].Value })
+        foreach ($name in 'INSTALLTYPE', 'CP_URLS', 'CP_ACCOUNT', 'DB_SERVER', 'DB_NAME', 'DB_AUTH',
+                          'PORTAL_URLS', 'PORTAL_CPURL', 'AGENT_NAME', 'AGENT_CPURL', 'AGENT_ENGINE', 'AGENT_IMAGE') {
+            Assert-That ($overridable -contains $name) "$name can be set on a silent command line"
+        }
+
+        Assert-That ($manifest -match 'builds\.dotnet\.microsoft\.com') 'the runtimes are fetched from Microsoft rather than embedded'
+        Assert-That ($manifest -notmatch 'dotnet-hosting') 'the 117 MB IIS hosting bundle is not what gets downloaded'
+    }
+    finally { Remove-Item -Recurse -Force $extract -ErrorAction SilentlyContinue }
+}
+
 # ---- Live -----------------------------------------------------------------------------------------
 if ($Live) {
     $elevated = (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole(
