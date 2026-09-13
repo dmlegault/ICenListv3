@@ -40,6 +40,7 @@ namespace Enlist.Installer.Ba
 
         private WizardViewModel? _wizard;
         private Dispatcher? _dispatcher;
+        private IntPtr _parentWindow = IntPtr.Zero;
         private int _result = 0;
 
         /// <summary>
@@ -117,7 +118,11 @@ namespace Enlist.Installer.Ba
                 };
 
                 window.Show();
-                Trace("window shown");
+
+                // Captured once the window exists: Burn parents its own UI to this during Apply, and
+                // an elevation prompt behind the wizard looks exactly like an install that has frozen.
+                _parentWindow = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+                Trace("window shown, hwnd " + _parentWindow.ToInt64());
 
                 // Detect only once the window exists, so its first results have somewhere to be shown.
                 this.engine.Detect();
@@ -227,29 +232,95 @@ namespace Enlist.Installer.Ba
             base.OnDetectComplete(args);
             Trace("OnDetectComplete, status " + args.Status);
 
+            if (args.Status < 0)
+            {
+                // Nothing to plan against a machine that could not be examined, and in silent mode
+                // there is no page to say so on.
+                if (_wizard != null) { OnUi(() => _wizard.OnDetectComplete(args)); }
+                else { Finish(args.Status); }
+
+                return;
+            }
+
             if (_wizard != null)
             {
                 OnUi(() => _wizard.OnDetectComplete(args));
                 return;
             }
 
-            // Silent: straight on to planning whatever the command line asked for.
-            this.engine.Plan(_command!.Action);
+            // Silent: straight on to planning whatever the command line asked for. Wrapped for the
+            // same reason Apply is - an engine call that throws out of a callback leaves the silent
+            // path waiting on an event nobody will set, which is a hang rather than a failure.
+            try
+            {
+                this.engine.Plan(_command!.Action);
+            }
+            catch (Exception ex)
+            {
+                Program.LogCrash(ex);
+                Trace("Plan refused: " + ex.Message);
+                Finish(unchecked((int)0x80004005));
+            }
         }
 
         protected override void OnPlanComplete(PlanCompleteEventArgs args)
         {
             base.OnPlanComplete(args);
+            Trace("OnPlanComplete, status " + args.Status);
 
-            if (args.Status >= 0)
-            {
-                this.engine.Apply(IntPtr.Zero);
-            }
-            else
+            if (args.Status < 0)
             {
                 Finish(args.Status);
+                return;
+            }
+
+            // WRAPPED, because everything below this point in an install depends on Apply being
+            // entered. If it throws, OnApplyComplete never fires, Finish is never called, and the
+            // silent path waits on an event nobody will ever set - a bootstrapper that sits there
+            // doing nothing, with a setup.exe beside it doing nothing, until somebody kills both.
+            // That is exactly what a NULL hwndParent produced: an engine error, an exception out of
+            // this method, and a hang rather than a message.
+            try
+            {
+                this.engine.Apply(ParentWindow());
+            }
+            catch (Exception ex)
+            {
+                Program.LogCrash(ex);
+                Trace("Apply refused: " + ex.Message);
+                Finish(unchecked((int)0x80004005));
             }
         }
+
+        /// <summary>
+        /// The window Burn parents its own UI to during Apply. NEVER IntPtr.Zero: the engine rejects
+        /// a null parent outright with 0x80070057 and "BA passed NULL hwndParent to Apply", which is
+        /// how this was found.
+        ///
+        /// Interactive, that is the wizard - so an elevation prompt appears over the window the
+        /// operator is looking at rather than behind it. Silent, there is no window to parent to and
+        /// one is made: a message-only window, which needs no class registration, is never shown, and
+        /// exists purely to be a valid HWND.
+        /// </summary>
+        private IntPtr ParentWindow()
+        {
+            if (_parentWindow != IntPtr.Zero)
+            {
+                return _parentWindow;
+            }
+
+            // HWND_MESSAGE. A child of it is invisible, gets no input and appears in no task list.
+            _parentWindow = CreateWindowExW(
+                0, "STATIC", "enList Setup", 0, 0, 0, 0, 0, new IntPtr(-3), IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+
+            return _parentWindow;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern IntPtr CreateWindowExW(
+            int exStyle, string className, string windowName, int style,
+            int x, int y, int width, int height,
+            IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
 
         /// <summary>
         /// The packages are installed; now the part only a bootstrapper can do.
