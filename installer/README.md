@@ -92,12 +92,12 @@ Section 4 names the ASP.NET Core **Hosting Bundle** as the prerequisite for the 
 
 Three projects, split on one line: what can be tested, and what cannot. `Enlist.Installer.Detection` holds every decision and has 46 tests over it; `Enlist.Installer.Ba` is the WPF shell and holds none, because a bootstrapper's pages cannot be exercised by a test.
 
-**It is not wired into the bundle yet.** It builds and it launches, but does not show its window, so `Bundle.wxs` ships the standard bootstrapper — which works, carries the whole of section 10's silent surface, and is what every check runs against. Whatever is in `out\` always installs.
+**It is what the bundle chains.** Eight pages, styled to the portal's own palette, with `build.ps1 -StandardBootstrapper` as the way back to the stock WixStdBA if it ever regresses. A silent install reaches no window under either one, so the surface in section 10 is unaffected by the choice.
 
-[`ba\README.md`](ba/README.md) has the rest: how Burn runs a bootstrapper out of process, the engine callbacks, the three hosting facts that each fail while naming something else, and what wiring it in takes.
+[`ba\README.md`](ba/README.md) has the rest: how Burn runs a bootstrapper out of process, the engine callbacks, and the three stacked defects that each surfaced as nothing but a closed pipe.
 
 ## What is not here yet
 
-Wiring the wizard in, and the pages beyond install type, prerequisites, agent and ready. Then the parts that need the bootstrapper to exist at all: minting a join token and exchanging it before the agent service is created, and minting the portal's key with `create-api-key` and storing it with `protect`.
+The parts that need the bootstrapper to exist at all, now that one does: minting a join token and exchanging it before the agent service is created, and minting the portal's key with `create-api-key` and storing it with `protect`. Until those land, the wizard collects a join token and a portal password but the install does not yet act on them.
 
 Also outstanding: upgrade and repair verification across all three packages rather than the agent alone, and the open decisions in section 12, including code signing, which nothing here does.

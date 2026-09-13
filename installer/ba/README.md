@@ -96,26 +96,44 @@ Not in `enList_v3.slnx`, for the same reason the rest of `installer\` is not: it
 
 The Prerequisites grid marks the two .NET runtimes **non-blocking** on purpose — the bundle installs whichever is missing, which is what a bundle is for. It reports them so the operator knows what the wait will be.
 
-## The state of it: builds, launches, does not show
+## The state of it: wired in and working
 
-**The bundle does not use this yet.** `src/Bundle.wxs` ships `bal:WixStandardBootstrapperApplication`, and the exact element that replaces it is written out in a comment beside it.
+`src/Bundle.wxs` chains this wizard. `build.ps1 -StandardBootstrapper` puts the stock WixStdBA back, which is the fallback if it ever regresses — the silent surface is identical either way, because a silent install reaches no window under either one.
 
-The gap is the last one: the bundle exits 0 without the window appearing. The three hosting facts above were each found by hitting them; the remaining one needs WiX's own hosting documentation rather than more inference.
+It took three defects stacked on each other to get here, and they are worth knowing because **every one of them produced the same symptom**: the engine reporting `0x800700e8`, "the pipe is being closed". That is all Burn can ever say when a bootstrapper process dies, so each had to be dug out before the next was visible.
 
-**The lead to follow is `https://wixtoolset.org/docs/fiveforfour/`.** The compiler names it. This file used to carry a `BootstrapperApplicationFactory` — the WiX 4 in-process contract — and both that attribute and its base class are marked obsolete with a message saying bootstrappers now run out of process and the factory should be removed. It was: `ManagedBootstrapperApplication.Run` is handed the application directly and never consulted the factory. That page is where the rest of the four-to-five differences are written down, and the window not appearing is most likely another of them.
+1. **`mbanative.dll` was not in the build output.** A `net472` project copies nothing out of `runtimes\`. `DllNotFoundException` on the first call into the engine. The csproj copies it by hand now, and `build.ps1` refuses to build a bundle missing any of the four payloads.
+2. **`<ProgressBar Value="{Binding Progress}">`.** `RangeBase.Value` is `BindsTwoWayByDefault`, `Progress` has a private setter, and WPF threw `InvalidOperationException` straight out of `Window.Show()`.
+3. **A `DataTemplate` that contained itself** — see the note in the XAML. `StackOverflowException` inside WindowsBase, which .NET cannot catch and no handler can log. The process simply vanished.
 
-Until then the standard BA carries the whole of section 10's silent surface, every check in `verify.ps1` runs against it, and **whatever is in `out\` always installs.**
+The threading was also backwards, though that was wasted effort rather than a defect: `Run()` started its own STA thread on the theory that the calling thread could not be made one. True of `Main`, not of `Run()`.
+
+**Diagnostics exist now because two of those three could not report themselves.** Lifecycle milestones go into the engine's own log — `window shown`, `OnDetectComplete`, `pump ended`, `Run returning` — so a dead bootstrapper leaves a position rather than a closed pipe. `Program.LogCrash` is shared and hooked to `AppDomain.UnhandledException`, because the `catch` in `Main` only ever covered `Main`'s thread and the wizard does not run there.
+
+## Branding
+
+The palette is the portal's, not a second opinion about what enList looks like: the values come from `MudTheme` in `src\Enlist.Portal\Components\Layout\MainLayout.razor`, which runs dark, and the 12px radius is that theme's `DefaultBorderRadius`. Restyling the portal should mean changing these too — they are copied rather than shared because a WPF bootstrapper running before .NET 10 exists cannot reference anything the portal uses.
+
+The Iron Canary mark is the banner and, as a generated multi-size `.ico`, the window icon. Both are compiled in as WPF `Resource`s rather than declared as bundle payloads. A payload is a thing that can be forgotten — which is precisely how `mbanative.dll` went missing.
+
+Note that a dark theme is not a background colour: every input, button, grid and header needs its own template, or it stays Windows-default white on a dark page.
 
 ## Building it
 
-The BA is **not** built by `installer\build.ps1` — nothing consumes it yet.
+`installer\build.ps1` builds this first and passes its output folder to the bundle as `BaDir`, so the ordinary build covers it. On its own:
 
 ```powershell
 dotnet build ba\Enlist.Installer.Ba\Enlist.Installer.Ba.csproj -c Release
 ```
 
-Wiring it in means building it to a known folder, passing that folder to the bundle build as `BaDir`, and swapping the element in `Bundle.wxs` for the one in the comment beside it.
+## The pages
+
+Welcome, install type, prerequisites, control plane, database, portal, agent, ready. Which of them appear is `InstallPlan.Pages()` — a Server install has no agent page, an agent-only install has no database page, and the step counter in the banner counts the pages this plan will actually show rather than all of them.
+
+Passwords are handled in `WizardWindow.xaml.cs`, which is the one thing that belongs in code-behind: `PasswordBox.Password` is deliberately not a dependency property, so WPF will not let a password into the binding system where a snapshot of the visual tree could reach it.
 
 ## What is not here yet
 
-The pages beyond install type, prerequisites, agent and ready. Then the parts that need a bootstrapper to exist at all: minting a join token and exchanging it before the agent service is created, and minting the portal's key with `create-api-key` and storing it with `protect`. Both are section 8 work, and both are why the MSIs stay dumb.
+The parts that need a bootstrapper to exist at all, now that one does: minting a join token and exchanging it before the agent service is created, and minting the portal's key with `create-api-key` and storing it with `protect`. Both are section 8 work, and both are why the MSIs stay dumb.
+
+One thing the wizard can now fix that the bundle cannot. `Prerequisites.wxs` still detects ASP.NET Core by matching one exact patch, because a Burn `RegistrySearch` cannot compare versions — so a machine with 10.0.11 downloads 10.0.12 it does not need. `RuntimeDetection.Check` already compares properly, and the Prerequisites page already shows the right answer; what remains is setting a bundle variable from it so the engine agrees with the page.
