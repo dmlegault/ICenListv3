@@ -87,6 +87,18 @@ if (string.IsNullOrWhiteSpace(connectionString))
     connectionString = ManagementCli.DefaultConnectionString;
 }
 
+// The other half of the same decision. Above, this process refuses to FALL BACK to LocalDB outside
+// Development; here it refuses to be POINTED at it by a service - which is what the installer did
+// until 2026-09-13, defeating the check above by supplying the string rather than omitting it.
+//
+// A LocalDB instance belongs to whoever starts it, so the database the installer created as the
+// operator is not the one the service sees. The failure without this is "Cannot connect to the
+// control plane database", which reads like a network problem and is hours from the real mistake.
+if (DatabaseRules.Violation(connectionString, WindowsServiceHelpers.IsWindowsService()) is { } databaseViolation)
+{
+    throw new InvalidOperationException(databaseViolation);
+}
+
 builder.Services.AddDbContext<ControlPlaneDbContext>(options => options.UseSqlServer(connectionString));
 builder.Services.AddSignalR();
 builder.AddEnlistAuthentication();

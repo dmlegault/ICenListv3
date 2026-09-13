@@ -50,10 +50,17 @@ namespace Enlist.Installer.Detection
         public string ControlPlaneCertificate { get; set; } = "";
 
         // Database
-        // The same default the MSI falls back to, rather than empty. Both end up installing against
-        // LocalDB, but an empty box on the Database page reads as a required field nobody filled in,
-        // and blocks Next on a page the operator had no reason to touch.
-        public string DatabaseServer { get; set; } = @"(localdb)\MSSQLLocalDB";
+        //
+        // NO DEFAULT, and this had one until a real install proved it wrong. It was
+        // (localdb)\MSSQLLocalDB, to save the operator filling in a box on a page they had no reason
+        // to touch - which is a fine instinct and was the wrong answer, because a LocalDB instance
+        // belongs to whoever starts it and a service therefore cannot use the database the installer
+        // just created. Prefilling a value that cannot work is worse than an empty box: it is an
+        // empty box the operator does not know to look at.
+        //
+        // There is no honest default for "where is your SQL Server". DatabaseName keeps one, because
+        // a database name is a naming choice rather than a fact about somebody's estate.
+        public string DatabaseServer { get; set; } = "";
         public string DatabaseName { get; set; } = "EnlistControlPlane";
         public bool DatabaseWindowsAuthentication { get; set; } = true;
         public string DatabaseUser { get; set; } = "";
@@ -321,6 +328,17 @@ namespace Enlist.Installer.Detection
                         return "Enter the SQL Server to use.";
                     }
 
+                    // Caught a page early rather than at first start. A LocalDB instance belongs to
+                    // the account that starts it, so the database this installer creates as the
+                    // operator is not the one the service will see - and the failure otherwise
+                    // arrives as "Cannot connect to the control plane database" after an install
+                    // that reported success.
+                    if (IsLocalDb(DatabaseServer))
+                    {
+                        return "LocalDB cannot be used by a Windows service - it belongs to whoever starts it. " +
+                            "Enter a SQL Server instance the service account can reach.";
+                    }
+
                     if (string.IsNullOrWhiteSpace(DatabaseName))
                     {
                         return "Enter the database name.";
@@ -406,6 +424,17 @@ namespace Enlist.Installer.Detection
         /// The built-in service accounts have no password and must not be asked for one; anything else
         /// is a real account that does.
         /// </summary>
+        /// <summary>
+        /// Whether a server name is a LocalDB instance.
+        ///
+        /// The same rule the control plane enforces at startup (Enlist.ControlPlane.Contracts
+        /// DatabaseRules.IsLocalDb), restated because this assembly is net472/netstandard2.0 and runs
+        /// before .NET 10 exists. The two must agree; both are tested against the same spellings.
+        /// </summary>
+        public static bool IsLocalDb(string server) =>
+            !string.IsNullOrWhiteSpace(server) &&
+            server.IndexOf("(localdb)", StringComparison.OrdinalIgnoreCase) >= 0;
+
         /// <summary>
         /// Whether these listen addresses require a certificate that has not been chosen.
         ///

@@ -385,10 +385,27 @@ $line = Get-ServiceCommandLine `
     -Actions @('SetCpArgs', 'SetCpArgsWindowsAuth') `
     -ArgsProperty 'CP_SERVICE_ARGS' -ServiceExe 'Enlist.ControlPlane.exe'
 
-Assert-That ($line -match 'Server=\(localdb\)') 'an empty DB_SERVER falls back rather than blanking the connection string'
+# DB_SERVER is the one property with NO default, and these two checks changed direction on
+# 2026-09-13 because of it. It used to fall back to (localdb)\MSSQLLocalDB, which cannot work for a
+# service - a LocalDB instance belongs to whoever starts it, so the database the installer creates as
+# the operator is not the one the service sees. Now an unset server omits the connection string
+# entirely, and the control plane's own refusal is what the operator reads.
+Assert-That ($line -notmatch 'ConnectionStrings') 'an unset DB_SERVER writes no connection string, rather than one naming LocalDB'
 Assert-That ($line -notmatch 'Server=;') 'the connection string never names an empty server'
-Assert-That ($line -match 'Database=EnlistControlPlane') 'an empty DB_NAME falls back'
+Assert-That ($line -notmatch 'localdb') 'no install can be pointed at LocalDB by default, because a service cannot use it'
 Assert-That ($line -match 'https://\+:5293') 'an empty CP_URLS falls back to the documented listener'
+
+# DB_NAME's fallback needs a SERVER to be observed at all, now that an unset server writes no
+# connection string. Named separately rather than folded into the case above, because the two
+# properties no longer behave the same way and a check that tested both at once would be asserting
+# the wrong thing about one of them.
+$line = Get-ServiceCommandLine `
+    -Msi (Join-Path $OutDir 'Enlist.ControlPlane.msi') `
+    -Properties @{ CP_URLS = ''; DB_SERVER = 'sql01.corp.local'; DB_NAME = ''; DB_AUTH = '' } `
+    -Actions @('SetCpArgs', 'SetCpArgsWindowsAuth') `
+    -ArgsProperty 'CP_SERVICE_ARGS' -ServiceExe 'Enlist.ControlPlane.exe'
+Assert-That ($line -match 'Database=EnlistControlPlane') 'an empty DB_NAME falls back, given a server to go with it'
+Assert-That ($line -match 'Server=sql01\.corp\.local') 'and the server that was given is the one used'
 
 $line = Get-ServiceCommandLine `
     -Msi (Join-Path $OutDir 'Enlist.Portal.msi') `
@@ -637,6 +654,8 @@ if ($script:failures -gt 0) {
     exit 1
 }
 Write-Host "All checks passed." -ForegroundColor Green
+
+
 
 
 

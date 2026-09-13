@@ -228,7 +228,7 @@ Three different things get called a login on an installer page. Only two of them
 | Credential | Exists today? | Where the installer puts it |
 |---|---|---|
 | **Service logon account** — the Windows identity each service runs as | Yes | Collected per component (§6.4, §6.6, §6.7), validated with `LogonUser`, applied through `ServiceInstall` `Account`/`Password`. The password is a Hidden property: it reaches the SCM and nothing else — not the MSI log, not a config file, not the registry |
-| **Database credentials** — how the control plane reaches SQL Server | Yes | Windows auth via the service account (preferred; nothing stored) or a SQL login written into the ACL-restricted `appsettings.json`. If SQL auth must be used, the connection string should be **DPAPI-protected at machine scope** rather than plaintext — a small addition to the control plane's configuration loading that is worth doing before an installer ships it |
+| **Database credentials** — how the control plane reaches SQL Server | Yes, and **not LocalDB** — see the note below §12.9 | Windows auth via the service account (preferred; nothing stored) or a SQL login written into the ACL-restricted `appsettings.json`. If SQL auth must be used, the connection string should be **DPAPI-protected at machine scope** rather than plaintext — a small addition to the control plane's configuration loading that is worth doing before an installer ships it |
 | **An application login for the portal / control plane** — a user and password to sign in to enList | **No, by design** — and never will be. People sign in with **Windows** (built 2026-09-11, [Authentication-Design.md §5](../03-architecture/Authentication-Design.md)); the installer collects two group names, not a password. Machines enroll with a join token; tools get API keys. | The Portal page's Operators and Viewers group fields; the Agent page's join-token field; the portal's key, minted with `create-api-key --name portal` and stored with `Enlist.Portal.exe protect`. |
 
 So for requirement 2's "provide a login for the portal / control plane if they are installed as a service": that is the **service logon account**, and it is designed in.
@@ -342,6 +342,22 @@ These need a call before WiX is written. My recommendation is in bold.
    The picker shows the friendly name, the subject, the expiry and the last eight of the thumbprint, because a machine store routinely holds several certificates that are identical in every other column — two `CN=localhost` entries both named "ASP.NET Core HTTPS development certificate", differing only in that one expires shortly, is what the machine this was built on actually has. A certificate within 60 days of expiry is offered with a warning rather than refused.
 
    **Development is exempt from the startup rule**, because that is where `dotnet dev-certs https` lives and Kestrel uses it automatically — the same split, for the same kind of reason, as the migration check.
+
+10. **The Database page must not offer LocalDB, and has no default server.** *(Found by installing for real, 2026-09-13.)*
+
+    The Database page prefilled `(localdb)\MSSQLLocalDB`, to save the operator filling in a box on a page they had no reason to touch. That instinct is right and the answer was wrong: **a LocalDB instance belongs to the account that starts it.** The installer applies the schema as the elevated operator, creating the database in *that* operator's instance; the service then starts as `NETWORK SERVICE` or `LocalSystem`, asks for the same instance name, and gets an empty one of its own. The control plane correctly refuses to create a schema outside Development, and the operator is left with
+
+    > Cannot connect to the control plane database.
+
+    — after an install that reported success. That reads like a network or permissions problem and is a long way from the actual mistake.
+
+    Three changes, because one of them alone leaves a hole:
+
+    - **`DB_SERVER` has no default.** With none given, `Enlist.ControlPlane.msi` writes *no connection string at all* — exactly as it already does for a SQL login — and the control plane's own refusal is what the operator reads. There is no honest default for "where is your SQL Server"; `DB_NAME` keeps one because a database name is a naming choice rather than a fact about someone's estate.
+    - **The control plane refuses to be pointed at LocalDB by a service** (`DatabaseRules`). `Program.cs` already refused to *fall back* to LocalDB outside Development; supplying the string from the MSI walked straight past that check. This is the other half of the same decision. A developer at a terminal is unaffected — LocalDB is exactly right there, and the rule is about the identity rather than the database.
+    - **The wizard blocks the page**, so it is caught before the install rather than at first start.
+
+    Prefilling a value that cannot work is worse than an empty box: it is an empty box the operator does not know to look at.
 
 ---
 

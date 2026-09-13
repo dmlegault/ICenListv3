@@ -71,8 +71,25 @@
     <Property Id="DB_NAME" Secure="yes" />
     <Property Id="DB_AUTH" Secure="yes" />
 
-    <SetProperty Id="DB_SERVER" Sequence="both" Before="CostInitialize"
-                 Condition="NOT DB_SERVER" Value="(localdb)\MSSQLLocalDB" />
+    <!--
+      DB_SERVER HAS NO DEFAULT, and that is a deliberate reversal.
+
+      It used to default to (localdb)\MSSQLLocalDB, which cannot work here and produced the worst
+      kind of failure: an install that reported success and a service that would not start. A LocalDB
+      instance belongs to the account that starts it, so the database this installer creates as the
+      elevated operator is not the one a service running as NETWORK SERVICE can see - it gets an empty
+      instance of its own, and the control plane correctly refuses to create a schema outside
+      Development. The operator is left with "Cannot connect to the control plane database", which
+      reads like a network problem.
+
+      The control plane already refuses to FALL BACK to LocalDB outside Development and says so
+      clearly. Supplying the string from here walked straight past that check. So with no DB_SERVER
+      this package now writes no connection string at all - exactly as it already does for a SQL
+      login - and the host's own message is what the operator gets.
+
+      There is no honest default for "where is your SQL Server". DB_NAME has one because a database
+      name is a naming choice; a server address is a fact about someone's estate.
+    -->
     <SetProperty Id="DB_NAME" Sequence="both" Before="CostInitialize"
                  Condition="NOT DB_NAME" Value="EnlistControlPlane" />
     <SetProperty Id="DB_AUTH" Sequence="both" Before="CostInitialize"
@@ -107,8 +124,13 @@
     <SetProperty Id="CP_SERVICE_ARGS" Action="SetCpArgs" Sequence="execute" After="CostFinalize"
                  Value="--urls &quot;[CP_URLS]&quot; --PackageStorage:Root=&quot;[CPBLOBS]\&quot;" />
 
+    <!--
+      AND DB_SERVER, so an unset server omits the connection string rather than composing
+      "Server=;Database=...". That was the empty-variable defect from earlier the same day, and
+      removing DB_SERVER's default would have reintroduced it by another route.
+    -->
     <SetProperty Id="CP_SERVICE_ARGS" Action="SetCpArgsWindowsAuth" Sequence="execute" After="SetCpArgs"
-                 Condition="DB_AUTH = &quot;Windows&quot;"
+                 Condition="DB_AUTH = &quot;Windows&quot; AND DB_SERVER"
                  Value="[CP_SERVICE_ARGS] --ConnectionStrings:ControlPlane=&quot;Server=[DB_SERVER];Database=[DB_NAME];Trusted_Connection=True;TrustServerCertificate=True;&quot;" />
 
     <!--
