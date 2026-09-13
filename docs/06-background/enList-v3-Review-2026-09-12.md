@@ -156,7 +156,17 @@ Authentication is done; a lot of prose still says it isn't.
 - `Portal/Components/Pages/_Imports.razor:3` puts `[Authorize(Policy=Viewer)]` on `Error.razor` and `NotFound.razor`, so a non-admitted user gets AccessDenied instead of the error page.
 - Cancellation tokens available but not passed: `EnlistBearerHandler` (5 DB calls), half of `AccessEndpoints`, and every portal poll loop (so `DisposeAsync` blocks on an in-flight call).
 
-## 5. Project rule: ASCII in runtime strings
+## 5. Project rule: ASCII in runtime strings — DONE (`ebe6286`)
+
+**Decided: the rule extends to markup.** Written down in
+[UI-UX-Design-Spec.md §8a](../03-architecture/UI-UX-Design-Spec.md) with the substitutions, and
+enforced by `AsciiTextRuleTests`, which strips comments and the byte-order mark and fails naming the
+file, line and character. Comments stay exempt. About fifty user-visible lines were swept across
+fifteen files; two were stale as well as non-ASCII.
+
+The finding below is kept as it was written.
+
+---
 
 **~30 violations, all in the portal**, all in strings a user sees at runtime (em dash, `…`, `→`, `·`, and a pseudo-row whose `Type` is literally `"—"`). Files: `Agents.razor`, `Applications.razor`, `ApplicationPackagesScreen.razor`, `ApplicationPolicyScreen.razor`, `RunningInstancesTable.razor`, `AgentRunningApplicationsTable.razor`, `UploadPackageDialog.razor`, `ApplicationPolicyEditDialog.razor`, `ApplicationPolicyWizardDialog.razor`. No violations anywhere in the control plane, agent, runners, tests or scripts **[V]**.
 
@@ -250,15 +260,38 @@ No test at any tier for: `POST /api/agents/{name}/commands` (the portal's Start/
 
 Two skips can hide real failures: `PortalAuthenticationTests.cs:119` skips on **any** 400, including a genuine Negotiate regression; `PortalRolesTests` and one agent test return early off Windows instead of using `Skip.IfNot`, so they pass vacuously.
 
-## 10. Suggested order of work
+## 10. Order of work
 
-1. ~~§1 items 1, 7, 8 — the security-shaped ones.~~ **Done**, `a48da7a`.
-2. ~~§1 items 2-4, 15-17 — the agent's logging, shutdown and refetch behaviour.~~ **Done**, `8e17af8`.
-3. §5 — the ASCII sweep. Mechanical, and decide the markup question while there.
-4. §2, §3 — comments and dead code. Nearly free once the code above settles.
-5. §6 — docs, starting with the ten "wrong" items.
-6. ~~§8 — actually read the ops docs and scripts.~~ **Done**, `97725d0`.
+**This list is the one place that says what is left. Keep it true — it was stale once already, and
+being sent back to redo finished work is exactly the cost of that.**
 
-Still open in §1: items 10, 11, 13, 14, 19, 20 and 24. The runner and control-plane concurrency
-family has been done; what is left is mostly input validation and reporting detail, worth reading
-together rather than one at a time.
+Done:
+
+1. ~~§1 items 1, 7, 8 — the security-shaped ones.~~ `a48da7a`
+2. ~~The command-ordering defect (§1, after the table).~~ `75f9665`
+3. ~~§1 items 2, 3, 4, 15, 16, 17 — the agent's logging, shutdown and refetch behaviour.~~ `8e17af8`
+4. ~~§1 items 5, 6, 9, 18, 21, 22, 23 plus §4's API-key race — the concurrency family.~~ `794aae9`
+5. ~~§1 items 10, 11 and §4's case-sensitivity and portal-mirror set — the silently-wrong batch.~~ `b91bf2f`
+6. ~~§5 — the ASCII sweep, extended to markup and enforced by a test.~~ `ebe6286`
+7. ~~§8 — read the ops area at all.~~ `97725d0`
+8. ~~§8 group 1 — the three demo scripts.~~ `be8956e`
+9. ~~§7 — config, the Dockerfile and two CVEs.~~ `4c0fdd6`
+
+Left:
+
+10. **§8's ops documents.** The installer design first: its listen defaults would refuse to start,
+    its duplicate-name check calls an endpoint that answers 401, and it still says C2 is undecided.
+    That document is the basis for the next thing being built, so it is worth having true first.
+    Then Deployment-IaC, the Runbook, Test-Plan, Demo-Install, the two developer guides and the
+    READMEs.
+11. **§1 items 12, 13, 14, 19, 20, 24** — leaks and disposal. A retry list that grows without bound,
+    disposal that is not idempotent, engine processes not killed on cancellation, a stop grace period
+    the command timeout cuts short, and a test class that leaks a live runner on every run. Item 24
+    is a few lines and worth doing whenever.
+12. **§4's remainder** — an expiry overflow that 500s, a revoke that does not trim, the endpoint
+    feed's per-request allocation and N+1, silently ignored CLI flags, `Location` headers pointing at
+    routes with no GET, `[Authorize]` on the error and not-found pages, cancellation tokens not
+    passed.
+13. **§2, §3** — stale comments and dead code, including the seven-way duplicated test helpers.
+14. **§6** — the architecture and requirements docs, starting with the ten "wrong" items.
+15. **§9** — the coverage gaps worth closing.
