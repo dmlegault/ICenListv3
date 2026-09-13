@@ -292,8 +292,6 @@ Done:
 
 14. ~~§7’s remainder — the protocol version bump and the net472 isolation claim. §7 complete.~~ `c257f06`
 
-Left:
-
 15. ~~§6 — the architecture and requirements docs. One finding in it was wrong and is annotated; four missing areas were written.~~ `f1b14b5`
 
 Left:
