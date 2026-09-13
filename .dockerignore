@@ -1,0 +1,22 @@
+# The runner image builds with the REPOSITORY ROOT as its context (src/Enlist.Runner/Dockerfile
+# explains why), and without this file every byte of that root is handed to the engine on every
+# build. Two consequences, one slow and one worse:
+#
+#   - bin/ and obj/ across every project, .git, and the demo's own state make the transfer far larger
+#     than the handful of source files the Dockerfile actually copies;
+#   - demo/sql-server/.env holds the SA password in clear text, and it left the working tree on every
+#     build even though nothing ever copied it into a layer.
+#
+# Nothing here was ever IN the image. The point is that it stopped being sent.
+
+**/bin/
+**/obj/
+.git/
+.vs/
+.demo/
+.testplugins/
+deploy/
+**/.env
+**/*.user
+**/TestResults/
+docs/

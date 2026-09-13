@@ -20,8 +20,14 @@
       Windows authentication for the people who use the portal (Authentication-Design.md section 5):
       Negotiate on Kestrel - Kerberos in a domain, NTLM against local accounts. No password store of
       our own, ever.
+
+      10.0.11 at minimum. 10.0.0, which this shipped on until 2026-09-12, carries TWO known high
+      severity advisories (GHSA-2p3q-h3hg-jcqq and GHSA-8prm-248r-h957) - on the package that
+      authenticates every person who opens the portal. Found by accident while checking an unrelated
+      version bump, which is the argument for running the SDK's vulnerable-package audit on purpose
+      (dotnet list package, with the vulnerable switch).
     -->
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" Version="10.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" Version="10.0.11" />
     <!-- DPAPI, for the portal's control-plane key in configuration (Services/PortalCredential.cs): machine scope, this machine only. -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
   </ItemGroup>

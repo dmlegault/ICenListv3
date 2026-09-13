@@ -1,0 +1,18 @@
+# Line endings are normalised to LF in the repository and checked out native on Windows,
+# which is what core.autocrlf=true was already doing implicitly for everyone here. Written down so
+# it does not depend on a machine-local git setting: a contributor with autocrlf=false would
+# otherwise commit CRLF and produce a diff touching every line of a file nobody edited.
+* text=auto
+
+# Shell scripts must keep LF even on Windows checkouts - a .sh with CRLF fails at the shebang.
+*.sh text eol=lf
+
+# PowerShell is fine either way and is authored here with a UTF-8 BOM; leave it native.
+*.ps1 text
+
+# Binary, so git never tries to translate them.
+*.png binary
+*.ico binary
+*.zip binary
+*.dll binary
+*.exe binary

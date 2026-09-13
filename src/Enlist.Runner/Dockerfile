@@ -14,6 +14,14 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
+# Directory.Build.props FIRST, and it is not optional. MSBuild walks upward from the project
+# directory looking for it, finds nothing inside this image without this line, and falls back to the
+# SDK default version - so the runner inside every published image was stamped 1.0.0 while every
+# runner built on a host was 3.0.0. That defeats the one job Directory.Build.props has ("one product
+# version for every assembly in the tree, so nothing can drift"), and it drifted invisibly, because
+# the image is the copy nobody rebuilds by accident.
+COPY Directory.Build.props ./
+
 # Only the runner project is copied. It is guaranteed to have zero PackageReferences (its csproj
 # enforces that with a build-time Error target), so this needs no restore of anything else and no
 # NuGet access beyond the base image.

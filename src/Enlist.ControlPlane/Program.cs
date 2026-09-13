@@ -46,8 +46,25 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 // migration-verification failures below, which are precisely what a first production start hits.
 builder.Services.AddWindowsService(options => options.ServiceName = "enlist-controlplane");
 
-var connectionString = builder.Configuration.GetConnectionString("ControlPlane")
-    ?? ManagementCli.DefaultConnectionString;
+// The LocalDB fallback is a DEVELOPMENT convenience and is now confined to Development. It used to
+// apply everywhere, and combined with the same string sitting in the base appsettings.json it meant a
+// production control plane whose ConnectionStrings__ControlPlane override was forgotten aimed itself
+// at a developer's local instance - then failed with a connect error that reads like a network
+// problem, several layers away from the actual mistake. Refusing by name is the same verify-and-refuse
+// posture this process already takes with pending migrations a few lines below.
+var connectionString = builder.Configuration.GetConnectionString("ControlPlane");
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    if (!builder.Environment.IsDevelopment())
+    {
+        throw new InvalidOperationException(
+            $"No ConnectionStrings:ControlPlane is configured and the environment is '{builder.Environment.EnvironmentName}', " +
+            "so there is no database to use. Outside Development this process does not fall back to the LocalDB " +
+            "development database. Set ConnectionStrings__ControlPlane - see docs/05-operations/Deployment-IaC.md section 1.4.");
+    }
+
+    connectionString = ManagementCli.DefaultConnectionString;
+}
 
 builder.Services.AddDbContext<ControlPlaneDbContext>(options => options.UseSqlServer(connectionString));
 builder.Services.AddSignalR();
