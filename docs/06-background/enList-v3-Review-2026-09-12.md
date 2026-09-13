@@ -17,18 +17,19 @@ a starting point for triage, not a verdict.
 
 ---
 
-## 1. Fix first (correctness, security, data loss)
+## 1. Fix first (correctness, security, data loss) — COMPLETE
 
 **Fixed so far:** items 1, 7 and 8 (`a48da7a`), the command-ordering defect below (`75f9665`),
-items 2, 3, 4, 15, 16 and 17 (`8e17af8`), items 5, 6, 9, 18, 21, 22 and 23 (`794aae9`), and items 10
-and 11 plus the whole of §4's case-sensitivity and portal-mirror set (`b91bf2f`).
+items 2, 3, 4, 15, 16 and 17 (`8e17af8`), items 5, 6, 9, 18, 21, 22 and 23 (`794aae9`), items 10
+and 11 plus the whole of §4's case-sensitivity and portal-mirror set (`b91bf2f`), and items 12, 13,
+14, 19, 20 and 24 (`b3ed881`).
 
-**Still open in this section: items 12, 13, 14, 19, 20 and 24.**
+**Section 1 is complete.** Items 12, 13, 14, 19, 20 and 24 closed in `b3ed881`.
 
 > **Correction.** `794aae9`'s own message claims it closed "item 12". It did not: that commit does
 > not touch `src/Enlist.Agent` at all, and item 12 is the `_pendingRetries` leak in `AgentHost`,
-> still open. The eighth fix in that commit is the API-key name race, which lives in §4 rather than
-> here. The message cannot be corrected without rewriting pushed history, so it is corrected here.
+> which was closed later, in `b3ed881`. The eighth fix in `794aae9` is the API-key name race, which
+> lives in §4 rather than here. A pushed commit message cannot be corrected, so it is corrected here.
 
 The table keeps every finding's original wording, because what a finding said when it was found is
 the useful record; the commits carry the detail of what changed. Two things learned along the way are
@@ -279,12 +280,10 @@ Done:
 10. ~~§8's ops documents — the installer design, Deployment-IaC, the Runbook, Test-Plan,
     Demo-Install, the two developer guides and the READMEs.~~ `d318fa3`, `435a285`
 
+11. ~~§1 items 12, 13, 14, 19, 20, 24 — leaks and disposal, finishing §1.~~ `b3ed881`
+
 Left:
 
-11. **§1 items 12, 13, 14, 19, 20, 24** — leaks and disposal. A retry list that grows without bound,
-    disposal that is not idempotent, engine processes not killed on cancellation, a stop grace period
-    the command timeout cuts short, and a test class that leaks a live runner on every run. Item 24
-    is a few lines and worth doing whenever.
 12. **§4's remainder** — an expiry overflow that 500s, a revoke that does not trim, the endpoint
     feed's per-request allocation and N+1, silently ignored CLI flags, `Location` headers pointing at
     routes with no GET, `[Authorize]` on the error and not-found pages, cancellation tokens not
