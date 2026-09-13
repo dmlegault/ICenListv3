@@ -16,13 +16,14 @@ namespace Enlist.Installer.Ba
     /// <summary>One row of the Prerequisites table.</summary>
     public sealed class PrerequisiteRow
     {
-        public PrerequisiteRow(string name, string neededBy, bool present, string detail, bool blocking)
+        public PrerequisiteRow(string name, string neededBy, bool present, string detail, bool blocking, string whenMissing)
         {
             Name = name;
             NeededBy = neededBy;
             Present = present;
             Detail = detail;
             Blocking = blocking;
+            WhenMissing = whenMissing;
         }
 
         public string Name { get; }
@@ -40,7 +41,16 @@ namespace Enlist.Installer.Ba
         /// </summary>
         public bool Blocking { get; }
 
-        public string Status => Present ? "found" : (Blocking ? "missing" : "will be installed");
+        /// <summary>
+        /// What to say when it is absent, stated per row rather than inferred.
+        ///
+        /// Inferring it read "will be installed" for anything non-blocking, which is true of the
+        /// runtimes the bundle chains and quite false of a container engine - nothing here installs
+        /// Docker, and promising to is worse than saying nothing.
+        /// </summary>
+        public string WhenMissing { get; }
+
+        public string Status => Present ? "found" : WhenMissing;
     }
 
     /// <summary>
@@ -103,8 +113,256 @@ namespace Enlist.Installer.Ba
 
         public ICommand RecheckCommand { get; }
 
+        // ---- The editable fields -------------------------------------------------------------
+        //
+        // WRAPPERS, rather than binding the pages straight at Plan.X, and the reason is not style.
+        // InstallPlan is a plain settings object with no change notification, so a binding to
+        // Plan.DatabaseServer updates the plan and tells nobody. The Next button still re-enabled,
+        // because CommandManager re-queries on its own, but the line beside it saying WHY Next was
+        // disabled is an ordinary binding and simply went stale - it would still be demanding a SQL
+        // Server seconds after one had been typed in.
+        //
+        // Going through here means every edit ends in Revalidate(), and the reason tracks the field.
+
+        public InstallType Type
+        {
+            get => Plan.Type;
+            set
+            {
+                Plan.Type = value;
+                RebuildPages();
+                Raise(nameof(IsServer));
+                Raise(nameof(IsAgentOnly));
+                Raise(nameof(IsCustom));
+                Revalidate();
+            }
+        }
+
+        // One bool per choice, because a WPF RadioButton binds IsChecked and has no notion of an
+        // enum. Only a true is acted on: unchecking is what the other radio's check already did.
+        public bool IsServer { get => Type == InstallType.Server; set { if (value) { Type = InstallType.Server; } } }
+
+        public bool IsAgentOnly { get => Type == InstallType.AgentOnly; set { if (value) { Type = InstallType.AgentOnly; } } }
+
+        public bool IsCustom { get => Type == InstallType.Custom; set { if (value) { Type = InstallType.Custom; } } }
+
+        public bool WantControlPlane
+        {
+            get => Plan.ControlPlane;
+            set { Plan.ControlPlane = value; RebuildPages(); Raise(); Revalidate(); }
+        }
+
+        public bool WantPortal
+        {
+            get => Plan.Portal;
+            set { Plan.Portal = value; RebuildPages(); Raise(); Revalidate(); }
+        }
+
+        public bool WantAgent
+        {
+            get => Plan.Agent;
+            set { Plan.Agent = value; RebuildPages(); Raise(); Revalidate(); }
+        }
+
+        public string ControlPlaneUrls
+        {
+            get => Plan.ControlPlaneUrls;
+            set { Plan.ControlPlaneUrls = value; Raise(); Revalidate(); }
+        }
+
+        public string ControlPlaneInstallDir
+        {
+            get => Plan.ControlPlaneInstallDir;
+            set { Plan.ControlPlaneInstallDir = value; Raise(); Revalidate(); }
+        }
+
+        public string ControlPlaneDataDir
+        {
+            get => Plan.ControlPlaneDataDir;
+            set { Plan.ControlPlaneDataDir = value; Raise(); Revalidate(); }
+        }
+
+        public string ControlPlaneAccount
+        {
+            get => Plan.ControlPlaneAccount;
+            set { Plan.ControlPlaneAccount = value; Raise(); Revalidate(); }
+        }
+
+        public string ControlPlanePassword
+        {
+            get => Plan.ControlPlanePassword;
+            set { Plan.ControlPlanePassword = value; Raise(); Revalidate(); }
+        }
+
+        public string DatabaseServer
+        {
+            get => Plan.DatabaseServer;
+            set { Plan.DatabaseServer = value; Raise(); Revalidate(); }
+        }
+
+        public string DatabaseName
+        {
+            get => Plan.DatabaseName;
+            set { Plan.DatabaseName = value; Raise(); Revalidate(); }
+        }
+
+        public bool DatabaseWindowsAuth
+        {
+            get => Plan.DatabaseWindowsAuthentication;
+            set
+            {
+                Plan.DatabaseWindowsAuthentication = value;
+                Raise();
+                Raise(nameof(DatabaseSqlAuth));
+                Revalidate();
+            }
+        }
+
+        public bool DatabaseSqlAuth { get => !DatabaseWindowsAuth; set { if (value) { DatabaseWindowsAuth = false; } } }
+
+        public string DatabaseUser
+        {
+            get => Plan.DatabaseUser;
+            set { Plan.DatabaseUser = value; Raise(); Revalidate(); }
+        }
+
+        public string DatabasePassword
+        {
+            get => Plan.DatabasePassword;
+            set { Plan.DatabasePassword = value; Raise(); Revalidate(); }
+        }
+
+        public string PortalUrls
+        {
+            get => Plan.PortalUrls;
+            set { Plan.PortalUrls = value; Raise(); Revalidate(); }
+        }
+
+        public string PortalControlPlaneUrl
+        {
+            get => Plan.PortalControlPlaneUrl;
+            set { Plan.PortalControlPlaneUrl = value; Raise(); Revalidate(); }
+        }
+
+        public string PortalInstallDir
+        {
+            get => Plan.PortalInstallDir;
+            set { Plan.PortalInstallDir = value; Raise(); Revalidate(); }
+        }
+
+        public string PortalDataDir
+        {
+            get => Plan.PortalDataDir;
+            set { Plan.PortalDataDir = value; Raise(); Revalidate(); }
+        }
+
+        public string PortalAccount
+        {
+            get => Plan.PortalAccount;
+            set { Plan.PortalAccount = value; Raise(); Revalidate(); }
+        }
+
+        public string PortalPassword
+        {
+            get => Plan.PortalPassword;
+            set { Plan.PortalPassword = value; Raise(); Revalidate(); }
+        }
+
+        public string AgentName
+        {
+            get => Plan.AgentName;
+            set { Plan.AgentName = value; Raise(); Revalidate(); }
+        }
+
+        public string AgentTags
+        {
+            get => Plan.AgentTags;
+            set { Plan.AgentTags = value; Raise(); Revalidate(); }
+        }
+
+        public string AgentControlPlaneUrl
+        {
+            get => Plan.AgentControlPlaneUrl;
+            set { Plan.AgentControlPlaneUrl = value; Raise(); Revalidate(); }
+        }
+
+        public string AgentJoinToken
+        {
+            get => Plan.AgentJoinToken;
+            set { Plan.AgentJoinToken = value; Raise(); Revalidate(); }
+        }
+
+        public string AgentEngine
+        {
+            get => Plan.AgentEngine;
+            set { Plan.AgentEngine = value; Raise(); Revalidate(); }
+        }
+
+        public string AgentImage
+        {
+            get => Plan.AgentImage;
+            set { Plan.AgentImage = value; Raise(); Revalidate(); }
+        }
+
+        /// <summary>
+        /// Re-asks the plan whether Next is allowed, why not, and what the Ready page should say.
+        /// Every edit ends here.
+        /// </summary>
+        private void Revalidate()
+        {
+            Raise(nameof(CanGoNext));
+            Raise(nameof(NextBlockedBecause));
+            Raise(nameof(Summary));
+            Raise(nameof(StepLabel));
+        }
+
         /// <summary>Welcome first, then whatever the plan says, then the progress and finish pages.</summary>
         public WizardPage? CurrentPage => _index >= 0 && _index < _pages.Count ? _pages[_index] : (WizardPage?)null;
+
+        /// <summary>
+        /// "Step 3 of 6", in the banner. The count is the plan's, so it drops from six steps to three
+        /// the moment Agent only is chosen rather than counting pages nobody will see.
+        /// </summary>
+        public string StepLabel =>
+            OnWelcome || Installing || Complete || _pages.Count == 0
+                ? ""
+                : "Step " + (_index + 1) + " of " + _pages.Count;
+
+        /// <summary>
+        /// What Next is about to do, in sentences, on the Ready page. Assembled from the plan rather
+        /// than written out, so it cannot describe an install different from the one that will run.
+        /// </summary>
+        public IReadOnlyList<string> Summary
+        {
+            get
+            {
+                var lines = new List<string>();
+
+                if (Plan.InstallsControlPlane)
+                {
+                    lines.Add("Install the control plane, listening on " + Plan.ControlPlaneUrls + ", as " + Plan.ControlPlaneAccount + ".");
+                    lines.Add("Use " + Plan.DatabaseName + " on " + Plan.DatabaseServer +
+                              (Plan.DatabaseWindowsAuthentication ? ", with Windows authentication." : ", with the SQL login " + Plan.DatabaseUser + "."));
+                }
+
+                if (Plan.InstallsPortal)
+                {
+                    lines.Add("Install the portal, listening on " + Plan.PortalUrls + ", as " + Plan.PortalAccount + ".");
+                }
+
+                if (Plan.InstallsAgent)
+                {
+                    lines.Add("Install the agent as " + Plan.AgentName + ", reporting to " + Plan.AgentControlPlaneUrl + ".");
+                    lines.Add(string.IsNullOrWhiteSpace(Plan.AgentEngine)
+                        ? "Run applications as processes - no container engine was chosen."
+                        : "Run applications with " + Plan.AgentEngine + ", using " + Plan.AgentImage + ".");
+                }
+
+                // Said once, here, because it is the answer to "will this take the machine down".
+                lines.Add("Every service is created stopped, and nothing outside its own folders is changed.");
+                return lines;
+            }
+        }
 
         public bool OnWelcome { get; private set; } = true;
 
@@ -179,11 +437,30 @@ namespace Enlist.Installer.Ba
             Plan.AgentName = Read("AGENT_NAME", Plan.AgentName);
             Plan.AgentControlPlaneUrl = Read("AGENT_CPURL", Plan.AgentControlPlaneUrl);
             Plan.AgentImage = Read("AGENT_IMAGE", Plan.AgentImage);
+            Plan.AgentEngine = Read("AGENT_ENGINE", Plan.AgentEngine);
             Plan.ControlPlaneUrls = Read("CP_URLS", Plan.ControlPlaneUrls);
+            Plan.ControlPlaneAccount = Read("CP_ACCOUNT", Plan.ControlPlaneAccount);
             Plan.PortalUrls = Read("PORTAL_URLS", Plan.PortalUrls);
+            Plan.PortalControlPlaneUrl = Read("PORTAL_CPURL", Plan.PortalControlPlaneUrl);
+            Plan.PortalAccount = Read("PORTAL_ACCOUNT", Plan.PortalAccount);
+            Plan.DatabaseServer = Read("DB_SERVER", Plan.DatabaseServer);
             Plan.DatabaseName = Read("DB_NAME", Plan.DatabaseName);
 
+            // Written straight onto the plan above, which notifies nobody, so every wrapper is
+            // announced here. Without this the pages open showing their defaults rather than what
+            // the command line asked for - the values would be right and invisible.
+            foreach (var field in new[]
+            {
+                nameof(AgentName), nameof(AgentControlPlaneUrl), nameof(AgentImage), nameof(AgentEngine),
+                nameof(ControlPlaneUrls), nameof(ControlPlaneAccount), nameof(PortalUrls),
+                nameof(PortalControlPlaneUrl), nameof(PortalAccount), nameof(DatabaseServer), nameof(DatabaseName),
+            })
+            {
+                Raise(field);
+            }
+
             RebuildPages();
+            Revalidate();
         }
 
         internal void OnProgress(int percentage, string packageId)
@@ -220,9 +497,20 @@ namespace Enlist.Installer.Ba
         private void RebuildPages()
         {
             _pages = Plan.Pages();
+
+            // The index can now be past the end: choosing Agent only on a plan that had six pages
+            // leaves three. Clamping here rather than in CurrentPage keeps Back and the step count
+            // agreeing with what is on screen.
+            if (_index >= _pages.Count)
+            {
+                _index = Math.Max(0, _pages.Count - 1);
+            }
+
             Raise(nameof(CurrentPage));
             Raise(nameof(CanGoNext));
             Raise(nameof(NextBlockedBecause));
+            Raise(nameof(StepLabel));
+            Raise(nameof(Summary));
         }
 
         private void GoNext()
@@ -284,6 +572,8 @@ namespace Enlist.Installer.Ba
             Raise(nameof(CanGoNext));
             Raise(nameof(CanGoBack));
             Raise(nameof(NextBlockedBecause));
+            Raise(nameof(StepLabel));
+            Raise(nameof(Summary));
 
             if (CurrentPage == WizardPage.Prerequisites && Prerequisites.Count == 0)
             {
@@ -321,9 +611,12 @@ namespace Enlist.Installer.Ba
 
                 // Neither runtime blocks: the bundle installs whichever is missing, which is what a
                 // bundle is for.
-                Prerequisites.Add(new PrerequisiteRow(".NET 10 Runtime", "all components", netCore.Present, netCore.Detail, blocking: false));
-                Prerequisites.Add(new PrerequisiteRow("ASP.NET Core 10 Runtime", "control plane, portal", aspNet.Present, aspNet.Detail, blocking: false));
-                Prerequisites.Add(new PrerequisiteRow(".NET Framework 4.7.2", "net472 applications only", framework.Present, framework.Detail, blocking: false));
+                Prerequisites.Add(new PrerequisiteRow(".NET 10 Runtime", "all components", netCore.Present, netCore.Detail, blocking: false, whenMissing: "will be installed"));
+                Prerequisites.Add(new PrerequisiteRow("ASP.NET Core 10 Runtime", "control plane, portal", aspNet.Present, aspNet.Detail, blocking: false, whenMissing: "will be installed"));
+
+                // Not installed by anything here: it ships with Windows, and its absence only means
+                // net472 applications cannot run on this machine.
+                Prerequisites.Add(new PrerequisiteRow(".NET Framework 4.7.2", "net472 applications only", framework.Present, framework.Detail, blocking: false, whenMissing: "not present"));
 
                 var engines = await Task.WhenAll(
                     ContainerEngineDetection.ProbeWslcAsync(),
@@ -332,7 +625,8 @@ namespace Enlist.Installer.Ba
                 foreach (var engine in engines)
                 {
                     Prerequisites.Add(new PrerequisiteRow(
-                        engine.Engine, "container isolation (optional)", engine.Available, engine.Detail, blocking: false));
+                        engine.Engine, "container isolation (optional)", engine.Available, engine.Detail,
+                        blocking: false, whenMissing: "not available"));
                 }
 
                 // The first available engine becomes the default on the Agent page, which is what

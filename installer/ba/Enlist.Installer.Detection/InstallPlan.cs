@@ -42,7 +42,10 @@ namespace Enlist.Installer.Detection
         public string ControlPlanePassword { get; set; } = "";
 
         // Database
-        public string DatabaseServer { get; set; } = "";
+        // The same default the MSI falls back to, rather than empty. Both end up installing against
+        // LocalDB, but an empty box on the Database page reads as a required field nobody filled in,
+        // and blocks Next on a page the operator had no reason to touch.
+        public string DatabaseServer { get; set; } = @"(localdb)\MSSQLLocalDB";
         public string DatabaseName { get; set; } = "EnlistControlPlane";
         public bool DatabaseWindowsAuthentication { get; set; } = true;
         public string DatabaseUser { get; set; } = "";

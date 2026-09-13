@@ -93,4 +93,21 @@
     <ProjectReference Include="..\Enlist.Installer.Detection\Enlist.Installer.Detection.csproj" />
   </ItemGroup>
 
+  <!--
+    Branding, compiled INTO the executable rather than carried beside it.
+
+    Everything else the bootstrapper needs is a bundle payload, declared by hand in Bundle.wxs, and
+    a payload is a thing that can be forgotten - which is exactly how mbanative.dll went missing.
+    A Resource cannot: if the exe exists, its logo exists. The cost is a few KB in a file Burn
+    extracts once.
+
+    iron-canary-logo.png is the portal's own file, copied rather than linked across the repository:
+    an installer that silently changed appearance because someone edited the web app's wwwroot would
+    be worse than one that has to be updated deliberately.
+  -->
+  <ItemGroup>
+    <Resource Include="media\iron-canary-logo.png" />
+    <Resource Include="media\enlist.ico" />
+  </ItemGroup>
+
 </Project>
