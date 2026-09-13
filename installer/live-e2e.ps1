@@ -34,7 +34,19 @@ param(
     # LocalSystem rather than the NETWORK SERVICE default, because SYSTEM is the service account that
     # has a login on a default SQL Server Express install. Named here rather than assumed, because the
     # database grant below has to name the same account.
-    [string] $ServiceAccount = 'LocalSystem'
+    [string] $ServiceAccount = 'LocalSystem',
+
+    # Trust the test certificate MACHINE-WIDE for the duration of this run, and put the trust store
+    # back afterwards.
+    #
+    # Needed because the agent runs as LocalSystem and consults LocalMachine\Root, while a client
+    # running as the operator consults CurrentUser\Root - two different stores, one certificate. A
+    # self-signed development certificate trusted only by the user is exactly the state that makes
+    # the agent refuse, correctly, with Runbook 3.22's message.
+    #
+    # Off by default and removed in the finally either way. A verification run that permanently adds
+    # a self-signed certificate to a machine's trusted roots would be a poor trade for a green tick.
+    [switch] $TrustCertificate
 )
 
 $ErrorActionPreference = 'Continue'
@@ -182,9 +194,32 @@ function Invoke-Bundle([string[]] $arguments, [int] $timeoutSeconds = 600) {
     return $p.ExitCode
 }
 
+$script:trustAdded = $false
+
 try {
     # ---------------------------------------------------------------------------------------------
     Phase "Start from a clean slate"
+
+    if ($TrustCertificate) {
+        $root = Get-Item "Cert:\LocalMachine\Root\$Thumbprint" -ErrorAction SilentlyContinue
+        if ($root) {
+            Say "    the certificate is already trusted machine-wide; leaving the trust store alone"
+        }
+        else {
+            $source = Get-Item "Cert:\LocalMachine\My\$Thumbprint" -ErrorAction SilentlyContinue
+            if (-not $source) {
+                Say "    cannot trust $Thumbprint - it is not in LocalMachine\My"
+            }
+            else {
+                $store = New-Object System.Security.Cryptography.X509Certificates.X509Store 'Root', 'LocalMachine'
+                $store.Open('ReadWrite')
+                $store.Add($source)
+                $store.Close()
+                $script:trustAdded = $true
+                Say "    added $Thumbprint to LocalMachine\Root for this run - it is removed again at the end"
+            }
+        }
+    }
 
     # Repeatable on purpose. This gets run several times while something is being got right, and an
     # install over an existing one proves something quite different from a first install - Burn would
@@ -439,6 +474,21 @@ finally {
 
         # ProgramData is Permanent by design - an operator's data outlives an uninstall.
         Check (Test-Path (Join-Path $env:ProgramData 'enList')) "ProgramData is retained, as designed"
+    }
+
+    # The trust store goes back exactly as it was. Done here rather than at the end of the happy path
+    # so that a run which fails, or is interrupted, still does not leave a self-signed certificate in
+    # a machine's trusted roots.
+    if ($script:trustAdded) {
+        try {
+            $store = New-Object System.Security.Cryptography.X509Certificates.X509Store 'Root', 'LocalMachine'
+            $store.Open('ReadWrite')
+            $leaving = $store.Certificates | Where-Object { $_.Thumbprint -eq $Thumbprint }
+            foreach ($c in $leaving) { $store.Remove($c) }
+            $store.Close()
+            Check (-not (Get-Item "Cert:\LocalMachine\Root\$Thumbprint" -ErrorAction SilentlyContinue)) "the machine trust store is back as it was"
+        }
+        catch { Check $false "the machine trust store is back as it was" $_.Exception.Message }
     }
 
     Say ""
