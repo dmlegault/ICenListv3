@@ -475,6 +475,11 @@ namespace Enlist.Installer.Ba
             Status = "Downloading " + Friendly(packageId) + "...";
         }
 
+        /// <summary>
+        /// Apply finished and FAILED, or this is not an install. The success path does not come
+        /// through here: the packages being on disk is not the end of an install, and the wizard stays
+        /// on the progress page until the credentials are settled too.
+        /// </summary>
         internal void OnApplyComplete(ApplyCompleteEventArgs args)
         {
             Installing = false;
@@ -490,6 +495,55 @@ namespace Enlist.Installer.Ba
             // The log path is the only useful thing to offer here, and Burn always has one.
             Status = "The install did not finish (0x" + args.Status.ToString("x8") + ").";
             Error = "The full log is at " + Read("WixBundleLog", "the path in %TEMP%") + ".";
+        }
+
+        /// <summary>Still on the progress page: the schema, the portal's key, this agent's enrollment.</summary>
+        internal void OnPostInstallProgress(string message)
+        {
+            Status = message;
+
+            // The bar has nothing left to measure - Burn's progress ended at Apply - so it goes
+            // indeterminate rather than sitting at 100% while work is visibly still happening.
+            Busy = true;
+        }
+
+        /// <summary>
+        /// Everything is done. What the operator is told depends on what actually happened, and a
+        /// step that failed is said plainly rather than folded into a general success.
+        /// </summary>
+        internal void OnPostInstallComplete(ApplyCompleteEventArgs args, IReadOnlyList<PostInstallResult> results)
+        {
+            Busy = false;
+            Installing = false;
+            Complete = true;
+            Progress = 100;
+
+            var failures = results.Where(r => !r.Succeeded).ToList();
+            var blocking = failures.Where(r => !r.Optional).ToList();
+
+            if (blocking.Count > 0)
+            {
+                Status = "enList is installed, but it is not ready to use.";
+                Error = string.Join("  ", blocking.Select(r => r.Message))
+                    + "  The full log is at " + Read("WixBundleLog", "the path in %TEMP%") + ".";
+                return;
+            }
+
+            Status = "enList is installed.";
+
+            if (failures.Count > 0)
+            {
+                // Optional means the install is sound and one thing did not happen - almost always
+                // enrollment against a control plane that is not running yet, which on a single-box
+                // install it is not, because every service here is created stopped.
+                Error = string.Join("  ", failures.Select(r => r.Message))
+                    + "  Everything else is installed; this can be done again later.";
+                return;
+            }
+
+            // Said once, here, because a page saying "installed" over a set of stopped services is
+            // the single most likely thing to be mistaken for a broken install.
+            Error = "Every service is installed and stopped. Start them once the listen addresses have certificates.";
         }
 
         internal void OnError(string message) => Error = message;

@@ -113,7 +113,18 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
     /// stdout — which is where the verb prints the secret it created. A nonzero exit fails the test
     /// with the verb's stderr.
     /// </summary>
-    public async Task<string> RunCliAsync(params string[] verbAndOptions)
+    public Task<string> RunCliAsync(params string[] verbAndOptions) => RunCliAgainstAsync(ConnectionString, verbAndOptions);
+
+    /// <summary>
+    /// The same verbs against a DIFFERENT database - for apply-schema, whose interesting case is a
+    /// database that does not exist yet and therefore cannot be this server's.
+    ///
+    /// NOT an overload of RunCliAsync, which it obviously wants to be. `RunCliAsync("apply-schema")`
+    /// would bind the verb to the connection string and pass no verb at all - C# prefers the
+    /// non-params form - and the symptom is the CLI launching the whole server instead, which takes a
+    /// while to recognise for what it is.
+    /// </summary>
+    public async Task<string> RunCliAgainstAsync(string connectionString, params string[] verbAndOptions)
     {
         var psi = new ProcessStartInfo("dotnet")
         {
@@ -127,7 +138,7 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
             psi.ArgumentList.Add(argument);
         }
 
-        psi.Environment["ConnectionStrings__ControlPlane"] = ConnectionString;
+        psi.Environment["ConnectionStrings__ControlPlane"] = connectionString;
 
         using var process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start the control plane CLI.");
         var stdout = process.StandardOutput.ReadToEndAsync();

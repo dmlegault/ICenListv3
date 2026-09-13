@@ -239,13 +239,28 @@ page changes), and it removed the need rather than filling it: people sign in wi
 Portal page asks for the Operators and Viewers group names instead of a password. Concretely:
 
 - The **Agent page** gains a Join token field (`AGENT_JOINTOKEN`), which the installer exchanges for
-  the agent's credential *before* the service is created — the token must never end up in the
+  the agent's credential before the service is ever **started** — the token must never end up in the
   service's `binPath`, where any local user can read it out of the process list.
+
+  *(Built 2026-09-13. This said "before the service is created", which is not what happens and could
+  not: the MSI creates the service. What it is actually about is the `binPath`, and that is honoured
+  exactly — `AGENT_JOINTOKEN` is a bundle variable that no package references, so nothing passes it
+  to an MSI. The order is: the MSI creates the service **stopped**, the bootstrapper runs
+  `enlist-agent enroll` once with the token, and the credential is on disk before anything starts.
+  The service is never running without one, which is the property that was wanted.)*
 - The **Control Plane and Portal pages** gain a TLS certificate, because authentication is `Required`
   by default and `Required` refuses plain HTTP off loopback. This is not a nicety: without it the
   listen defaults on those pages produce services that install and then never start.
 - The installer mints the portal's own key with the control plane's `create-api-key` verb and stores
   it DPAPI-protected with `Enlist.Portal.exe protect`.
+
+  *(Built 2026-09-13, with one addition the design did not anticipate. `create-api-key` writes to the
+  database directly, so on a fresh machine there is no schema for it to write to — and the control
+  plane deliberately refuses to migrate itself outside Development, for permissions reasons. The
+  installer therefore runs `Enlist.ControlPlane.exe apply-schema` first: the named, deliberate deploy
+  step that Deployment-IaC §1.4 already called for, now with a verb. The portal's key is only minted
+  where the control plane is installed too; a split-tier portal is told on the Finish page that an
+  Operator must supply one, because the key cannot be created from a machine with no database.)*
 
 *(This section previously said the administrator page "appears only once C2 is implemented" and that
 the Finish page would meanwhile carry a trusted-network warning. Both were written before the

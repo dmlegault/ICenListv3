@@ -46,6 +46,13 @@ internal static class Program
 {
     private static async Task<int> Main(string[] args)
     {
+        // The one verb, checked before flag parsing: it stores a credential and exits rather than
+        // starting an agent. See EnrollCli for why the installer cannot just pass --join-token.
+        if (EnrollCli.IsVerb(args))
+        {
+            return await EnrollCli.RunAsync(args).ConfigureAwait(false);
+        }
+
         string? assignmentsPath = null;
         string? controlPlaneUrl = null;
         string? agentName = null;

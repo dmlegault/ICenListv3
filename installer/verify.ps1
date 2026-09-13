@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Proves the three MSIs do what the silent command line says they will.
@@ -473,6 +473,33 @@ else {
         # Id, not Name: <Variable Name="..."> in the source is emitted as Id in the Burn manifest.
         Assert-That ($manifest -match '<Variable[^>]*Id="AspNetCorePresent"') 'the variable the bootstrapper writes is declared by the bundle'
         Assert-That ($manifest -match '<Variable[^>]*Id="DotnetRuntimeMinimum"') 'the minimum is published to the bootstrapper rather than duplicated in it'
+
+        <#
+          THE JOIN TOKEN. Two properties, and both are the difference between a secret that lives for
+          a second and one that lives for the life of the installation.
+
+          Not an MsiProperty: an MSI property becomes part of the service's command line, and `sc qc`
+          shows a service's arguments to any local user, for ever. The bootstrapper reads the bundle
+          variable, hands it to `enlist-agent enroll`, and what persists is the agent's own credential
+          - DPAPI-protected, closed ACL.
+
+          Hidden: Burn writes every variable into its log when it shuts down, and that log is a
+          world-readable file in %TEMP%. Without Hidden the token would be disclosed by the back door,
+          having been kept out of the front one.
+        #>
+        Write-Host ""
+        Write-Host "  Credentials the bootstrapper handles"
+        $tokenVariable = [regex]::Match($manifest, '<Variable[^>]*Id="AGENT_JOINTOKEN"[^>]*>').Value
+        Assert-That ($tokenVariable -ne '') 'the join token is a bundle variable, so a silent install can enroll'
+        Assert-That ($tokenVariable -match 'Hidden="yes"') 'the join token is Hidden, so it is not written to the bundle log in the clear'
+        Assert-That (-not ($manifest -match '<MsiProperty[^>]*Id="AGENT_JOINTOKEN"')) 'the join token is passed to no package, so it cannot reach a service binPath'
+
+        # The same rule for the two passwords that do reach a package: they go to the SCM and nowhere
+        # else, so the bundle must not log them either.
+        foreach ($secret in @('CP_PASSWORD', 'PORTAL_PASSWORD', 'AGENT_PASSWORD')) {
+            $declared = [regex]::Match($manifest, "<Variable[^>]*Id=`"$secret`"[^>]*>").Value
+            Assert-That ($declared -match 'Hidden="yes"') "$secret is Hidden, so the bundle log does not carry it"
+        }
     }
     finally { Remove-Item -Recurse -Force $extract -ErrorAction SilentlyContinue }
 }
@@ -581,3 +608,4 @@ if ($script:failures -gt 0) {
     exit 1
 }
 Write-Host "All checks passed." -ForegroundColor Green
+

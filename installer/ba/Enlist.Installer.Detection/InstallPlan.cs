@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace Enlist.Installer.Detection
@@ -79,6 +80,102 @@ namespace Enlist.Installer.Detection
         public string AgentJoinToken { get; set; } = "";
 
         /// <summary>Whether each component is actually being installed, once the type and the switches are combined.</summary>
+        /// <summary>
+        /// The plan a SILENT install is working to, rebuilt from the bundle's own variables.
+        ///
+        /// A quiet install has no wizard, so nothing has assembled a plan - but the post-install
+        /// steps need one, and "mint the portal's key" has to happen whether or not anybody was
+        /// watching. The variables are the same ones section 10 documents on the command line, so a
+        /// silent install and a wizard install reach these steps with the same information.
+        ///
+        /// AGENT_JOINTOKEN is read here and is the only secret among them. It is a bundle variable and
+        /// never an MSI property: nothing passes it to a package, so it cannot reach a service's
+        /// binPath, and the bundle declares it Hidden so Burn's own log prints it as asterisks.
+        /// </summary>
+        public static InstallPlan FromVariables(Func<string, string?> read)
+        {
+            if (read == null)
+            {
+                throw new ArgumentNullException(nameof(read));
+            }
+
+            string Value(string name, string fallback)
+            {
+                var value = read(name);
+                return string.IsNullOrWhiteSpace(value) ? fallback : value!.Trim();
+            }
+
+            bool Flag(string name) => Value(name, "0") == "1";
+
+            var plan = new InstallPlan();
+
+            var type = Value("INSTALLTYPE", nameof(InstallType.Server));
+            plan.Type = type.Equals(nameof(InstallType.AgentOnly), StringComparison.OrdinalIgnoreCase) ? InstallType.AgentOnly
+                : type.Equals(nameof(InstallType.Custom), StringComparison.OrdinalIgnoreCase) ? InstallType.Custom
+                : InstallType.Server;
+
+            // ADD rather than override, exactly as each package's InstallCondition does. A Server
+            // install with InstallAgent=1 has an agent, and reading these any other way would have the
+            // bootstrapper working to a different plan from the one the chain just installed.
+            plan.ControlPlane = Flag("InstallControlPlane");
+            plan.Portal = Flag("InstallPortal");
+            plan.Agent = Flag("InstallAgent");
+
+            plan.ControlPlaneInstallDir = Value("CP_INSTALLDIR", "");
+            plan.ControlPlaneUrls = Value("CP_URLS", plan.ControlPlaneUrls);
+            plan.ControlPlaneAccount = Value("CP_ACCOUNT", plan.ControlPlaneAccount);
+
+            plan.DatabaseServer = Value("DB_SERVER", plan.DatabaseServer);
+            plan.DatabaseName = Value("DB_NAME", plan.DatabaseName);
+            plan.DatabaseWindowsAuthentication = !Value("DB_AUTH", "Windows").Equals("Sql", StringComparison.OrdinalIgnoreCase);
+            plan.DatabaseUser = Value("DB_USER", "");
+            plan.DatabasePassword = Value("DB_PASSWORD", "");
+
+            plan.PortalInstallDir = Value("PORTAL_INSTALLDIR", "");
+            plan.PortalUrls = Value("PORTAL_URLS", plan.PortalUrls);
+            plan.PortalControlPlaneUrl = Value("PORTAL_CPURL", "");
+            plan.PortalAccount = Value("PORTAL_ACCOUNT", plan.PortalAccount);
+
+            plan.AgentInstallDir = Value("AGENT_INSTALLDIR", "");
+            plan.AgentDataDir = Value("AGENT_DATADIR", "");
+            plan.AgentName = Value("AGENT_NAME", plan.AgentName);
+            plan.AgentControlPlaneUrl = Value("AGENT_CPURL", "");
+            plan.AgentEngine = Value("AGENT_ENGINE", "");
+            plan.AgentImage = Value("AGENT_IMAGE", plan.AgentImage);
+            plan.AgentAccount = Value("AGENT_ACCOUNT", plan.AgentAccount);
+            plan.AgentJoinToken = Value("AGENT_JOINTOKEN", "");
+
+            return plan;
+        }
+
+        /// <summary>
+        /// Where each component actually lands, which is what the post-install steps have to launch
+        /// from.
+        ///
+        /// These MIRROR the MSIs rather than being read back from them, and the defaults have to stay
+        /// in step with the StandardDirectory elements in ControlPlane.wxs, Portal.wxs and Agent.wxs.
+        /// Reading the installed location out of the registry afterwards would be more honest, but the
+        /// bootstrapper needs the path in the same breath as it needs the plan, and an empty value
+        /// here means exactly what an empty property means there: use the default.
+        ///
+        /// ProgramFiles resolves to the 64-bit directory because the bundle and the bootstrapper are
+        /// both x64, matching ProgramFiles64Folder in the packages.
+        /// </summary>
+        public string ResolvedControlPlaneDir => Resolve(ControlPlaneInstallDir, ProgramFiles, "enList", "ControlPlane");
+
+        public string ResolvedPortalDir => Resolve(PortalInstallDir, ProgramFiles, "enList", "Portal");
+
+        public string ResolvedAgentDir => Resolve(AgentInstallDir, ProgramFiles, "enList", "Agent");
+
+        public string ResolvedAgentDataDir => Resolve(AgentDataDir, CommonAppData, "enList", "Agent");
+
+        private static string ProgramFiles => Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+
+        private static string CommonAppData => Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+
+        private static string Resolve(string chosen, params string[] fallback) =>
+            string.IsNullOrWhiteSpace(chosen) ? Path.Combine(fallback) : chosen.Trim();
+
         public bool InstallsControlPlane => Type == InstallType.Server || ControlPlane;
 
         public bool InstallsPortal => Type == InstallType.Server || Portal;

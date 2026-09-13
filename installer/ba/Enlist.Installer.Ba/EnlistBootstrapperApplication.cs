@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 
@@ -248,11 +251,71 @@ namespace Enlist.Installer.Ba
             }
         }
 
+        /// <summary>
+        /// The packages are installed; now the part only a bootstrapper can do.
+        ///
+        /// The MSIs lay down files and create stopped services and nothing else, on purpose. The
+        /// schema, the portal's key and the agent's enrollment all happen here - in EVERY display
+        /// mode, because a silent install needs its credentials just as much as a watched one, and
+        /// the plan for a silent install is rebuilt from the bundle's variables.
+        ///
+        /// On a background thread: Burn calls this on its own thread and expects it back promptly,
+        /// and applying a schema to a cold LocalDB is not prompt. Finish is called when the work is
+        /// done rather than when Apply finished, which is what keeps the engine from quitting out
+        /// from under a half-configured install.
+        /// </summary>
         protected override void OnApplyComplete(ApplyCompleteEventArgs args)
         {
             base.OnApplyComplete(args);
-            if (_wizard != null) { OnUi(() => _wizard.OnApplyComplete(args)); }
-            Finish(args.Status);
+
+            if (args.Status < 0 || _command!.Action != LaunchAction.Install)
+            {
+                // A failed apply has nothing to configure, and an uninstall or repair has nothing to
+                // mint. Rolling either into the credential steps would be a surprising place to
+                // create an API key.
+                if (_wizard != null) { OnUi(() => _wizard.OnApplyComplete(args)); }
+                Finish(args.Status);
+                return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                IReadOnlyList<PostInstallResult> results;
+                try
+                {
+                    var plan = _wizard?.Plan ?? InstallPlan.FromVariables(name => Read(name));
+                    var runner = new PostInstallRunner(
+                        plan,
+                        progress: message =>
+                        {
+                            Trace(message);
+                            if (_wizard != null) { OnUi(() => _wizard.OnPostInstallProgress(message)); }
+                        },
+                        log: Trace);
+
+                    results = await runner.RunAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Program.LogCrash(ex);
+                    Trace("post-install failed: " + ex.Message);
+                    results = new[] { new PostInstallResult(PostInstallStepKind.ApplySchema, false, false, ex.Message) };
+                }
+
+                foreach (var result in results)
+                {
+                    Trace((result.Succeeded ? "ok: " : "FAILED: ") + result.Message);
+                }
+
+                // A required step that failed makes the install a failure even though every package
+                // installed: a control plane with no schema, or a portal with no key, is not a working
+                // install and saying otherwise would be the installer's last word on the subject.
+                var failed = results.Any(r => !r.Succeeded && !r.Optional);
+                var status = failed ? unchecked((int)0x80004005) : args.Status;
+
+                if (_wizard != null) { OnUi(() => _wizard.OnPostInstallComplete(args, results)); }
+                Finish(status);
+            });
         }
 
         protected override void OnExecuteProgress(ExecuteProgressEventArgs args)

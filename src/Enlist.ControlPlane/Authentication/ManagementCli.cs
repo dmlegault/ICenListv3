@@ -15,6 +15,7 @@ namespace Enlist.ControlPlane.Authentication;
 /// Day to day the same things are done from the portal's Access page, through
 /// <see cref="AccessEndpoints"/>; both go through <see cref="CredentialIssuer"/>.
 ///
+///   Enlist.ControlPlane.exe apply-schema
 ///   Enlist.ControlPlane.exe create-api-key    --name portal --role Operator [--expires 90d|never]
 ///   Enlist.ControlPlane.exe create-join-token [--expires 24h] [--uses 50]
 ///   Enlist.ControlPlane.exe revoke-api-key    --name ci-main
@@ -29,7 +30,7 @@ public static class ManagementCli
 
     private static readonly HashSet<string> Verbs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "create-api-key", "create-join-token", "revoke-api-key", "revoke-agent", "list-keys", "list-join-tokens",
+        "apply-schema", "create-api-key", "create-join-token", "revoke-api-key", "revoke-agent", "list-keys", "list-join-tokens",
     };
 
     public static bool IsVerb(string[] args) => args.Length > 0 && Verbs.Contains(args[0]);
@@ -47,6 +48,7 @@ public static class ManagementCli
 
             return verb switch
             {
+                "apply-schema" => await ApplySchemaAsync(db),
                 "create-api-key" => await CreateApiKeyAsync(db, options),
                 "create-join-token" => await CreateJoinTokenAsync(db, options),
                 "revoke-api-key" => await RevokeApiKeyAsync(db, options),
@@ -70,6 +72,42 @@ public static class ManagementCli
 
     /// <summary>Who ran the verb, for CreatedBy: the Windows account at the console.</summary>
     private static string Operator => $"{Environment.UserDomainName}\\{Environment.UserName} (cli)";
+
+    /// <summary>
+    /// Creates the database if it is absent and applies every pending migration - the ONE place in
+    /// this product that is allowed to, and deliberately not the server.
+    ///
+    /// Program.cs refuses to migrate outside Development, and that refusal is about PERMISSIONS
+    /// rather than tidiness: creating a database needs dbcreator and applying a migration needs
+    /// CREATE/ALTER TABLE, neither of which an application login should hold. The answer there is
+    /// "apply schema as a deploy step with an account that has DDL rights" - and this verb is that
+    /// step, named and run on purpose by someone who already has those rights, which is exactly the
+    /// posture of every other verb in this file.
+    ///
+    /// It exists because the installer needs it. create-api-key writes to the database directly, so
+    /// minting the portal's key on a fresh machine requires a schema before there is a control plane
+    /// running to ask for one. Idempotent: applying nothing is a successful outcome, reported as
+    /// such, because an upgrade re-runs this and "already up to date" is the common case.
+    /// </summary>
+    private static async Task<int> ApplySchemaAsync(ControlPlaneDbContext db)
+    {
+        var pending = (await db.Database.GetPendingMigrationsAsync()).ToList();
+        if (pending.Count == 0 && await db.Database.CanConnectAsync())
+        {
+            Console.WriteLine("The control plane database is already up to date.");
+            return 0;
+        }
+
+        // Said before the work rather than after, because on a new database this creates it, and a
+        // silent pause against a server that is not answering is the worst moment to say nothing.
+        Console.WriteLine(pending.Count == 0
+            ? "Creating the control plane database."
+            : $"Applying {pending.Count} migration(s): {string.Join(", ", pending)}.");
+
+        await db.Database.MigrateAsync();
+        Console.WriteLine("The control plane database is ready.");
+        return 0;
+    }
 
     private static async Task<int> CreateApiKeyAsync(ControlPlaneDbContext db, Dictionary<string, string> options)
     {
@@ -230,6 +268,7 @@ public static class ManagementCli
         }
 
         Console.Error.WriteLine("Usage:");
+        Console.Error.WriteLine("  apply-schema");
         Console.Error.WriteLine("  create-api-key    --name <name> --role Operator|Viewer [--expires 90d|never]");
         Console.Error.WriteLine("  create-join-token [--expires 24h] [--uses <n>]");
         Console.Error.WriteLine("  revoke-api-key    --name <name>");

@@ -117,6 +117,23 @@
     <Variable Name="DotnetRuntimeMinimum" Type="string" Value="$(DotnetRuntimeMinimum)" />
 
     <!--
+      THE JOIN TOKEN, and the two things that make it different from every other variable here.
+
+      IT IS NEVER AN MsiProperty. Not one package below references it, so it cannot reach a service's
+      binPath, where `sc qc` would show it to any local user for the life of the installation. The
+      bootstrapper reads it, hands it to `enlist-agent enroll` for the second that takes, and what
+      persists is the agent's own credential - DPAPI-protected, with a closed ACL.
+
+      Hidden="yes" because Burn writes every variable into its log when it shuts down, and that log is
+      a world-readable file in %TEMP%. Without this the token would be disclosed by the back door,
+      having been carefully kept out of the front one.
+
+      Overridable so a silent install can enroll, which is the only way a fleet ever will:
+          enList-3.0.0-Setup.exe /quiet INSTALLTYPE=AgentOnly AGENT_CPURL=... AGENT_JOINTOKEN=enlj_...
+    -->
+    <Variable Name="AGENT_JOINTOKEN" bal:Overridable="yes" Type="string" Value="" Hidden="yes" />
+
+    <!--
       Every property section 10 documents, declared here so the bundle can pass it on and a silent
       command line can set it. A variable that is not declared is silently ignored by Burn, which is
       the failure mode this list exists to prevent: the install succeeds and the service is
@@ -126,7 +143,13 @@
     <Variable Name="CP_DATADIR" bal:Overridable="yes" Type="string" Value="" />
     <Variable Name="CP_URLS" bal:Overridable="yes" Type="string" Value="https://+:5293" />
     <Variable Name="CP_ACCOUNT" bal:Overridable="yes" Type="string" Value="NT AUTHORITY\NetworkService" />
-    <Variable Name="CP_PASSWORD" bal:Overridable="yes" Type="string" Value="" />
+    <!--
+      Hidden, all three, because Burn writes every variable into its log when it shuts down and that
+      log is a world-readable file in %TEMP%. The MSIs already mark these Property Hidden="yes", so
+      the MSI log was clean - the BUNDLE log was not, and a silent install passing a service account
+      password would have disclosed it there. Found by the check that asserts it.
+    -->
+    <Variable Name="CP_PASSWORD" bal:Overridable="yes" Type="string" Value="" Hidden="yes" />
 
     <Variable Name="DB_SERVER" bal:Overridable="yes" Type="string" Value="" />
     <Variable Name="DB_NAME" bal:Overridable="yes" Type="string" Value="EnlistControlPlane" />
@@ -137,7 +160,7 @@
     <Variable Name="PORTAL_URLS" bal:Overridable="yes" Type="string" Value="https://+:5231" />
     <Variable Name="PORTAL_CPURL" bal:Overridable="yes" Type="string" Value="" />
     <Variable Name="PORTAL_ACCOUNT" bal:Overridable="yes" Type="string" Value="NT AUTHORITY\NetworkService" />
-    <Variable Name="PORTAL_PASSWORD" bal:Overridable="yes" Type="string" Value="" />
+    <Variable Name="PORTAL_PASSWORD" bal:Overridable="yes" Type="string" Value="" Hidden="yes" />
 
     <Variable Name="AGENT_INSTALLDIR" bal:Overridable="yes" Type="string" Value="" />
     <Variable Name="AGENT_DATADIR" bal:Overridable="yes" Type="string" Value="" />
@@ -146,7 +169,7 @@
     <Variable Name="AGENT_ENGINE" bal:Overridable="yes" Type="string" Value="" />
     <Variable Name="AGENT_IMAGE" bal:Overridable="yes" Type="string" Value="enlist/runner:$(ProductVersion)" />
     <Variable Name="AGENT_ACCOUNT" bal:Overridable="yes" Type="string" Value="LocalSystem" />
-    <Variable Name="AGENT_PASSWORD" bal:Overridable="yes" Type="string" Value="" />
+    <Variable Name="AGENT_PASSWORD" bal:Overridable="yes" Type="string" Value="" Hidden="yes" />
 
     <Chain>
       <PackageGroupRef Id="Prerequisites" />

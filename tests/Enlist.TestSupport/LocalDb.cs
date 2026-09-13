@@ -128,7 +128,7 @@ public static class LocalDb
     /// Never throws: a failed cleanup must not turn a passing test red, or mask why a failing one
     /// failed. It reports instead, via <see cref="ReportLeakedDatabases"/> at process exit.
     /// </summary>
-    internal static async Task DropDatabaseAsync(string databaseName)
+    public static async Task DropDatabaseAsync(string databaseName)
     {
         const int attempts = 4;
         Exception? lastError = null;

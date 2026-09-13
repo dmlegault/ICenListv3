@@ -1,8 +1,9 @@
 using System.Runtime.Versioning;
-using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
+
+using Enlist.ControlPlane.Contracts;
 
 namespace Enlist.Agent.Credentials;
 
@@ -24,11 +25,32 @@ public sealed class AgentCredentialStore
     public const string FileName = "credential";
 
     public AgentCredentialStore(string dataRoot)
+        : this(dataRoot, null)
+    {
+    }
+
+    /// <summary>
+    /// <paramref name="alsoReadableBy"/> exists for ONE caller: the installer, enrolling this agent
+    /// before its service has ever run.
+    ///
+    /// The readers below are SYSTEM, Administrators, and whoever is writing the file. That is right
+    /// when the agent enrols itself, because the writer IS the service account. It is wrong when the
+    /// installer does it: the writer is the elevated account running setup, and a service configured
+    /// to run as anything other than LocalSystem or an administrator would then find a credential
+    /// file it cannot open - an install that looks clean and a service that will not start.
+    ///
+    /// So the account the service will run as is granted explicitly at enrollment time. Null, or one
+    /// of the built-in accounts already covered, adds nothing.
+    /// </summary>
+    public AgentCredentialStore(string dataRoot, string? alsoReadableBy)
     {
         Path = System.IO.Path.Combine(dataRoot, FileName);
+        AlsoReadableBy = string.IsNullOrWhiteSpace(alsoReadableBy) ? null : alsoReadableBy.Trim();
     }
 
     public string Path { get; }
+
+    private string? AlsoReadableBy { get; }
 
     /// <summary>The stored token, or null when this agent has never enrolled. A file that exists but cannot be read is an <see cref="AgentStartupException"/> that names the file and the fix - never a silent null that would look like "never enrolled".</summary>
     public string? Load()
@@ -80,14 +102,9 @@ public sealed class AgentCredentialStore
 
         var protectedBytes = ProtectedData.Protect(Encoding.UTF8.GetBytes(token), optionalEntropy: null, DataProtectionScope.LocalMachine);
 
-        var security = new FileSecurity();
-        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-        foreach (var identity in Readers())
-        {
-            security.AddAccessRule(new FileSystemAccessRule(identity, FileSystemRights.FullControl, AccessControlType.Allow));
-        }
+        var security = WindowsSecrets.ClosedTo(Readers());
 
-        using var stream = new FileInfo(Path).Create(FileMode.CreateNew, FileSystemRights.Write | FileSystemRights.Synchronize, FileShare.None, 4096, FileOptions.None, security);
+        using var stream = new FileInfo(Path).Create(FileMode.CreateNew, System.Security.AccessControl.FileSystemRights.Write | System.Security.AccessControl.FileSystemRights.Synchronize, FileShare.None, 4096, FileOptions.None, security);
         stream.Write(protectedBytes);
     }
 
@@ -109,17 +126,26 @@ public sealed class AgentCredentialStore
         }
     }
 
-    /// <summary>SYSTEM, the local Administrators group, and whoever this process runs as - the service account, or the developer at a terminal. Duplicates (a service running as SYSTEM) merge.</summary>
+    /// <summary>
+    /// SYSTEM, the local Administrators group, whoever this process runs as - the service account, or
+    /// the developer at a terminal - and, when the installer says so, the account the service is
+    /// about to run as. Duplicates (a service running as SYSTEM) merge.
+    ///
+    /// Shared with the portal, which writes its own secret and meets the same trap: the built-in
+    /// service accounts are spelled in ways the account database does not recognise.
+    /// </summary>
     [SupportedOSPlatform("windows")]
-    private static IEnumerable<SecurityIdentifier> Readers()
+    private IEnumerable<SecurityIdentifier> Readers()
     {
-        yield return new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
-        yield return new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
-
-        using var current = WindowsIdentity.GetCurrent();
-        if (current.User is { } user)
+        // Wrapped so an unresolvable account reads as a reason the AGENT will not start, which is
+        // what every other failure in this class reads as.
+        try
         {
-            yield return user;
+            return WindowsSecrets.Readers(AlsoReadableBy).ToList();
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new AgentStartupException(ex.Message);
         }
     }
 }

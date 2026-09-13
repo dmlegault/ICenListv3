@@ -5,7 +5,7 @@ Three projects. The split between them is one line: **what can be tested, and wh
 | Project | Target | What it is |
 |---|---|---|
 | `Enlist.Installer.Detection` | `netstandard2.0` + `net472` | Every decision the installer makes. No UI, no engine. |
-| `Enlist.Installer.Detection.Tests` | `net10.0` | 57 cases over the above, several against this machine. |
+| `Enlist.Installer.Detection.Tests` | `net10.0` | 90 cases over the above, several against this machine. |
 | `Enlist.Installer.Ba` | `net472` WPF, `WinExe` | The wizard Burn runs. Binding and navigation only. |
 
 A Burn bootstrapper cannot be exercised by a test — it is a process started by a native host inside an elevated install. So anything with a judgement in it lives in the detection library, where a test can reach it, and the wizard is left holding as close to nothing as it can be.
@@ -100,7 +100,7 @@ cd installer
 .\verify.ps1
 ```
 
-38 methods, 57 cases. `InstallPlanTests` is the bulk of it — page flow, blocking reasons, and the variable dictionary. `ProbeTests` uses a stub `HttpMessageHandler` for `/health` and `SkippableFact` for anything needing a real SQL Server. `RuntimeDetectionTests` and `ContainerEngineDetectionTests` run against this machine and skip rather than fail where it cannot answer.
+55 methods, 90 cases. `InstallPlanTests` is the bulk of it — page flow, blocking reasons, and the variable dictionary. `ProbeTests` uses a stub `HttpMessageHandler` for `/health` and `SkippableFact` for anything needing a real SQL Server. `RuntimeDetectionTests` and `ContainerEngineDetectionTests` run against this machine and skip rather than fail where it cannot answer.
 
 Not in `enList_v3.slnx`, for the same reason the rest of `installer\` is not: it belongs to an artifact built deliberately, not on every inner loop.
 
@@ -146,6 +146,37 @@ Welcome, install type, prerequisites, control plane, database, portal, agent, re
 
 Passwords are handled in `WizardWindow.xaml.cs`, which is the one thing that belongs in code-behind: `PasswordBox.Password` is deliberately not a dependency property, so WPF will not let a password into the binding system where a snapshot of the visual tree could reach it.
 
+## After the packages: the part only a bootstrapper can do
+
+The MSIs lay down files and create **stopped** services, and nothing else. Everything in section 8 happens here, in every display mode — a silent install needs its credentials as much as a watched one, so `InstallPlan.FromVariables` rebuilds the plan from the bundle's own variables when there is no wizard to have assembled one.
+
+`PostInstall.Steps(plan)` returns them in order, and the order is a dependency chain:
+
+| Step | Runs | When |
+|---|---|---|
+| `ApplySchema` | `Enlist.ControlPlane.exe apply-schema` | a control plane is being installed |
+| `CreatePortalKey` | `Enlist.ControlPlane.exe create-api-key --name portal --role Operator --expires never` | control plane **and** portal |
+| `StorePortalKey` | `Enlist.Portal.exe protect <key> --store` | the same |
+| `EnrollAgent` | `enlist-agent enroll --join-token <token>` | an agent, and a token was given |
+
+**`apply-schema` is new, and the design did not call for it.** `create-api-key` writes to the database directly, so on a fresh machine there is no schema to write to — and the control plane deliberately refuses to migrate itself outside Development, because creating a database and altering tables need rights an application login should not hold. The verb is the deploy step `Deployment-IaC` §1.4 already asked for, run by an installer that is already elevated.
+
+**The portal's key is only minted where the control plane is.** A split-tier portal is told on the Finish page that an Operator must supply one; trying here would mean reaching a database this machine has no business reaching.
+
+**Only enrollment is optional**, and that is about what a failure means rather than importance. A schema that will not apply means the control plane cannot work. Enrollment failing usually means the control plane is not running yet — which on a single-box install it certainly is not, because every service here is created stopped.
+
+### Where the secrets are
+
+**Not in a `PostInstallStep`.** A step is exactly the kind of thing that ends up in a log or a progress message, so it carries no join token, no API key and no connection string. `PostInstallRunner` appends them at the moment of launching:
+
+- the **connection string** goes in the child's *environment*, never its command line, because a command line is readable out of the process list and a SQL password may be in it;
+- the **join token** goes on `enroll`'s command line for the second that process lives — as against the service command line, where `sc qc` would show it to anyone, for ever. It is a bundle variable that no package references and that the bundle declares `Hidden`, so Burn's own log prints it as asterisks;
+- the **portal's key** is passed to `protect --store` and never logged, shown or written by the bootstrapper. `Enlist.Portal.exe` writes it itself, DPAPI-protected, into its own `appsettings.json` — merged, so the logging configuration that ships beside it survives.
+
+Output is captured but reported only on *failure*, and even then only the trailing lines: `create-api-key`'s successful output **is** the key.
+
+**The ACL is the actual control.** Machine-scope DPAPI is decryptable by any process on the machine, so both secrets are written with inheritance off and an explicit reader list — SYSTEM, Administrators, the writer, and the account the service will run as. That last one is what an installer needs and a service does not: when a service writes its own secret the writer is already the reader, but here the writer is an elevated operator and the service account is a stranger to the file. `WindowsSecrets.ResolveAccount` handles the trap that makes this sharp — `LocalSystem`, the name every service definition uses, is not a name the account database knows.
+
 ## What is not here yet
 
-The parts that need a bootstrapper to exist at all, now that one does: minting a join token and exchanging it before the agent service is created, and minting the portal's key with `create-api-key` and storing it with `protect`. Both are section 8 work, and both are why the MSIs stay dumb.
+A TLS certificate for the control plane and portal listen addresses, which is why the Finish page says the services are installed and stopped rather than starting them.

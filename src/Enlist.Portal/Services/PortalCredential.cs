@@ -96,17 +96,78 @@ public static class ProtectedSettings
 
     public static bool IsVerb(string[] args) => args.Length > 0 && args[0].Equals("protect", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Enlist.Portal.exe protect &lt;secret&gt; - prints the value to put in configuration.</summary>
+    /// <summary>
+    /// <c>Enlist.Portal.exe protect &lt;secret&gt;</c> - prints the value to put in configuration.
+    ///
+    /// <c>--store [--service-account &lt;account&gt;]</c> writes it into appsettings.json beside this
+    /// executable instead of printing it, and closes the file's ACL. That is what the installer uses:
+    /// a secret that is printed has to be carried somewhere by whoever printed it, and the fewer
+    /// places the portal's key exists the better. Nothing is echoed in that mode.
+    /// </summary>
     public static int Run(string[] args)
     {
-        if (args.Length != 2 || string.IsNullOrWhiteSpace(args[1]))
+        if (args.Length < 2 || string.IsNullOrWhiteSpace(args[1]) || args[1].StartsWith("--", StringComparison.Ordinal))
         {
-            Console.Error.WriteLine("Usage: Enlist.Portal.exe protect <secret>");
-            Console.Error.WriteLine("Prints a dpapi: value for appsettings.json (ControlPlane:ApiKey), decryptable on this machine only.");
+            return Usage();
+        }
+
+        var secret = args[1];
+        var store = false;
+        string? serviceAccount = null;
+
+        for (var i = 2; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--store":
+                    store = true;
+                    break;
+                case "--service-account":
+                    if (i + 1 >= args.Length) { return Usage("--service-account needs a value."); }
+                    serviceAccount = args[++i];
+                    break;
+                default:
+                    return Usage($"unknown option '{args[i]}'.");
+            }
+        }
+
+        var value = Protect(secret);
+
+        if (!store)
+        {
+            Console.WriteLine(value);
+            return 0;
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            Console.Error.WriteLine("--store writes a Windows ACL; the portal's key can only be stored this way on Windows.");
             return 2;
         }
 
-        Console.WriteLine(Protect(args[1]));
-        return 0;
+        try
+        {
+            var path = PortalSettingsFile.Store(AppContext.BaseDirectory, value, serviceAccount);
+            Console.WriteLine($"Stored the control plane key in {path}, protected to this machine.");
+            return 0;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine($"Could not store the control plane key: {ex.Message}");
+            return 2;
+        }
+    }
+
+    private static int Usage(string? error = null)
+    {
+        if (error is not null)
+        {
+            Console.Error.WriteLine(error);
+        }
+
+        Console.Error.WriteLine("Usage: Enlist.Portal.exe protect <secret> [--store [--service-account <account>]]");
+        Console.Error.WriteLine("Prints a dpapi: value for appsettings.json (ControlPlane:ApiKey), decryptable on this machine only.");
+        Console.Error.WriteLine("--store writes it into appsettings.json beside this executable instead of printing it.");
+        return 2;
     }
 }
