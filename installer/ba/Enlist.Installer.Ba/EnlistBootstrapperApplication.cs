@@ -3,6 +3,8 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 
+using Enlist.Installer.Detection;
+
 using WixToolset.BootstrapperApplicationApi;
 
 namespace Enlist.Installer.Ba
@@ -79,6 +81,10 @@ namespace Enlist.Installer.Ba
         {
             try
             {
+                // Before Detect, in every display mode, because a package's DetectCondition is
+                // evaluated during Detect and reads whatever the variables say at that moment.
+                PublishRuntimeDetection();
+
                 if (!Interactive)
                 {
                     // Quiet or embedded: detect, plan, apply, report. The bundle's variables were set
@@ -129,6 +135,57 @@ namespace Enlist.Installer.Ba
             finally
             {
                 Trace("Run returning");
+            }
+        }
+
+        /// <summary>
+        /// Tells the engine what is actually installed, because for ASP.NET Core the engine cannot
+        /// work it out for itself.
+        ///
+        /// THE PROBLEM. A shared framework records itself as one registry value NAMED for each
+        /// version installed, with no "latest" to read. A Burn RegistrySearch can ask whether one
+        /// exact name exists and nothing else, so the bundle's own check asks for the exact patch it
+        /// ships - and a machine with 10.0.11 fails a check for 10.0.12 and downloads 11 MB it does
+        /// not need. The base runtime escaped this only because hostfxr happens to publish a Version
+        /// value that Burn can compare; ASP.NET Core has no equivalent.
+        ///
+        /// THE FIX. RuntimeDetection enumerates the key and compares properly, which is exactly the
+        /// thing a bootstrapper can do and a declarative search cannot. It has always been able to -
+        /// the Prerequisites page has been showing the right answer while the engine downloaded
+        /// anyway - so all that was missing was saying so in a variable the chain can read.
+        ///
+        /// The RegistrySearch is still there and the condition is an OR, so a bundle built with
+        /// -StandardBootstrapper keeps the old exact-patch behaviour rather than losing detection
+        /// altogether and installing the runtime every time.
+        /// </summary>
+        private void PublishRuntimeDetection()
+        {
+            try
+            {
+                var minimum = RuntimeDetection.ParseMinimum(Read("DotnetRuntimeMinimum"), new Version(10, 0, 0));
+                var aspNet = RuntimeDetection.Check(RuntimeDetection.AspNetCore, minimum);
+
+                this.engine.SetVariableString("AspNetCorePresent", aspNet.Present ? "1" : "0", formatted: false);
+                Trace("ASP.NET Core " + minimum + " or newer: " + aspNet);
+            }
+            catch (Exception ex)
+            {
+                // Detection failing must not stop an install. Left unset, the variable stays "0" and
+                // the chain falls back to the bundle's own search - which over-installs at worst.
+                Program.LogCrash(ex);
+                Trace("runtime detection failed, falling back to the bundle's own search: " + ex.Message);
+            }
+        }
+
+        private string Read(string variable)
+        {
+            try
+            {
+                return this.engine.ContainsVariable(variable) ? this.engine.GetVariableString(variable) : "";
+            }
+            catch
+            {
+                return "";
             }
         }
 

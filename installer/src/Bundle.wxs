@@ -96,6 +96,27 @@
     <Variable Name="InstallAgent" bal:Overridable="yes" Type="string" Value="0" />
 
     <!--
+      WRITTEN BY THE BOOTSTRAPPER, not by a search, and that is the whole point of it.
+
+      A Burn RegistrySearch can ask whether one exact value name exists; it cannot enumerate a key or
+      compare versions. The shared frameworks record one value per version installed, so the only
+      question the engine can ask about ASP.NET Core is "is this exact patch here" - and the answer
+      is No on a machine that has a perfectly good newer one. See Prerequisites.wxs.
+
+      Enlist.Installer.Detection.RuntimeDetection does the comparison properly and the bootstrapper
+      sets this before Detect, so the chain can finally act on the same answer the Prerequisites page
+      has been showing all along.
+
+      Not Overridable: this is a detected fact, not a preference. Anyone who genuinely wants to force
+      the runtime in or out has the package's own install condition for it.
+
+      The minimum is the same value build.ps1 passes for the base runtime, surfaced here so the
+      bootstrapper reads it rather than carrying a second copy of the number.
+    -->
+    <Variable Name="AspNetCorePresent" Type="string" Value="0" />
+    <Variable Name="DotnetRuntimeMinimum" Type="string" Value="$(DotnetRuntimeMinimum)" />
+
+    <!--
       Every property section 10 documents, declared here so the bundle can pass it on and a silent
       command line can set it. A variable that is not declared is silently ignored by Burn, which is
       the failure mode this list exists to prevent: the install succeeds and the service is

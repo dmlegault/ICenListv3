@@ -449,10 +449,30 @@ else {
           .NET records itself, so Bitness="always32" is explicit documentation and emits nothing to
           assert against.
         #>
-        $detectConditions = @([regex]::Matches($manifest, 'DetectCondition="([^"]*)"') | ForEach-Object { $_.Groups[1].Value -replace '&gt;', '>' })
+        # Decoded the same way InstallCondition is above: the manifest keeps &gt; and &quot; encoded,
+        # and asserting against the encoded form tests the XML writer rather than the condition.
+        $detectConditions = @([regex]::Matches($manifest, 'DetectCondition="([^"]*)"') | ForEach-Object { ($_.Groups[1].Value -replace '&gt;', '>') -replace '&quot;', '"' })
         Assert-That (@($detectConditions | Where-Object { $_ -match 'NetCoreHostVersion >= v' }).Count -eq 1) 'the base runtime is detected by comparing a version, not by matching one patch'
         Assert-That (-not ($detectConditions | Where-Object { $_ -match '^NetCoreRuntimeDetected$' })) 'the old exact-patch check for the base runtime is gone'
         Assert-That ($manifest -match 'Key="SOFTWARE\\dotnet\\Setup\\InstalledVersions\\x64\\hostfxr"') 'it reads the host version, which is updated by every runtime install'
+
+        <#
+          ASP.NET Core cannot be compared by a RegistrySearch at all - the framework records one
+          value per version installed and nothing that names the newest, so the only question the
+          engine can ask is "is this exact patch here". On a machine with 10.0.11 that answer is No,
+          followed by an 11 MB download of something it already has a newer copy of.
+
+          The bootstrapper sets AspNetCorePresent from a real comparison before Detect. Both halves
+          of the OR are asserted: the variable because it is the fix, and the search because it is
+          the fallback that keeps -StandardBootstrapper builds detecting anything at all.
+        #>
+        $aspNet = @($detectConditions | Where-Object { $_ -match 'AspNetCore' })
+        Assert-That ($aspNet.Count -eq 1) 'ASP.NET Core has exactly one detect condition'
+        Assert-That ($aspNet[0] -match 'AspNetCorePresent = "1"') 'ASP.NET Core detection asks the bootstrapper, which can compare versions'
+        Assert-That ($aspNet[0] -match 'AspNetCoreRuntimeDetected') 'the registry search is kept as the fallback for a standard-bootstrapper build'
+        # Id, not Name: <Variable Name="..."> in the source is emitted as Id in the Burn manifest.
+        Assert-That ($manifest -match '<Variable[^>]*Id="AspNetCorePresent"') 'the variable the bootstrapper writes is declared by the bundle'
+        Assert-That ($manifest -match '<Variable[^>]*Id="DotnetRuntimeMinimum"') 'the minimum is published to the bootstrapper rather than duplicated in it'
     }
     finally { Remove-Item -Recurse -Force $extract -ErrorAction SilentlyContinue }
 }

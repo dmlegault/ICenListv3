@@ -63,18 +63,23 @@
       Result="value" />
 
     <!--
-      ASP.NET CORE has no equivalent. Its only record is the same list of version-named DWORDs, so the
-      only question Burn can ask is whether one exact patch is present - and this one still asks it.
+      ASP.NET CORE has no equivalent to hostfxr's Version. Its only record is the same list of
+      version-named DWORDs, so the only question a RegistrySearch can ask is whether one exact patch
+      is present - and on a machine with 10.0.11 the answer to "is 10.0.12 here" is No, followed by
+      an 11 MB download nobody needed.
 
-      Kept exact on purpose rather than approximated. The near-miss alternatives ("the ASP.NET Core
-      folder exists AND the host is 10.x") are wrong precisely on the machine that has ASP.NET Core 8
-      and a bare .NET 10 runtime, and being wrong THAT way produces a control plane that installs and
-      never starts. Being wrong this way costs 11 MB on the one box that hosts enList, never on an
-      agent: the install condition below keeps this package out of every agent-only install.
+      THIS SEARCH IS NO LONGER THE ANSWER, ONLY THE FALLBACK. The bootstrapper sets AspNetCorePresent
+      before Detect, from RuntimeDetection, which enumerates the key and compares versions the way a
+      declarative search cannot. The DetectCondition below is an OR of the two, so:
 
-      The proper fix is detection in the bootstrapper, which can enumerate the key and compare
-      properly - Enlist.Installer.Detection.RuntimeDetection already does exactly that, with tests.
-      This becomes a variable the wizard sets as soon as the wizard is wired in.
+        - the wizard's answer wins when there is a wizard, which is every bundle built normally;
+        - a bundle built with -StandardBootstrapper still detects the exact patch, which
+          over-installs at worst rather than losing detection completely.
+
+      Kept exact rather than approximated, for the fallback's sake. The near-miss alternatives ("the
+      ASP.NET Core folder exists AND the host is 10.x") are wrong precisely on the machine that has
+      ASP.NET Core 8 and a bare .NET 10 runtime, and being wrong THAT way produces a control plane
+      that installs and never starts.
     -->
     <util:RegistrySearch
       Id="SearchAspNetCoreRuntime"
@@ -126,7 +131,7 @@
         Vital="yes"
         Cache="remove"
         PerMachine="yes"
-        DetectCondition="AspNetCoreRuntimeDetected"
+        DetectCondition="AspNetCorePresent = &quot;1&quot; OR AspNetCoreRuntimeDetected"
         InstallCondition="INSTALLTYPE = &quot;Server&quot; OR InstallControlPlane = &quot;1&quot; OR InstallPortal = &quot;1&quot;"
         InstallArguments="/install /quiet /norestart"
         RepairArguments="/repair /quiet /norestart"

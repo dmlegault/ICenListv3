@@ -5,7 +5,7 @@ Three projects. The split between them is one line: **what can be tested, and wh
 | Project | Target | What it is |
 |---|---|---|
 | `Enlist.Installer.Detection` | `netstandard2.0` + `net472` | Every decision the installer makes. No UI, no engine. |
-| `Enlist.Installer.Detection.Tests` | `net10.0` | 46 cases over the above, several against this machine. |
+| `Enlist.Installer.Detection.Tests` | `net10.0` | 57 cases over the above, several against this machine. |
 | `Enlist.Installer.Ba` | `net472` WPF, `WinExe` | The wizard Burn runs. Binding and navigation only. |
 
 A Burn bootstrapper cannot be exercised by a test — it is a process started by a native host inside an elevated install. So anything with a judgement in it lives in the detection library, where a test can reach it, and the wizard is left holding as close to nothing as it can be.
@@ -32,7 +32,17 @@ Enlist.Installer.Ba.exe           a SEPARATE PROCESS, talking back over a pipe
 
 **AnyCPU with `Prefer32Bit` off.** A `net472` WPF project prefers 32-bit by default. An x86 assembly under an x64 engine fails identically to the above, which is a confusing way to learn about a platform target.
 
-**`Main` must not be `[STAThread]`** — the opposite of what a WPF entry point usually wants. The host has already initialised COM on that thread, so marking it STA fails with `RPC_E_CHANGED_MODE` and the process exits before a window can exist. `EnlistBootstrapperApplication.Run` starts its own STA thread for the WPF `Application`, captures that thread's `Dispatcher`, and marshals every engine callback onto it.
+**`Main` must not be `[STAThread]`** — the opposite of what a WPF entry point usually wants. The host has already initialised COM on that thread, so marking it STA fails with `RPC_E_CHANGED_MODE` and the process exits before a window can exist.
+
+**But `Run()` is already on an STA thread, and must not start another.** The base class's `OnStartup` does this and returns:
+
+```csharp
+Thread uiThread = new Thread(this.Run);
+uiThread.SetApartmentState(ApartmentState.STA);
+uiThread.Start();
+```
+
+So `Run()` builds the window, captures `Dispatcher.CurrentDispatcher`, calls `Dispatcher.Run()`, and every engine callback marshals back onto that.
 
 **`net472`, and not by preference.** The BA runs *before* the prerequisites it exists to install. It cannot need .NET 10 — it would be asking the machine for the thing it is there to provide. .NET Framework 4.7.2 is inbox on every supported Windows, so it is the one runtime that can be assumed.
 
@@ -59,7 +69,11 @@ Enlist.Installer.Ba.exe           a SEPARATE PROCESS, talking back over a pipe
 
 Four things it finds out about a machine, two it proves about what was typed, and one it computes.
 
-**`RuntimeDetection`** reads the registry shape the .NET installers actually write: one DWORD per version under `SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\<framework>`, with no "latest" to read. `InstalledVersions` enumerates and `Check` compares properly against a minimum — which is precisely the thing the *bundle's* own `RegistrySearch` could not do, and why a machine with 10.0.3 once downloaded 10.0.12 it did not need (see `src/Prerequisites.wxs`). `CheckNetFramework472` covers the legacy runner's requirement.
+**`RuntimeDetection`** reads the registry shape the .NET installers actually write: one DWORD per version under `SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\<framework>`, with no "latest" to read. `InstalledVersions` enumerates and `Check` compares properly against a minimum — precisely the thing a Burn `RegistrySearch` cannot do, since it can only ask whether one exact value name exists.
+
+**That is not just for the page any more.** `PublishRuntimeDetection` in the BA sets the `AspNetCorePresent` bundle variable from this, before `Detect`, and the ASP.NET Core package's `DetectCondition` reads it. Without that, a machine with 10.0.11 failed the bundle's check for 10.0.12 and downloaded 11 MB it already had a newer copy of. `ParseMinimum` takes the minimum as it arrives from a Burn variable and falls back rather than throwing — this runs before any window exists, so an exception would reach the operator as nothing but a closed pipe.
+
+`CheckNetFramework472` covers the legacy runner's requirement.
 
 **`ContainerEngineDetection`** probes `wslc` and `docker` with a 10 second timeout. Neither is required; the first available one becomes the Agent page's default, and none is a perfectly good answer.
 
@@ -86,7 +100,7 @@ cd installer
 .\verify.ps1
 ```
 
-34 methods, 46 cases. `InstallPlanTests` is the bulk of it — page flow, blocking reasons, and the variable dictionary. `ProbeTests` uses a stub `HttpMessageHandler` for `/health` and `SkippableFact` for anything needing a real SQL Server. `RuntimeDetectionTests` and `ContainerEngineDetectionTests` run against this machine and skip rather than fail where it cannot answer.
+38 methods, 57 cases. `InstallPlanTests` is the bulk of it — page flow, blocking reasons, and the variable dictionary. `ProbeTests` uses a stub `HttpMessageHandler` for `/health` and `SkippableFact` for anything needing a real SQL Server. `RuntimeDetectionTests` and `ContainerEngineDetectionTests` run against this machine and skip rather than fail where it cannot answer.
 
 Not in `enList_v3.slnx`, for the same reason the rest of `installer\` is not: it belongs to an artifact built deliberately, not on every inner loop.
 
@@ -135,5 +149,3 @@ Passwords are handled in `WizardWindow.xaml.cs`, which is the one thing that bel
 ## What is not here yet
 
 The parts that need a bootstrapper to exist at all, now that one does: minting a join token and exchanging it before the agent service is created, and minting the portal's key with `create-api-key` and storing it with `protect`. Both are section 8 work, and both are why the MSIs stay dumb.
-
-One thing the wizard can now fix that the bundle cannot. `Prerequisites.wxs` still detects ASP.NET Core by matching one exact patch, because a Burn `RegistrySearch` cannot compare versions — so a machine with 10.0.11 downloads 10.0.12 it does not need. `RuntimeDetection.Check` already compares properly, and the Prerequisites page already shows the right answer; what remains is setting a bundle variable from it so the engine agrees with the page.

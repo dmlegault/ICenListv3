@@ -17,7 +17,7 @@ Four directories are source and four are build output. Nothing under the second 
 | | | |
 |---|---|---|
 | `src\` | **source** | The WiX. Three `.wxs` packages, `Bundle.wxs` for the Burn bundle, `Prerequisites.wxs` for the two .NET runtimes it chains, and `Common.wxi` for what all of them share (manufacturer, the three service names). |
-| `ba\` | **source** | The bootstrapper application: the wizard, the detection library behind it, and that library's tests. Three projects and a hosting contract with sharp edges — [`ba\README.md`](ba/README.md) covers it. Not built by `build.ps1`; nothing consumes it yet. |
+| `ba\` | **source** | The bootstrapper application: the wizard, the detection library behind it, and that library's tests. Three projects and a hosting contract with sharp edges — [`ba\README.md`](ba/README.md) covers it. `build.ps1` builds it first and hands the bundle its output folder. |
 | `tools\` | **source** | `refresh-prerequisites.ps1`, which regenerates the download URLs, SHA-512 hashes and sizes in `Prerequisites.wxs` when the required .NET patch changes. Run it on purpose, then commit what it wrote. |
 | `.config\` | **source** | `dotnet-tools.json`, which pins WiX 5. This is what makes the build reproducible rather than dependent on whatever `wix` happens to be on the machine. |
 | `publish\` | *output* | `dotnet publish` of each component, one folder per component, including both runners. The input to harvesting. |
@@ -32,7 +32,7 @@ Four directories are source and four are build output. Nothing under the second 
 ```powershell
 .\build.ps1              # publish everything, build the MSIs, then the bundle
 .\build.ps1 -SkipPublish # reuse publish\, for when only the WiX changed
-.\verify.ps1             # 46 detection tests + 56 installer checks
+.\verify.ps1             # 57 detection tests + 61 installer checks
 .\verify.ps1 -Live       # really install, upgrade and uninstall (elevated shell)
 ```
 
@@ -90,7 +90,7 @@ Section 4 names the ASP.NET Core **Hosting Bundle** as the prerequisite for the 
 
 ## The wizard, in `ba\`
 
-Three projects, split on one line: what can be tested, and what cannot. `Enlist.Installer.Detection` holds every decision and has 46 tests over it; `Enlist.Installer.Ba` is the WPF shell and holds none, because a bootstrapper's pages cannot be exercised by a test.
+Three projects, split on one line: what can be tested, and what cannot. `Enlist.Installer.Detection` holds every decision and has 57 tests over it; `Enlist.Installer.Ba` is the WPF shell and holds none, because a bootstrapper's pages cannot be exercised by a test.
 
 **It is what the bundle chains.** Eight pages, styled to the portal's own palette, with `build.ps1 -StandardBootstrapper` as the way back to the stock WixStdBA if it ever regresses. A silent install reaches no window under either one, so the surface in section 10 is unaffected by the choice.
 

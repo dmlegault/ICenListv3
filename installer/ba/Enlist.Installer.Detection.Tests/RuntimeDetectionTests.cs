@@ -80,6 +80,61 @@ public sealed class RuntimeDetectionTests
         Assert.Contains("need 3.0.0", absurdlyOld.Detail);
     }
 
+    [Theory]
+    [InlineData("10.0.5", "10.0.5")]
+    [InlineData("  10.0.5  ", "10.0.5")]
+    [InlineData("10.0", "10.0")]
+    public void A_minimum_that_parses_is_used(string text, string expected)
+    {
+        Assert.Equal(Version.Parse(expected), RuntimeDetection.ParseMinimum(text, new Version(9, 9, 9)));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    [InlineData("latest")]
+    [InlineData("10.0.x")]
+    [InlineData("not a version at all")]
+    public void A_minimum_that_does_not_parse_falls_back_rather_than_throwing(string? text)
+    {
+        // This value arrives from a Burn variable and is read BEFORE the wizard is on screen. An
+        // exception here would end the bootstrapper process, and all the engine could report is
+        // 0x800700e8, a closed pipe - so a mistyped version number would look exactly like a crash.
+        var fallback = new Version(10, 0, 0);
+        Assert.Equal(fallback, RuntimeDetection.ParseMinimum(text!, fallback));
+    }
+
+    [Fact]
+    public void A_minimum_with_no_fallback_to_fall_back_to_is_a_programming_error()
+    {
+        Assert.Throws<ArgumentNullException>(() => RuntimeDetection.ParseMinimum("nonsense", null!));
+    }
+
+    [SkippableFact]
+    [SupportedOSPlatform("windows")]
+    public void Asp_net_core_is_judged_by_comparison_rather_than_by_an_exact_patch()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "The registry is a Windows facility.");
+
+        var installed = RuntimeDetection.InstalledVersions(RuntimeDetection.AspNetCore);
+        var ten = installed.FirstOrDefault(v => v.Major == 10);
+        Skip.If(ten is null, "This machine has no ASP.NET Core 10 runtime.");
+
+        // The defect this replaced: the bundle asked whether one exact patch was present, so a
+        // machine with 10.0.11 failed a check for 10.0.12 and downloaded a runtime it already had a
+        // newer copy of. Asking for a patch OLDER than the installed one has to succeed.
+        var older = new Version(ten!.Major, ten.Minor, 0);
+        Assert.True(
+            RuntimeDetection.Check(RuntimeDetection.AspNetCore, older).Present,
+            "ASP.NET Core " + ten + " is installed, so " + older + " or newer must be satisfied.");
+
+        // And a patch NEWER than anything installed must not be, or the check would wave through a
+        // machine that genuinely needs the download.
+        var newer = new Version(ten.Major, ten.Minor, ten.Build + 1000);
+        Assert.False(RuntimeDetection.Check(RuntimeDetection.AspNetCore, newer).Present);
+    }
+
     [SkippableFact]
     [SupportedOSPlatform("windows")]
     public void Net_framework_472_is_reported_with_its_release_number()

@@ -123,6 +123,31 @@ namespace Enlist.Installer.Detection
         }
 
         /// <summary>
+        /// The minimum to compare against, as it arrives from a Burn variable: a string, possibly
+        /// empty, possibly nonsense, and read before there is any window to report a problem in.
+        ///
+        /// Anything unparseable falls back rather than throwing. An exception here would be thrown
+        /// from the bootstrapper's detection, which runs before the wizard is on screen, so it would
+        /// end the process and reach the engine as a closed pipe - the bundle would look like it had
+        /// crashed because someone mistyped a version number.
+        /// </summary>
+        public static Version ParseMinimum(string text, Version fallback)
+        {
+            if (fallback == null)
+            {
+                throw new ArgumentNullException(nameof(fallback));
+            }
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return fallback;
+            }
+
+            Version parsed;
+            return Version.TryParse(text.Trim(), out parsed) ? parsed : fallback;
+        }
+
+        /// <summary>
         /// .NET Framework 4.7.2 or newer, which the agent needs ONLY to host net472 applications
         /// through the legacy runner. Informational on the Prerequisites page: its absence never
         /// blocks an install, it just means net472 policy rules on this agent will fail with a clear
