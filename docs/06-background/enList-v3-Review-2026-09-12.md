@@ -304,5 +304,5 @@ Done:
 16. ~~§9 — the coverage gaps. A successful package DELETE closed in `c257f06`; the rest in `ebf6bcb`, which found one defect (refused writes were never audited) and one new test that proved nothing until it was made falsifiable.~~ `ebf6bcb`
 
 **Nothing is left. Every section of this review is complete.** What it cost, for the next one: 16 batches
-over two days, 299 tests at the end against 232 at the start, two high-severity CVEs, one repository
+over two days, 290 tests at the end against 232 at the start, two high-severity CVEs, one repository
 repair, two review findings that were themselves WRONG and are annotated where a reader meets them.
