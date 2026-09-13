@@ -55,10 +55,21 @@ public abstract class CliContainerEngineBase
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            KillQuietly(process);
             throw new TimeoutException(
                 $"'{Executable} {args[0]}' did not finish within {(timeout ?? CommandTimeout).TotalSeconds:0}s - the container engine is not answering. " +
                 "Check that the engine is running and responsive.");
+        }
+        finally
+        {
+            // In the finally, not only on the timeout path. The CALLER's token cancels on shutdown,
+            // and that threw straight out of here with the CLI still running - so a stop that raced
+            // the agent's own shutdown left a `docker wait` or a `wslc inspect` behind, owned by
+            // nobody, for as long as the engine took to answer. The timeout path killed it; the
+            // cancellation path, which is the common one, did not.
+            //
+            // Killing a CLI is always safe: it is a client. The container it was asking about is
+            // unaffected, which is what makes this the right thing to do on every abandoned wait.
+            KillQuietly(process);
         }
 
         return (process.ExitCode, await stdout.ConfigureAwait(false), await stderr.ConfigureAwait(false));

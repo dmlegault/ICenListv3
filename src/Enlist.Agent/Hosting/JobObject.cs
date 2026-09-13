@@ -24,7 +24,8 @@ namespace Enlist.Agent.Hosting;
 [SupportedOSPlatform("windows")]
 public sealed class JobObject : IDisposable
 {
-    private readonly IntPtr _handle;
+    /// <summary>Cleared to Zero by Dispose, so the handle is closed exactly once - see Dispose. Not readonly for that reason alone.</summary>
+    private IntPtr _handle;
 
     public JobObject()
     {
@@ -75,9 +76,17 @@ public sealed class JobObject : IDisposable
 
     public void Dispose()
     {
-        if (_handle != IntPtr.Zero)
+        // The handle is cleared as it is closed, so a second Dispose is a no-op rather than a second
+        // CloseHandle on the same value. That matters more here than almost anywhere else in the
+        // agent: this handle is what kills every runner when the agent dies, and Windows recycles
+        // handle values - closing a stale one can close whatever now holds that number.
+        //
+        // Reachable, not theoretical: AgentHost.StopAsync disposes it, and DisposeAsync used to call
+        // StopAsync again.
+        var handle = Interlocked.Exchange(ref _handle, IntPtr.Zero);
+        if (handle != IntPtr.Zero)
         {
-            CloseHandle(_handle);
+            CloseHandle(handle);
         }
     }
 

@@ -89,6 +89,27 @@ public sealed class ControlPlaneReconciliationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Stopping_an_agent_twice_is_safe_even_with_a_live_control_plane_connection()
+    {
+        // The local-only disposal tests cannot reach this: with a StaticAssignmentSource there is no
+        // IAsyncDisposable collaborator to double-dispose. ControlPlaneAssignmentSource is the one
+        // that threw - its second pass called Cancel on an already-disposed CancellationTokenSource -
+        // and it is only present when the agent is actually attached to a control plane, which is the
+        // configuration every real deployment runs.
+        var appName = RepoPaths.UniqueAppName();
+        await CreatePolicyAsync(appName);
+
+        var host = await StartAgentAsync();
+        Assert.True(host.Instances.ContainsKey(appName));
+
+        await host.StopAsync();
+        await host.StopAsync();
+        await host.DisposeAsync();
+
+        _host = null;
+    }
+
+    [Fact]
     public async Task The_control_plane_is_told_the_agent_stopped_before_the_agent_exits()
     {
         // The agent's last word, and until 2026-09-12 it was never spoken. StopAsync cancels the

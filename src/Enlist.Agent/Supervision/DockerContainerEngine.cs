@@ -140,7 +140,15 @@ public sealed class DockerContainerEngine : CliContainerEngineBase, IContainerEn
         // performs by hand, done by the engine instead. It exits 0 either way, so its exit code cannot
         // distinguish a graceful stop from a kill; the container's own exit code can. 143 is
         // 128+SIGTERM, i.e. terminated by the signal after refusing to leave; 137 is 128+SIGKILL.
-        var result = await RunCliAsync(["stop", "--timeout", seconds.ToString(CultureInfo.InvariantCulture), containerId], ct).ConfigureAwait(false);
+        // The CLI is given the grace period PLUS the ordinary command budget, because this is the one
+        // call whose duration the caller chooses. Left at the flat 60 s default, any StopGracePeriod
+        // near or above it had the agent kill the CLI before the engine finished escalating - and then
+        // report the container as killed while it was in fact still shutting down, which is precisely
+        // backwards.
+        var result = await RunCliAsync(
+            ["stop", "--timeout", seconds.ToString(CultureInfo.InvariantCulture), containerId],
+            ct,
+            timeout: gracePeriod + CommandTimeout).ConfigureAwait(false);
         if (result.ExitCode != 0)
         {
             return false;

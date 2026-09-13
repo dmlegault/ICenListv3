@@ -28,6 +28,9 @@ public sealed class ContainerRunnerInstance : IRunnerInstance
     private readonly IReadOnlyList<ResolvedEndpointDto> _endpoints;
     private Task? _receiveLoop;
     private Task? _exitWatch;
+    /// <summary>0 until DisposeAsync has run. Interlocked rather than volatile: two concurrent disposals must have exactly one winner, not merely see each other eventually.</summary>
+    private int _disposed;
+
     private volatile bool _stopRequested;
     private volatile bool _hasExited;
     private volatile int _exitCode;
@@ -189,6 +192,15 @@ public sealed class ContainerRunnerInstance : IRunnerInstance
 
     public async ValueTask DisposeAsync()
     {
+        // Idempotent, because disposal is reachable from more than one direction: an orderly stop, a
+        // crash-exit handler, and AgentHost's own shutdown loop. A second pass used to call
+        // CancelAsync on the already-disposed _watchCts and throw ObjectDisposedException at whoever
+        // was tidying up.
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        {
+            return;
+        }
+
         _stopRequested = true;
 
         // Same ordering lesson as ProcessRunnerInstance: tear the far end down BEFORE draining the

@@ -185,7 +185,14 @@ public sealed class WslContainerEngine : CliContainerEngineBase, IContainerEngin
 
         // Same escalation as Docker's stop (the configured stop signal, then a kill after --time), and
         // the same reading of the exit code: 143 or 137 means it had to be signalled off.
-        var result = await RunCliAsync(["stop", "--time", seconds.ToString(CultureInfo.InvariantCulture), containerId], ct).ConfigureAwait(false);
+        //
+        // And the same budget: the grace period PLUS the ordinary command timeout, so a long
+        // StopGracePeriod cannot be cut short by the flat default and reported as a kill that the
+        // engine had not in fact performed yet.
+        var result = await RunCliAsync(
+            ["stop", "--time", seconds.ToString(CultureInfo.InvariantCulture), containerId],
+            ct,
+            timeout: gracePeriod + CommandTimeout).ConfigureAwait(false);
         if (result.ExitCode != 0)
         {
             // wslc refuses to stop a container that has already exited — which is the ordinary case

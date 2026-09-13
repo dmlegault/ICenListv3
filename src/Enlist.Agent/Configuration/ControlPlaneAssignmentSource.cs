@@ -300,12 +300,23 @@ public sealed class ControlPlaneAssignmentSource : IAssignmentSource, IAsyncDisp
 
     public async ValueTask DisposeAsync()
     {
+        // Idempotent: a second pass called Cancel on the already-disposed _lifetime and threw
+        // ObjectDisposedException. Reachable because AgentHost.StopAsync disposes this, and
+        // AgentHost.DisposeAsync used to call StopAsync a second time.
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        {
+            return;
+        }
+
         _lifetime.Cancel();
         await _hub.DisposeAsync().ConfigureAwait(false);
         _http.Dispose();
         _changeSignal.Dispose();
         _lifetime.Dispose();
     }
+
+    /// <summary>0 until DisposeAsync has run - see DisposeAsync.</summary>
+    private int _disposed;
 
     /// <summary>
     /// Never returns null, which is what SignalR reads as "give up". The stock policy stops after four

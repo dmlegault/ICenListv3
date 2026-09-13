@@ -25,6 +25,9 @@ public sealed class ProcessRunnerInstance : IRunnerInstance
     private readonly Func<IRunnerInstance, RunnerMessage, Task> _onMessage;
     private readonly Func<string, Task> _writeAgentLog;
     private Task? _receiveLoop;
+    /// <summary>0 until DisposeAsync has run - see DisposeAsync.</summary>
+    private int _disposed;
+
     private volatile bool _stopRequested;
 
     public string ApplicationName { get; }
@@ -213,6 +216,14 @@ public sealed class ProcessRunnerInstance : IRunnerInstance
 
     public async ValueTask DisposeAsync()
     {
+        // Idempotent, for the same reason ContainerRunnerInstance is: disposal is reachable from an
+        // orderly stop, a crash-exit handler and AgentHost's shutdown loop, and the second pass must
+        // not throw at whoever is tidying up.
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        {
+            return;
+        }
+
         // Defensive: normal AgentHost flow always calls StopAsync first, but a caller that disposes
         // directly (an early-failure path, a test) shouldn't have the kill below misreported as a crash.
         _stopRequested = true;

@@ -68,6 +68,9 @@ public sealed class AgentHost : IAsyncDisposable
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _lifecycleGates = new();
     private readonly SemaphoreSlim _snapshotLock = new(1, 1);
     private readonly CancellationTokenSource _shutdownCts = new();
+
+    /// <summary>0 until StopAsync has run - see StopAsync, which DisposeAsync calls straight into.</summary>
+    private int _stopped;
     private readonly List<Task> _pendingRetries = new();
     private readonly object _pendingRetriesLock = new();
     private AgentAssignments? _currentAssignments;
@@ -822,15 +825,43 @@ public sealed class AgentHost : IAsyncDisposable
     /// exception here has nowhere else to go except silently crashing the process whose entire job is
     /// keeping OTHER things alive, which would be exactly backwards.
     /// </summary>
-    private void FireAndForget(Func<Task> action)
+    /// <summary>
+    /// How many background retry/restart tasks are still in flight. Exists for one test: the entries
+    /// are completed tasks when this leaks, so nothing waits longer and nothing fails - the only
+    /// symptom is memory, on an agent that runs for months.
+    /// </summary>
+    internal int PendingRetryCount
     {
-        Task task = null!;
-        task = RunSafelyAsync();
+        get
+        {
+            lock (_pendingRetriesLock)
+            {
+                return _pendingRetries.Count;
+            }
+        }
+    }
+
+    /// <summary>Internal only so AgentDisposalTests can drive the tracking directly - see PendingRetryCount. Nothing outside this class calls it.</summary>
+    internal void FireAndForget(Func<Task> action)
+    {
+        // The tracking handle is created and registered BEFORE any work starts, so it exists however
+        // quickly the body finishes.
+        //
+        // This used to read `Task task = null!; task = RunSafelyAsync();` and register afterwards,
+        // which is a race the body wins whenever it completes synchronously - and it does, routinely:
+        // ScheduleRetryOrGiveUpAsync returns early for an application that has been deassigned or has
+        // already given up, without ever awaiting anything that yields. The finally then ran
+        // `Remove(null)`, which removed nothing, and the completed task was added a moment later and
+        // never removed. _pendingRetries grew by one dead entry per early return, for the life of the
+        // agent, and StopAsync waits on every task in it.
+        var tracked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         lock (_pendingRetriesLock)
         {
-            _pendingRetries.Add(task);
+            _pendingRetries.Add(tracked.Task);
         }
+
+        _ = RunSafelyAsync();
 
         async Task RunSafelyAsync()
         {
@@ -846,8 +877,12 @@ public sealed class AgentHost : IAsyncDisposable
             {
                 lock (_pendingRetriesLock)
                 {
-                    _pendingRetries.Remove(task);
+                    _pendingRetries.Remove(tracked.Task);
                 }
+
+                // After the removal, so a StopAsync that snapshotted the list a moment earlier still
+                // waits for this to finish rather than racing it.
+                tracked.SetResult();
             }
         }
     }
@@ -868,9 +903,16 @@ public sealed class AgentHost : IAsyncDisposable
             {
                 _scheduler?.UnregisterAll(app.Name);
                 CleanupBackendArtifacts(app.Name);
-            }
 
-            await instance.DisposeAsync().ConfigureAwait(false);
+                // Disposed only when this WAS the current instance. If it was not, a reconcile already
+                // replaced it and already disposed it as part of StopApplicationAsync - and disposing
+                // it a second time from here threw ObjectDisposedException out of CancelAsync on the
+                // instance's own CancellationTokenSource, straight into FireAndForget's catch, where
+                // it was logged as "unhandled error in a background retry/restart task" for something
+                // that was in fact an orderly replacement. The instances are idempotent now as well,
+                // but not calling it twice is the honest fix.
+                await instance.DisposeAsync().ConfigureAwait(false);
+            }
         }).ConfigureAwait(false);
 
         if (wasCurrent)
@@ -1307,6 +1349,15 @@ public sealed class AgentHost : IAsyncDisposable
 
     public async Task StopAsync()
     {
+        // Idempotent, because DisposeAsync calls straight into here and callers legitimately do both:
+        // `await using var host = ...` after an explicit StopAsync is the ordinary shape in the tests
+        // and in Program.cs. A second pass used to cancel an already-disposed token source and close
+        // the job object handle a second time.
+        if (Interlocked.Exchange(ref _stopped, 1) == 1)
+        {
+            return;
+        }
+
         _shutdownCts.Cancel();
 
         // Cancelling above unblocks any pending retry's backoff Task.Delay so it returns without

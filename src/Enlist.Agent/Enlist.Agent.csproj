@@ -49,4 +49,14 @@
     <ProjectReference Include="..\Enlist.ControlPlane.Contracts\Enlist.ControlPlane.Contracts.csproj" />
   </ItemGroup>
 
+  <!--
+    Same affordance Enlist.Runner already grants its own tests. Used for one thing: letting
+    AgentHostTests assert that the background-retry list does not grow, which is a leak with no
+    other symptom - the entries are completed tasks, so nothing waits longer and nothing fails.
+    Only memory, only over time, and only on a long-lived agent, which is where it matters most.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Enlist.Agent.Tests" />
+  </ItemGroup>
+
 </Project>

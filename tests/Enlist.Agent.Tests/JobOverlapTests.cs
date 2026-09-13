@@ -10,12 +10,21 @@ namespace Enlist.Agent.Tests;
 /// running are skipped and written down in the application's log — the run is never stacked on top of
 /// itself, which is what happened before: one more concurrent copy per tick, without bound.
 /// </summary>
-public sealed class JobOverlapTests : IAsyncDisposable
+/// <remarks>
+/// IAsyncLifetime, NOT IAsyncDisposable: xunit 2.9.3 does not invoke IAsyncDisposable on a test
+/// class. CheckModeTests and LoadFailureWarningTests both carry the same note, having both been
+/// caught by it - and this class still had the broken form, so its cleanup never ran once. Every run
+/// left the OrderProcessor runner alive (a ten-second job on a two-second cron, supervised by an
+/// AgentHost nobody stopped) and a temp directory behind it.
+/// </remarks>
+public sealed class JobOverlapTests : IAsyncLifetime
 {
     private readonly string _dataRoot = Path.Combine(Path.GetTempPath(), "enlist-overlap-tests-" + Guid.NewGuid().ToString("N"));
     private AgentHost? _host;
 
-    public async ValueTask DisposeAsync()
+    public Task InitializeAsync() => Task.CompletedTask;
+
+    public async Task DisposeAsync()
     {
         if (_host is not null)
         {
