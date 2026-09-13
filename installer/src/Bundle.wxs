@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <!--
   enList-<version>-Setup.exe - the one thing a person runs.
 
@@ -30,11 +30,38 @@
     Compressed="yes">
 
     <BootstrapperApplication>
-      <bal:WixStandardBootstrapperApplication
-        Theme="hyperlinkLicense"
-        LicenseUrl=""
-        SuppressOptionsUI="yes" />
+      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl="" SuppressOptionsUI="yes" />
     </BootstrapperApplication>
+
+    <!--
+      THE MANAGED WIZARD IS NOT WIRED IN YET, deliberately, and this is what it takes:
+
+          <BootstrapperApplication SourceFile="$(BaDir)\Enlist.Installer.Ba.exe">
+            <Payload SourceFile="$(BaDir)\mbanative.dll" />
+            <Payload SourceFile="$(BaDir)\Enlist.Installer.Detection.dll" />
+            <Payload SourceFile="$(BaDir)\WixToolset.BootstrapperApplicationApi.dll" />
+          </BootstrapperApplication>
+
+      It builds, and it launches: three things about WiX 5's hosting contract were found the hard way
+      and are fixed in ba\, each of which fails in a way that names nothing useful.
+
+        - The bootstrapper is an EXECUTABLE. Burn CreateProcessW's the primary payload, so pointing it
+          at a DLL gives ERROR_BAD_EXE_FORMAT with nothing logged about a bootstrapper at all.
+        - It must match the bundle's architecture. A net472 WPF project defaults to preferring 32-bit
+          and produced an x86 assembly under an x64 engine, which fails identically.
+        - Its entry point must NOT be [STAThread]. The host initialises COM on that thread first, so
+          marking it STA fails with RPC_E_CHANGED_MODE and the process exits before a window exists.
+          The wizard runs on its own STA thread instead.
+
+      What it does not yet do is show its window: the bundle now exits 0 without launching it, and
+      running that down needs the hosting contract confirmed against WiX's own documentation rather
+      than inferred. Until then this bundle uses the standard bootstrapper, which works, supports the
+      whole of section 10's silent surface, and is what every check in verify.ps1 runs against - so
+      the thing in out\ is always something that installs.
+    -->
+    <?ifdef UseManagedWizard ?>
+      <?error The managed wizard is not wired in yet. See the note above this line. ?>
+    <?endif ?>
 
     <!--
       Server, AgentOnly or Custom. Demo is designed separately (Demo-Install-Design.md) and is not a

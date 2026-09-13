@@ -15,7 +15,7 @@ They are designed page by page in [`Installer-UI-Design.md`](../docs/05-operatio
 ```powershell
 .\build.ps1              # publish everything, build the MSIs, then the bundle
 .\build.ps1 -SkipPublish # reuse publish\, for when only the WiX changed
-.\verify.ps1             # 48 checks, no administrator rights needed
+.\verify.ps1             # 46 detection tests + 48 installer checks
 .\verify.ps1 -Live       # really install, upgrade and uninstall (elevated shell)
 ```
 
@@ -65,8 +65,24 @@ So the offline half opens each package as a real Windows Installer session, sets
 
 Section 4 names the ASP.NET Core **Hosting Bundle** as the prerequisite for the control plane and portal. That is the right package for something hosted by IIS, and it is 117 MB against 11 MB, the difference being the IIS module. Nothing enList installs runs under IIS: the control plane and portal are Kestrel behind a Windows service, which is the only hosting the pages offer. The plain ASP.NET Core Runtime is used instead. If IIS hosting is ever offered, that is the package to revisit.
 
+## The wizard, in `ba/`
+
+Two projects, split on one line: what can be tested, and what cannot.
+
+**`Enlist.Installer.Detection`** holds every decision. The registry shape the .NET installers actually write, the `wslc` and Docker probes, how `/health` is read, which wizard pages appear for which install type, when Next is allowed and why not, and what the collected settings become on the way to Burn. 46 tests cover it, several against this machine. It targets both `net472` (what a bootstrapper can load, since it runs before .NET 10 exists) and `netstandard2.0` (what the test project can reference).
+
+**`Enlist.Installer.Ba`** is the WPF shell: the bootstrapper entry point, the engine conversation and the XAML. It holds no decisions, because a bootstrapper's pages cannot be exercised by a test.
+
+**It is not wired into the bundle yet.** It builds and it launches, and three things about WiX 5's hosting contract were found the hard way getting that far, each of which fails while naming nothing useful:
+
+- The bootstrapper is an **executable**. Burn does `CreateProcessW` on the primary payload, so pointing it at a DLL gives `ERROR_BAD_EXE_FORMAT` with nothing logged about a bootstrapper at all.
+- It must match the bundle's **architecture**. A `net472` WPF project defaults to preferring 32-bit, which put an x86 assembly under an x64 engine and failed identically.
+- Its entry point must **not** be `[STAThread]`. The host initialises COM on that thread first, so marking it STA fails with `RPC_E_CHANGED_MODE` and the process exits before a window can exist. The wizard runs on its own STA thread instead.
+
+What it does not yet do is show its window: the bundle exits 0 without launching it. Running that down needs WiX's own hosting documentation rather than more inference, so the bundle uses the standard bootstrapper until then — which works, carries the whole of section 10's silent surface, and is what every check runs against. Whatever is in `out\` always installs.
+
 ## What is not here yet
 
-The managed bootstrapper, and the wizard pages in section 6. The bundle currently uses WiX's standard bootstrapper, which gives a license page, a progress page and complete silent support — so the surface section 10 specifies, and the one an IaC pipeline actually calls, is finished and tested without any custom UI existing. What the standard bootstrapper cannot do is the interactive part: verifying a URL with a spinner, testing a database connection, detecting `wslc` and Docker and greying out what is missing, and minting a join token and the portal's key before the services are created.
+Wiring the wizard in, and the pages beyond install type, prerequisites, agent and ready. Then the parts that need the bootstrapper to exist at all: minting a join token and exchanging it before the agent service is created, and minting the portal's key with `create-api-key` and storing it with `protect`.
 
 Also outstanding: upgrade and repair verification across all three packages rather than the agent alone, and the open decisions in section 12, including code signing, which nothing here does.

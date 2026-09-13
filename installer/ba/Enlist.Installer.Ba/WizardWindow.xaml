@@ -1,0 +1,237 @@
+<Window x:Class="Enlist.Installer.Ba.WizardWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:detection="clr-namespace:Enlist.Installer.Detection;assembly=Enlist.Installer.Detection"
+        Title="enList Setup" Height="560" Width="760"
+        WindowStartupLocation="CenterScreen" ResizeMode="CanResize" MinHeight="480" MinWidth="640">
+
+    <!--
+        One window, one page at a time, chosen by the view model rather than by navigation history.
+        Which pages exist is InstallPlan.Pages(), so a component that is not being installed has no
+        page rather than a skipped one.
+    -->
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="Visible" />
+
+        <Style TargetType="TextBlock" x:Key="Heading">
+            <Setter Property="FontSize" Value="20" />
+            <Setter Property="Margin" Value="0,0,0,4" />
+        </Style>
+        <Style TargetType="TextBlock" x:Key="Explain">
+            <Setter Property="Foreground" Value="#555" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,0,0,16" />
+        </Style>
+        <Style TargetType="TextBlock" x:Key="Label">
+            <Setter Property="Margin" Value="0,8,12,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Margin" Value="0,8,0,0" />
+            <Setter Property="Padding" Value="4,3" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+    </Window.Resources>
+
+    <DockPanel Margin="0">
+        <Border DockPanel.Dock="Bottom" Background="#F3F3F3" BorderBrush="#DDD" BorderThickness="0,1,0,0" Padding="16,12">
+            <DockPanel>
+                <!-- Why Next is disabled, beside Next, because a greyed-out button with no reason is the worst thing a page can do. -->
+                <TextBlock DockPanel.Dock="Left" Text="{Binding NextBlockedBecause}" Foreground="#A33"
+                           VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="420" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Back" Command="{Binding BackCommand}" Width="90" Height="30" Margin="0,0,8,0" />
+                    <Button Content="Next" Command="{Binding NextCommand}" Width="90" Height="30" Margin="0,0,8,0" IsDefault="True" />
+                    <Button Content="Cancel" Command="{Binding CancelCommand}" Width="90" Height="30" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <Grid Margin="24,20">
+            <!-- Welcome -->
+            <StackPanel Visibility="{Binding OnWelcome, Converter={StaticResource Visible}}">
+                <TextBlock Text="enList" Style="{StaticResource Heading}" FontSize="28" />
+                <TextBlock Style="{StaticResource Explain}"
+                           Text="This installs the enList control plane, portal and agent. Every component can be installed on its own, and an agent can be added to a machine later without touching the rest." />
+                <TextBlock Style="{StaticResource Explain}"
+                           Text="Nothing is changed until the Ready page, which lists exactly what will happen." />
+            </StackPanel>
+
+            <!-- Everything after Welcome -->
+            <ContentControl Visibility="{Binding OnWelcome, Converter={StaticResource Visible}, ConverterParameter=invert}"
+                            Content="{Binding CurrentPage}">
+                <ContentControl.Resources>
+
+                    <DataTemplate DataType="{x:Type detection:WizardPage}">
+                        <ContentControl Content="{Binding}" />
+                    </DataTemplate>
+
+                </ContentControl.Resources>
+            </ContentControl>
+
+            <!--
+                The pages themselves. Chosen by a trigger on CurrentPage rather than a navigation
+                stack: the sequence is InstallPlan.Pages(), and duplicating it here is how the two
+                drift apart.
+            -->
+            <Grid>
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding OnWelcome}" Value="False">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
+
+                <!-- Install type -->
+                <StackPanel>
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding CurrentPage}" Value="InstallType">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+
+                    <TextBlock Text="What should this machine run?" Style="{StaticResource Heading}" />
+                    <TextBlock Style="{StaticResource Explain}"
+                               Text="This decides which components are installed and which pages follow." />
+
+                    <RadioButton GroupName="Type" Margin="0,4" IsChecked="True"
+                                 Content="Server - the control plane and the portal. The one box that hosts enList." />
+                    <RadioButton GroupName="Type" Margin="0,4"
+                                 Content="Agent only - every machine that will run applications." />
+                    <RadioButton GroupName="Type" Margin="0,4"
+                                 Content="Custom - any combination, for split tiers or adding a component later." />
+                </StackPanel>
+
+                <!-- Prerequisites -->
+                <DockPanel>
+                    <DockPanel.Style>
+                        <Style TargetType="DockPanel">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding CurrentPage}" Value="Prerequisites">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DockPanel.Style>
+
+                    <TextBlock DockPanel.Dock="Top" Text="What this machine already has" Style="{StaticResource Heading}" />
+                    <TextBlock DockPanel.Dock="Top" Style="{StaticResource Explain}"
+                               Text="Missing runtimes are installed for you. A container engine is optional: without one the agent runs applications as processes, which is a perfectly good agent." />
+                    <Button DockPanel.Dock="Bottom" Content="Re-check" Command="{Binding RecheckCommand}"
+                            Width="100" Height="28" HorizontalAlignment="Left" Margin="0,12,0,0" />
+
+                    <DataGrid ItemsSource="{Binding Prerequisites}" AutoGenerateColumns="False" IsReadOnly="True"
+                              HeadersVisibility="Column" GridLinesVisibility="Horizontal" BorderThickness="1" BorderBrush="#DDD">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Component" Binding="{Binding Name}" Width="190" />
+                            <DataGridTextColumn Header="Needed by" Binding="{Binding NeededBy}" Width="180" />
+                            <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="110" />
+                            <DataGridTextColumn Header="Detail" Binding="{Binding Detail}" Width="*" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+
+                <!-- Agent -->
+                <StackPanel>
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding CurrentPage}" Value="Agent">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+
+                    <TextBlock Text="Agent" Style="{StaticResource Heading}" />
+                    <TextBlock Style="{StaticResource Explain}"
+                               Text="The agent reconciles this machine against the applications enList says should run on it." />
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Text="Agent name" Style="{StaticResource Label}" />
+                        <TextBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
+                                 Text="{Binding Plan.AgentName, UpdateSourceTrigger=PropertyChanged}" />
+
+                        <TextBlock Grid.Row="1" Text="Tags" Style="{StaticResource Label}" />
+                        <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
+                                 Text="{Binding Plan.AgentTags, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="key=value pairs, for example: env=prod role=web" />
+
+                        <TextBlock Grid.Row="2" Text="Control plane" Style="{StaticResource Label}" />
+                        <TextBox Grid.Row="2" Grid.Column="1"
+                                 Text="{Binding Plan.AgentControlPlaneUrl, UpdateSourceTrigger=PropertyChanged}" />
+                        <Button Grid.Row="2" Grid.Column="2" Content="Verify" Width="80" Height="26" Margin="8,8,0,0"
+                                Command="{Binding VerifyControlPlaneCommand}" />
+
+                        <TextBlock Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,4,0,0"
+                                   Text="{Binding ControlPlaneVerdict}" TextWrapping="Wrap" Foreground="#555" />
+
+                        <TextBlock Grid.Row="4" Text="Join token" Style="{StaticResource Label}" />
+                        <TextBox Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2"
+                                 Text="{Binding Plan.AgentJoinToken, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="Exchanged for this agent's own credential before the service is created. It is never stored in the service." />
+
+                        <TextBlock Grid.Row="5" Text="Container engine" Style="{StaticResource Label}" />
+                        <TextBox Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2"
+                                 Text="{Binding Plan.AgentEngine, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="wslc, docker, or empty for process isolation only." />
+                    </Grid>
+                </StackPanel>
+
+                <!-- Ready -->
+                <StackPanel>
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding CurrentPage}" Value="Ready">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+
+                    <TextBlock Text="Ready to install" Style="{StaticResource Heading}" />
+                    <TextBlock Style="{StaticResource Explain}"
+                               Text="Nothing has been changed yet. Next starts the install." />
+                </StackPanel>
+            </Grid>
+
+            <!-- Installing and Finished, over the top of everything else -->
+            <Border Background="White" Visibility="{Binding Installing, Converter={StaticResource Visible}}">
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="Installing" Style="{StaticResource Heading}" HorizontalAlignment="Center" />
+                    <TextBlock Text="{Binding Status}" Style="{StaticResource Explain}" HorizontalAlignment="Center" />
+                    <ProgressBar Value="{Binding Progress}" Maximum="100" Height="18" Margin="40,8" />
+                </StackPanel>
+            </Border>
+
+            <Border Background="White" Visibility="{Binding Complete, Converter={StaticResource Visible}}">
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Status}" Style="{StaticResource Heading}" HorizontalAlignment="Center" />
+                    <TextBlock Text="{Binding Error}" Style="{StaticResource Explain}" HorizontalAlignment="Center" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>

@@ -150,6 +150,29 @@ function Get-ServiceCommandLine {
     }
 }
 
+# ---- The detection library ------------------------------------------------------------------------
+<#
+  Run first, because everything the wizard decides lives there and none of it can be reached once it
+  is behind a bootstrapper's pages. The registry shape .NET really uses, the wslc and docker probes,
+  how /health is read, which wizard pages appear for which install type, and what the whole thing
+  becomes on the way to Burn.
+#>
+Write-Host "Detection library" -ForegroundColor Cyan
+$detectionTests = Join-Path $PSScriptRoot 'ba\Enlist.Installer.Detection.Tests'
+if (Test-Path $detectionTests) {
+    $output = & dotnet test $detectionTests --nologo -v q 2>&1
+    $summary = ($output | Select-String -Pattern 'Passed!|Failed!' | Select-Object -First 1)
+    if ($summary) {
+        Write-Host "    $($summary.Line.Trim())" -ForegroundColor DarkGray
+    }
+
+    Assert-That ($LASTEXITCODE -eq 0) 'the detection and wizard-logic tests pass'
+}
+else {
+    Assert-That $false "the detection tests are missing from $detectionTests"
+}
+
+Write-Host ""
 Write-Host "Offline checks (no elevation needed)" -ForegroundColor Cyan
 
 # ---- Agent: the AgentOnly example from section 10 ------------------------------------------------

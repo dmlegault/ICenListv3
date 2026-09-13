@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The bootstrapper application: the wizard Burn loads and shows.
+
+    net472, and that is not a preference. The BA runs BEFORE the prerequisites it exists to install,
+    so it cannot need .NET 10 - it would be asking the machine for the thing it is there to provide.
+    .NET Framework 4.7.2 is inbox on every supported Windows, which makes it the one runtime that can
+    be assumed.
+
+    A LIBRARY, not an executable. Burn loads mbanative.dll, which hosts this assembly and finds its
+    entry point through the BootstrapperApplicationFactory attribute in BaFactory.cs.
+
+    Almost no logic lives here. Detection, probing, which pages appear, when Next is allowed and what
+    the whole thing becomes on the way to Burn are all in Enlist.Installer.Detection, where tests can
+    reach them - a bootstrapper's pages cannot be exercised by a test, so anything with a decision in
+    it does not belong in this project.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <UseWPF>true</UseWPF>
+
+    <!--
+      An EXECUTABLE, not a library, and that is the shape WiX 5 requires. Burn runs the bootstrapper
+      OUT OF PROCESS: it CreateProcessW's the primary payload, so pointing that at a DLL fails with
+      ERROR_BAD_EXE_FORMAT before anything is logged about a bootstrapper at all. mbanative.dll is a
+      helper this process loads, not the entry point.
+    -->
+    <OutputType>WinExe</OutputType>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+
+    <!--
+      AnyCPU, and Prefer32Bit off. A net472 project defaults to preferring 32-bit, which produced an
+      x86 assembly that an x64 Burn engine refuses to load with ERROR_BAD_EXE_FORMAT - and the bundle
+      exits before it can log anything about a bootstrapper at all.
+    -->
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <RootNamespace>Enlist.Installer.Ba</RootNamespace>
+    <AssemblyName>Enlist.Installer.Ba</AssemblyName>
+    <StartupObject>Enlist.Installer.Ba.Program</StartupObject>
+
+    <!--
+      The BA and everything it needs are laid beside mbanative.dll in the bundle's payload, so the
+      dependencies have to be copied out rather than resolved from anywhere else.
+    -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.BootstrapperApplicationApi" Version="5.0.2" />
+  </ItemGroup>
+
+  <!-- Inbox on net472, but not referenced by default. The wizard calls a probe that takes one. -->
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Enlist.Installer.Detection\Enlist.Installer.Detection.csproj" />
+  </ItemGroup>
+
+</Project>

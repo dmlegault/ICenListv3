@@ -90,6 +90,9 @@ PackageBlobs/
 # them, and .config/dotnet-tools.json pins which version.
 /installer/.wix/
 
+# The published bootstrapper, assembled from ba/ by build.ps1.
+/installer/ba-out/
+
 # --- OS cruft ----------------------------------------------------------------
 Thumbs.db
 ehthumbs.db

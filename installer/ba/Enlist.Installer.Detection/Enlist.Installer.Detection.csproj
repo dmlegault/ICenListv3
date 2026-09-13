@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The four things the installer has to find out about a machine, and the two it has to prove about
+    what the operator typed. Kept in their own library, away from the bootstrapper, for one reason:
+    the wizard cannot be tested and this can.
+
+    A Burn bootstrapper application is a WPF DLL loaded by a native host inside an elevated install.
+    There is no way to exercise its pages from a test, and no way to exercise them at all without
+    running a real install. Everything with an actual decision in it therefore lives here instead,
+    where Enlist.Installer.Detection.Tests runs it against this machine: the registry shape .NET
+    really uses, the wslc and docker probes, the control plane's own /health contract, and a SQL
+    connection. What is left in the wizard is binding and navigation.
+
+    TWO TARGETS, and both are needed. net472 is what the bootstrapper can load - it runs before .NET
+    10 is installed, which is the whole point of a bootstrapper. netstandard2.0 is what the net10.0
+    test project can reference. The code is identical; only the consumers differ.
+  -->
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net472</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+
+    <!--
+      AnyCPU, and Prefer32Bit off. A net472 project defaults to preferring 32-bit, which produced an
+      x86 assembly that an x64 Burn engine refuses to load with ERROR_BAD_EXE_FORMAT - and the bundle
+      exits before it can log anything about a bootstrapper at all.
+    -->
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <RootNamespace>Enlist.Installer.Detection</RootNamespace>
+
+    <!--
+      Not inherited from Directory.Build.props: this project sits under installer\, which the props
+      file at the repository root does cover. The version is the product's and comes from there; what
+      is overridden is only the target framework set above.
+    -->
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
+    <PackageReference Include="System.Data.SqlClient" Version="4.9.0" />
+  </ItemGroup>
+
+  <!--
+    On net472 the SQL client is INBOX, in System.Data.dll, so the bootstrapper carries nothing for it.
+    That matters more than it looks: the obvious choice, Microsoft.Data.SqlClient, drags Azure.Identity
+    and about a dozen other assemblies into a payload that Burn extracts before anything is installed.
+    The bootstrapper tests one connection and reports whether it opened; the inbox client does that
+    and has done since .NET Framework 2.0.
+  -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
+    <Reference Include="System.Data" />
+
+    <!-- Also inbox on net472, but not referenced by default the way it is on net10. -->
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+
+</Project>
