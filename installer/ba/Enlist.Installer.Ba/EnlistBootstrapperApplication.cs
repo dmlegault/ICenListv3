@@ -5,16 +5,15 @@ using System.Windows.Threading;
 
 using WixToolset.BootstrapperApplicationApi;
 
-[assembly: BootstrapperApplicationFactory(typeof(Enlist.Installer.Ba.EnlistBootstrapperApplicationFactory))]
-
 namespace Enlist.Installer.Ba
 {
-    /// <summary>How mbanative finds the wizard. The assembly attribute above is the whole contract.</summary>
-    public sealed class EnlistBootstrapperApplicationFactory : BaseBootstrapperApplicationFactory
-    {
-        protected override IBootstrapperApplication Create(IEngine engine, IBootstrapperCommand command) =>
-            new EnlistBootstrapperApplication();
-    }
+    // THERE IS NO FACTORY HERE, and there was one until the compiler objected to it.
+    //
+    // WiX 4 loaded a bootstrapper in-process and found it through an assembly-level
+    // BootstrapperApplicationFactory attribute. WiX 5 starts it as a process instead, so
+    // ManagedBootstrapperApplication.Run is handed the application directly and the factory is never
+    // consulted - both types are marked [Obsolete] saying exactly that. Carrying one was harmless and
+    // actively misleading: it read like the hosting contract while being ignored.
 
     /// <summary>
     /// The wizard, and the conversation with the Burn engine underneath it.

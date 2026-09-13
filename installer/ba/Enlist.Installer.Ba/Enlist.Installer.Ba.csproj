@@ -8,8 +8,9 @@
     .NET Framework 4.7.2 is inbox on every supported Windows, which makes it the one runtime that can
     be assumed.
 
-    A LIBRARY, not an executable. Burn loads mbanative.dll, which hosts this assembly and finds its
-    entry point through the BootstrapperApplicationFactory attribute in BaFactory.cs.
+    Burn starts this as a process of its own; Program.Main hands the application to
+    ManagedBootstrapperApplication.Run, which does the handshake. See OutputType below for why it is
+    an executable rather than the DLL a bootstrapper used to be.
 
     Almost no logic lives here. Detection, probing, which pages appear, when Next is allowed and what
     the whole thing becomes on the way to Burn are all in Enlist.Installer.Detection, where tests can

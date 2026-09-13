@@ -5,8 +5,8 @@
     what the operator typed. Kept in their own library, away from the bootstrapper, for one reason:
     the wizard cannot be tested and this can.
 
-    A Burn bootstrapper application is a WPF DLL loaded by a native host inside an elevated install.
-    There is no way to exercise its pages from a test, and no way to exercise them at all without
+    A Burn bootstrapper application is a WPF process that Burn starts inside an elevated install, and
+    that talks back to the engine over a pipe. There is no way to exercise its pages from a test, and no way to exercise them at all without
     running a real install. Everything with an actual decision in it therefore lives here instead,
     where Enlist.Installer.Detection.Tests runs it against this machine: the registry shape .NET
     really uses, the wslc and docker probes, the control plane's own /health contract, and a SQL

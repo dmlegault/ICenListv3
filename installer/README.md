@@ -10,14 +10,33 @@
 
 They are designed page by page in [`Installer-UI-Design.md`](../docs/05-operations/Installer-UI-Design.md), which is the document to read first.
 
+## Layout
+
+Four directories are source and four are build output. Nothing under the second group is in git, and all of it can be deleted at any time — `build.ps1` recreates it.
+
+| | | |
+|---|---|---|
+| `src\` | **source** | The WiX. Three `.wxs` packages, `Bundle.wxs` for the Burn bundle, `Prerequisites.wxs` for the two .NET runtimes it chains, and `Common.wxi` for what all of them share (manufacturer, the three service names). |
+| `ba\` | **source** | The bootstrapper application: the wizard, the detection library behind it, and that library's tests. Three projects and a hosting contract with sharp edges — [`ba\README.md`](ba/README.md) covers it. Not built by `build.ps1`; nothing consumes it yet. |
+| `tools\` | **source** | `refresh-prerequisites.ps1`, which regenerates the download URLs, SHA-512 hashes and sizes in `Prerequisites.wxs` when the required .NET patch changes. Run it on purpose, then commit what it wrote. |
+| `.config\` | **source** | `dotnet-tools.json`, which pins WiX 5. This is what makes the build reproducible rather than dependent on whatever `wix` happens to be on the machine. |
+| `publish\` | *output* | `dotnet publish` of each component, one folder per component, including both runners. The input to harvesting. |
+| `staging\` | *output* | A copy of each publish folder **with the service executable removed**, rebuilt from scratch every run. It exists only because WiX 5's `Files` element has no exclude — see below. |
+| `out\` | *output* | The three MSIs, the bundle, and their `.wixpdb` files. `enList-<version>-Setup.exe` here is the thing a person runs. |
+| `.wix\` | *output* | The WiX extension cache, populated by `build.ps1` on first run. Delete it if an extension ever reports itself damaged. |
+
+**Why `staging\` exists.** MSI derives a service's binary path from the key path of the component its `ServiceInstall` sits in, so each service executable has to be declared by hand in the `.wxs` rather than harvested with everything else. WiX 5 has no way to exclude one file from a `Files` glob, so `build.ps1` harvests a copy that does not contain it. The `.wxs` then declares that one file explicitly. Each package therefore reads from both trees: `$(…Staging)` for the glob and `$(…Publish)` for the service exe.
+
 ## Build and check
 
 ```powershell
 .\build.ps1              # publish everything, build the MSIs, then the bundle
 .\build.ps1 -SkipPublish # reuse publish\, for when only the WiX changed
-.\verify.ps1             # 46 detection tests + 48 installer checks
+.\verify.ps1             # 46 detection tests + 56 installer checks
 .\verify.ps1 -Live       # really install, upgrade and uninstall (elevated shell)
 ```
+
+`build.ps1` also takes `-Version` and `-OutputDirectory`, which exist for one purpose: building a higher version of the same source, somewhere else, so an upgrade can be tested without replacing the real output. `verify.ps1 -Live` uses both.
 
 ## What the bundle decides
 
@@ -59,27 +78,23 @@ Most of what can go wrong with these packages cannot be seen by reading them. A 
 So the offline half opens each package as a real Windows Installer session, sets the properties from the design's own silent-install examples, runs costing, evaluates each action's condition, and asserts on the command line that results. Two details in there were learned the hard way on 2026-09-13:
 
 - **It parses every command line with `CommandLineToArgvW`**, the parser .NET actually uses, rather than matching on the string. That is what caught the defect where every directory argument ended in a backslash immediately before its closing quote: Windows reads `\"` as an escaped quote, so `--runner-bin "…\runner\"` swallowed the next flag whole and the agent would have started with a garbled path. Looking right and parsing right are different things.
-- **It evaluates each action's condition before running it.** A custom action's condition lives in the sequence table, not in the action, so `Session.DoAction` runs it whether the condition holds or not. The first version of this script did exactly that and reported every conditional argument as present in every case — passing loudly while testing nothing.
+- **It evaluates each action's condition before running it.** A custom action's condition lives in the sequence table, not in the action, so `Session.DoAction` runs it whether the condition holds or not. The first version of this script did exactly that and reported every conditional argument as present in every case — passing loudly while testing nothing. Fixing it failed three checks immediately, which is how the empty-variable defect below was found.
+
+`-Live` is the other half, and it drives the **bundle** rather than `msiexec`, because the bundle is what an operator runs and it is the layer that passes the variables. It installs, upgrades to a higher version built from the same source, and uninstalls, asserting at each step: the service's account, start type and parsed command line; that an upgrade leaves exactly one registration and does not touch `%ProgramData%`; and that an uninstall removes the service and the binaries while correctly leaving `%ProgramData%` and the shared .NET runtime behind. It needs an elevated shell and it really does install — currently the agent only.
+
+One defect it found is worth knowing about before editing any `.wxs` here: **a bundle variable that is empty replaces an MSI's default rather than falling back to it.** A `Property` element's value is the Property-table default, and the bundle passes every variable to every package unconditionally. `DB_SERVER` empty produced `Server=;` in a connection string — a control plane that installs perfectly and never starts. Every default in the three packages is therefore a conditional `SetProperty`, not a `Property` value, and there is a group of checks that holds it that way.
 
 ## One correction to the design
 
 Section 4 names the ASP.NET Core **Hosting Bundle** as the prerequisite for the control plane and portal. That is the right package for something hosted by IIS, and it is 117 MB against 11 MB, the difference being the IIS module. Nothing enList installs runs under IIS: the control plane and portal are Kestrel behind a Windows service, which is the only hosting the pages offer. The plain ASP.NET Core Runtime is used instead. If IIS hosting is ever offered, that is the package to revisit.
 
-## The wizard, in `ba/`
+## The wizard, in `ba\`
 
-Two projects, split on one line: what can be tested, and what cannot.
+Three projects, split on one line: what can be tested, and what cannot. `Enlist.Installer.Detection` holds every decision and has 46 tests over it; `Enlist.Installer.Ba` is the WPF shell and holds none, because a bootstrapper's pages cannot be exercised by a test.
 
-**`Enlist.Installer.Detection`** holds every decision. The registry shape the .NET installers actually write, the `wslc` and Docker probes, how `/health` is read, which wizard pages appear for which install type, when Next is allowed and why not, and what the collected settings become on the way to Burn. 46 tests cover it, several against this machine. It targets both `net472` (what a bootstrapper can load, since it runs before .NET 10 exists) and `netstandard2.0` (what the test project can reference).
+**It is not wired into the bundle yet.** It builds and it launches, but does not show its window, so `Bundle.wxs` ships the standard bootstrapper — which works, carries the whole of section 10's silent surface, and is what every check runs against. Whatever is in `out\` always installs.
 
-**`Enlist.Installer.Ba`** is the WPF shell: the bootstrapper entry point, the engine conversation and the XAML. It holds no decisions, because a bootstrapper's pages cannot be exercised by a test.
-
-**It is not wired into the bundle yet.** It builds and it launches, and three things about WiX 5's hosting contract were found the hard way getting that far, each of which fails while naming nothing useful:
-
-- The bootstrapper is an **executable**. Burn does `CreateProcessW` on the primary payload, so pointing it at a DLL gives `ERROR_BAD_EXE_FORMAT` with nothing logged about a bootstrapper at all.
-- It must match the bundle's **architecture**. A `net472` WPF project defaults to preferring 32-bit, which put an x86 assembly under an x64 engine and failed identically.
-- Its entry point must **not** be `[STAThread]`. The host initialises COM on that thread first, so marking it STA fails with `RPC_E_CHANGED_MODE` and the process exits before a window can exist. The wizard runs on its own STA thread instead.
-
-What it does not yet do is show its window: the bundle exits 0 without launching it. Running that down needs WiX's own hosting documentation rather than more inference, so the bundle uses the standard bootstrapper until then — which works, carries the whole of section 10's silent surface, and is what every check runs against. Whatever is in `out\` always installs.
+[`ba\README.md`](ba/README.md) has the rest: how Burn runs a bootstrapper out of process, the engine callbacks, the three hosting facts that each fail while naming something else, and what wiring it in takes.
 
 ## What is not here yet
 
