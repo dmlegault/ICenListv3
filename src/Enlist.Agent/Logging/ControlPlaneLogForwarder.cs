@@ -105,7 +105,7 @@ public sealed class ControlPlaneLogForwarder : ILogForwarder, IAsyncDisposable, 
             // Best-effort, same posture as ControlPlaneStatusReporter — a failed forward must never
             // take the agent down. The batch is simply dropped rather than requeued, matching this
             // class's own "some loss under sustained outage is fine" posture above; the drop is said.
-            if (_notice.Failed($"{ex.Message} ({batch.Count} line(s) dropped)") is { } line)
+            if (_notice.Failed($"{TransportFailure.Describe(ex)} ({batch.Count} line(s) dropped)") is { } line)
             {
                 Diagnostic?.Invoke(line);
             }

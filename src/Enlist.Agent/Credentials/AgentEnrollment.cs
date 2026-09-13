@@ -128,7 +128,7 @@ public static class AgentEnrollment
         }
         catch (Exception ex)
         {
-            return (Verdict.Unreachable, ex.Message);
+            return (Verdict.Unreachable, TransportFailure.Describe(ex));
         }
     }
 
@@ -151,7 +151,7 @@ public static class AgentEnrollment
         }
         catch (Exception ex)
         {
-            throw new AgentStartupException($"Could not reach the control plane at {http.BaseAddress} to enroll: {ex.Message}");
+            throw new AgentStartupException($"Could not reach the control plane at {http.BaseAddress} to enroll: {TransportFailure.Describe(ex)}");
         }
 
         using (response)

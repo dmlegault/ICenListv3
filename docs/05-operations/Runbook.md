@@ -291,21 +291,6 @@ On a `net472` application the runner may instead sit at 100% CPU and answer noth
 
 **Fix:** on the control plane host, `Enlist.ControlPlane.exe create-api-key --name portal --role Operator --expires never` (`revoke-api-key --name portal` first if `list-keys` still shows it live); on the portal host, `Enlist.Portal.exe protect <key>` and put the printed value in `ControlPlane:ApiKey`; restart the portal. Nothing else is affected — agents and tools hold their own credentials.
 
----
-
-## 4. Escalation / Where to Look Next
-
-| Symptom category | Start here |
-|---|---|
-| Something the portal shows disagrees with something else the portal shows | [`LLD.md` §3](../03-architecture/LLD.md#3-tag-selector-matching) (tag resolution). Both call sites share `ResolveMatchingPoliciesForAgentAsync`, and the portal predicts the outcome with `AgentTags` and `PolicyConflictDetector` — all three are one definition each, deliberately, after a period when they were not. |
-| An agent looks wrong, stale or offline when it should not | §3.1, §3.2, §3.6. |
-| A deploy or redeploy did not take effect | §2.6's decision tree. |
-| The portal itself will not render correctly | §3.5. |
-| **A component refuses to start and says so** | §3.21. Almost always the two listener rules or a missing connection string — all of them fail by name rather than misbehaving. |
-| **Anything answers 401 or 403** | §3.19 (an agent's credential), §3.20 (the portal's own key). For a tool or a script, check the key with `list-keys`. |
-| **A policy rule matches nothing, with no error anywhere** | Check the case of an `agent` self-tag against the registered name, then §3.4. Agent names are matched case-insensitively; ordinary tag values are matched exactly. |
-| A test is failing | [`Test-Plan.md`](Test-Plan.md) for what each test asserts and which real component it exercises. |
-
 ### 3.21 A component installs or deploys cleanly and then will not start
 
 **Symptom:** the service starts and immediately stops; the Event Log (or the console) carries one
@@ -324,3 +309,46 @@ All four are deliberate refusals rather than failures. The state each prevents �
 control plane on a network, credentials in the clear, a production process pointed at a developer's
 database, a schema that does not match the code — is worse than not starting, and far harder to
 diagnose after the fact.
+
+### 3.22 Everything stops working the moment TLS is switched on
+
+**Symptom:** the agent refuses to start with *Could not reach the control plane at https://... to enroll*, `enlist-deploy` fails on upload, or a working agent suddenly logs *Capability report to the control plane failed* and *Forwarding log lines to the control plane failed*. The control plane itself is healthy and `curl -k https://<host>/health` returns `200`.
+
+**Cause:** the machine does not trust whoever issued the control plane's certificate. This is the normal state for a self-signed certificate or one from an internal CA that was never distributed, and it is the first thing a deployment meets, because `Authentication:Mode=Required` refuses plain HTTP anywhere but loopback — so the first real install is also the first TLS install.
+
+**How to tell it apart from a control plane that is simply down.** The message names it. Since 2026-09-13 every client reports the *reason*, not the generic wrapper:
+
+```
+the server's TLS certificate was rejected - The remote certificate is invalid because of
+errors in the certificate chain: UntrustedRoot. Either install the issuing CA in this
+machine's trust store ...
+```
+
+Before that date all three clients printed only *The SSL connection could not be established, see inner exception*, with no way to see the inner exception. If you are looking at that sentence, the binary predates the fix.
+
+**Fix:** install the issuing CA into **Local Machine → Trusted Root Certification Authorities** on every host that talks to the control plane (each agent, the portal host, any CI runner using `enlist-deploy`), or serve a certificate from a CA the fleet already trusts. Check the reason the message names before doing either:
+
+| Reason in the message | What it actually means |
+|---|---|
+| `UntrustedRoot` | The chain is fine, nobody told this machine to trust its issuer. Install the CA. |
+| `RemoteCertificateNameMismatch` | The certificate is trusted but was issued for a different name. Use the name it was issued for, or reissue with the right SANs. |
+| `NotTimeValid` | Expired, or the clock is wrong. Check both. |
+
+**Verified end to end on 2026-09-13**, on real certificates rather than loopback HTTP: control plane serving HTTPS both on loopback and on `0.0.0.0`, `Authentication:Mode=Required`, `/health` reporting `"authentication":"Required"`, `enlist-deploy` uploading with `--api-key`, an agent enrolling with a join token and storing its DPAPI credential, the SignalR push channel connected over TLS, a policy rule pushed and an application started, logs forwarded back and read through the API, and the portal serving over TLS with its own `dpapi:` key. Nothing in that chain needed a code change. Only the error messages did.
+
+---
+
+## 4. Escalation / Where to Look Next
+
+| Symptom category | Start here |
+|---|---|
+| Something the portal shows disagrees with something else the portal shows | [`LLD.md` §3](../03-architecture/LLD.md#3-tag-selector-matching) (tag resolution). Both call sites share `ResolveMatchingPoliciesForAgentAsync`, and the portal predicts the outcome with `AgentTags` and `PolicyConflictDetector` — all three are one definition each, deliberately, after a period when they were not. |
+| An agent looks wrong, stale or offline when it should not | §3.1, §3.2, §3.6. |
+| A deploy or redeploy did not take effect | §2.6's decision tree. |
+| The portal itself will not render correctly | §3.5. |
+| **A component refuses to start and says so** | §3.21. Almost always the two listener rules or a missing connection string — all of them fail by name rather than misbehaving. |
+| **Anything fails the moment HTTPS is involved** | §3.22. Read the reason the message names — `UntrustedRoot`, `RemoteCertificateNameMismatch` and `NotTimeValid` have three different fixes. |
+| **Anything answers 401 or 403** | §3.19 (an agent's credential), §3.20 (the portal's own key). For a tool or a script, check the key with `list-keys`. |
+| **A policy rule matches nothing, with no error anywhere** | Check the case of an `agent` self-tag against the registered name, then §3.4. Agent names are matched case-insensitively; ordinary tag values are matched exactly. |
+| A test is failing | [`Test-Plan.md`](Test-Plan.md) for what each test asserts and which real component it exercises. |
+

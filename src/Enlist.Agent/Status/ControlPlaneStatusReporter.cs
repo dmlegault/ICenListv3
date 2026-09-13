@@ -58,7 +58,7 @@ public sealed class ControlPlaneStatusReporter : IStatusReporter, IReportsDiagno
         }
         catch (Exception ex)
         {
-            if (notice.Failed(ex.Message) is { } line)
+            if (notice.Failed(TransportFailure.Describe(ex)) is { } line)
             {
                 Diagnostic?.Invoke(line);
             }

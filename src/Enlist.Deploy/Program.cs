@@ -58,7 +58,9 @@ internal static class Program
         }
         catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException)
         {
-            Console.Error.WriteLine(ex.Message);
+            // Describe, not ex.Message: a TLS failure's own message is "see inner exception" and the
+            // inner exception is the only thing that names the cause. See TransportFailure.
+            Console.Error.WriteLine(TransportFailure.Describe(ex));
             return 1;
         }
 

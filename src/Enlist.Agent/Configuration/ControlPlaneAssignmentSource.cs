@@ -232,7 +232,7 @@ public sealed class ControlPlaneAssignmentSource : IAssignmentSource, IAsyncDisp
             // Connected but not in the group is exactly "not receiving", so the state is left as it was
             // rather than declared connected; the next Reconnected or Closed takes it from here, and the
             // refetch floor covers the gap.
-            Diagnostic?.Invoke($"Control plane push connection {how}, but re-joining the agent group failed ({ex.Message}) - waiting for the next reconnect; the periodic re-check covers the gap.");
+            Diagnostic?.Invoke($"Control plane push connection {how}, but re-joining the agent group failed ({TransportFailure.Describe(ex)}) - waiting for the next reconnect; the periodic re-check covers the gap.");
             return;
         }
 
@@ -264,7 +264,7 @@ public sealed class ControlPlaneAssignmentSource : IAssignmentSource, IAsyncDisp
                 // the agent log with one identical line per attempt.
                 if (attempt == 1 || attempt % 10 == 0)
                 {
-                    Diagnostic?.Invoke($"Control plane push connection still closed after {attempt} reopen attempt(s): {ex.Message}");
+                    Diagnostic?.Invoke($"Control plane push connection still closed after {attempt} reopen attempt(s): {TransportFailure.Describe(ex)}");
                 }
             }
         }
