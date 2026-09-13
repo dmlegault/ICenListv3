@@ -46,6 +46,9 @@
                  Condition="NOT PORTAL_ACCOUNT" Value="NT AUTHORITY\NetworkService" />
     <Property Id="PORTAL_PASSWORD" Secure="yes" Hidden="yes" />
 
+    <!-- The thumbprint of a certificate in the machine's personal store. Not a secret; it names a certificate rather than granting anything. -->
+    <Property Id="PORTAL_CERT" Secure="yes" />
+
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="ENLISTROOT" Name="enList">
         <Directory Id="INSTALLFOLDER" Name="Portal" />
@@ -77,6 +80,20 @@
     <SetProperty Id="PORTAL_SERVICE_ARGS" Action="SetPortalArgsControlPlane" Sequence="execute" After="SetPortalArgs"
                  Condition="PORTAL_CPURL"
                  Value="[PORTAL_SERVICE_ARGS] --ControlPlane:BaseUrl=&quot;[PORTAL_CPURL]&quot;" />
+
+    <!--
+      The TLS certificate, by thumbprint, for the same reason the control plane takes one: the listen
+      default is https and Required refuses plain HTTP off loopback, so a portal without a certificate
+      installs and never starts. A thumbprint names a certificate without granting anything, which is
+      what makes it safe on a command line the whole machine can read - unlike the portal's own key,
+      which is why that one is written protected into appsettings.json instead.
+
+      Read access to the private key is the bootstrapper's job: a service cannot grant itself access
+      to a key its account cannot open, and an MSI has no business trying.
+    -->
+    <SetProperty Id="PORTAL_SERVICE_ARGS" Action="SetPortalArgsCertificate" Sequence="execute" After="SetPortalArgsControlPlane"
+                 Condition="PORTAL_CERT"
+                 Value="[PORTAL_SERVICE_ARGS] --Certificate:Thumbprint=&quot;[PORTAL_CERT]&quot;" />
 
     <Feature Id="Main" Title="enList Portal" Level="1">
       <ComponentGroupRef Id="PortalFiles" />

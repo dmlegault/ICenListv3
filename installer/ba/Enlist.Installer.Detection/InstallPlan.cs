@@ -42,6 +42,13 @@ namespace Enlist.Installer.Detection
         public string ControlPlaneAccount { get; set; } = @"NT AUTHORITY\NetworkService";
         public string ControlPlanePassword { get; set; } = "";
 
+        /// <summary>
+        /// The thumbprint of the certificate this listener serves TLS with. Not a secret - it names a
+        /// certificate rather than granting access to one - which is why it can go on the service
+        /// command line where the PFX password never could.
+        /// </summary>
+        public string ControlPlaneCertificate { get; set; } = "";
+
         // Database
         // The same default the MSI falls back to, rather than empty. Both end up installing against
         // LocalDB, but an empty box on the Database page reads as a required field nobody filled in,
@@ -59,6 +66,9 @@ namespace Enlist.Installer.Detection
         public string PortalControlPlaneUrl { get; set; } = "";
         public string PortalAccount { get; set; } = @"NT AUTHORITY\NetworkService";
         public string PortalPassword { get; set; } = "";
+
+        /// <summary>The portal's TLS certificate, by thumbprint. See ControlPlaneCertificate.</summary>
+        public string PortalCertificate { get; set; } = "";
 
         // Agent
         public string AgentInstallDir { get; set; } = "";
@@ -79,7 +89,6 @@ namespace Enlist.Installer.Detection
         /// </summary>
         public string AgentJoinToken { get; set; } = "";
 
-        /// <summary>Whether each component is actually being installed, once the type and the switches are combined.</summary>
         /// <summary>
         /// The plan a SILENT install is working to, rebuilt from the bundle's own variables.
         ///
@@ -124,6 +133,7 @@ namespace Enlist.Installer.Detection
             plan.ControlPlaneInstallDir = Value("CP_INSTALLDIR", "");
             plan.ControlPlaneUrls = Value("CP_URLS", plan.ControlPlaneUrls);
             plan.ControlPlaneAccount = Value("CP_ACCOUNT", plan.ControlPlaneAccount);
+            plan.ControlPlaneCertificate = Value("CP_CERT", "");
 
             plan.DatabaseServer = Value("DB_SERVER", plan.DatabaseServer);
             plan.DatabaseName = Value("DB_NAME", plan.DatabaseName);
@@ -135,6 +145,7 @@ namespace Enlist.Installer.Detection
             plan.PortalUrls = Value("PORTAL_URLS", plan.PortalUrls);
             plan.PortalControlPlaneUrl = Value("PORTAL_CPURL", "");
             plan.PortalAccount = Value("PORTAL_ACCOUNT", plan.PortalAccount);
+            plan.PortalCertificate = Value("PORTAL_CERT", "");
 
             plan.AgentInstallDir = Value("AGENT_INSTALLDIR", "");
             plan.AgentDataDir = Value("AGENT_DATADIR", "");
@@ -176,6 +187,7 @@ namespace Enlist.Installer.Detection
         private static string Resolve(string chosen, params string[] fallback) =>
             string.IsNullOrWhiteSpace(chosen) ? Path.Combine(fallback) : chosen.Trim();
 
+        /// <summary>Whether each component is actually being installed, once the type and the switches are combined.</summary>
         public bool InstallsControlPlane => Type == InstallType.Server || ControlPlane;
 
         public bool InstallsPortal => Type == InstallType.Server || Portal;
@@ -238,6 +250,7 @@ namespace Enlist.Installer.Detection
                 Set(variables, "CP_URLS", ControlPlaneUrls);
                 Set(variables, "CP_ACCOUNT", ControlPlaneAccount);
                 Set(variables, "CP_PASSWORD", ControlPlanePassword);
+                Set(variables, "CP_CERT", ControlPlaneCertificate);
                 Set(variables, "DB_SERVER", DatabaseServer);
                 Set(variables, "DB_NAME", DatabaseName);
                 variables["DB_AUTH"] = DatabaseWindowsAuthentication ? "Windows" : "Sql";
@@ -251,6 +264,7 @@ namespace Enlist.Installer.Detection
                 Set(variables, "PORTAL_CPURL", PortalControlPlaneUrl);
                 Set(variables, "PORTAL_ACCOUNT", PortalAccount);
                 Set(variables, "PORTAL_PASSWORD", PortalPassword);
+                Set(variables, "PORTAL_CERT", PortalCertificate);
             }
 
             if (InstallsAgent)
@@ -292,6 +306,11 @@ namespace Enlist.Installer.Detection
                         return "The control plane needs an address to listen on.";
                     }
 
+                    if (NeedsCertificate(ControlPlaneUrls, ControlPlaneCertificate))
+                    {
+                        return "Choose the TLS certificate for " + ControlPlaneUrls + ".";
+                    }
+
                     return NeedsPassword(ControlPlaneAccount, ControlPlanePassword)
                         ? "Enter the password for " + ControlPlaneAccount + "."
                         : null;
@@ -315,6 +334,11 @@ namespace Enlist.Installer.Detection
                     if (string.IsNullOrWhiteSpace(PortalUrls))
                     {
                         return "The portal needs an address to listen on.";
+                    }
+
+                    if (NeedsCertificate(PortalUrls, PortalCertificate))
+                    {
+                        return "Choose the TLS certificate for " + PortalUrls + ".";
                     }
 
                     if (string.IsNullOrWhiteSpace(PortalControlPlaneUrl))
@@ -382,6 +406,26 @@ namespace Enlist.Installer.Detection
         /// The built-in service accounts have no password and must not be asked for one; anything else
         /// is a real account that does.
         /// </summary>
+        /// <summary>
+        /// Whether these listen addresses require a certificate that has not been chosen.
+        ///
+        /// The same rule the hosts enforce at startup (ServerCertificate.Violation), applied a page
+        /// earlier so it is a greyed-out Next with a reason rather than a service that installs
+        /// cleanly and then never starts. Any https listener needs one; a loopback-http demo needs
+        /// none.
+        /// </summary>
+        public static bool NeedsCertificate(string urls, string thumbprint)
+        {
+            if (!string.IsNullOrWhiteSpace(thumbprint))
+            {
+                return false;
+            }
+
+            return (urls ?? "")
+                .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+                .Any(u => u.Trim().StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+        }
+
         private static bool NeedsPassword(string account, string password)
         {
             if (string.IsNullOrWhiteSpace(account))

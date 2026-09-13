@@ -1,3 +1,4 @@
+using Enlist.ControlPlane.Contracts;
 using Enlist.Portal.Components;
 using Enlist.Portal.Services;
 
@@ -11,6 +12,14 @@ using MudBlazor.Services;
 if (ProtectedSettings.IsVerb(args))
 {
     return ProtectedSettings.Run(args);
+}
+
+// The same verb the control plane has, and shared with it: a portal-only install has no control plane
+// executable to borrow it from. Lets the portal's service account read the private key of the
+// certificate it will serve TLS with - which a service cannot grant itself.
+if (CertificateCli.IsVerb(args) && OperatingSystem.IsWindows())
+{
+    return CertificateCli.Run(args);
 }
 
 // Hosting-mode neutral: the same binary runs under IIS, as a Windows Service, or from `dotnet run`.
@@ -39,6 +48,14 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 // No-ops unless actually started by the SCM. Also routes logging to the Windows Event Log in that
 // case — the only place a service can report the startup throw when ControlPlane:BaseUrl is missing.
 builder.Services.AddWindowsService(options => options.ServiceName = "enlist-portal");
+
+// The TLS certificate, before Build(). See the same three lines in the control plane for why this is
+// not a shared extension method: Contracts is what the agent references, and an ASP.NET Core
+// framework reference there would put the ASP.NET Core runtime on every agent in a fleet.
+if (OperatingSystem.IsWindows() && ServerCertificate.Load(builder.Configuration) is { } serverCertificate)
+{
+    builder.WebHost.ConfigureKestrel(o => o.ConfigureHttpsDefaults(https => https.ServerCertificate = serverCertificate));
+}
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();

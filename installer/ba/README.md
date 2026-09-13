@@ -5,7 +5,7 @@ Three projects. The split between them is one line: **what can be tested, and wh
 | Project | Target | What it is |
 |---|---|---|
 | `Enlist.Installer.Detection` | `netstandard2.0` + `net472` | Every decision the installer makes. No UI, no engine. |
-| `Enlist.Installer.Detection.Tests` | `net10.0` | 90 cases over the above, several against this machine. |
+| `Enlist.Installer.Detection.Tests` | `net10.0` | 116 cases over the above, several against this machine. |
 | `Enlist.Installer.Ba` | `net472` WPF, `WinExe` | The wizard Burn runs. Binding and navigation only. |
 
 A Burn bootstrapper cannot be exercised by a test — it is a process started by a native host inside an elevated install. So anything with a judgement in it lives in the detection library, where a test can reach it, and the wizard is left holding as close to nothing as it can be.
@@ -100,7 +100,7 @@ cd installer
 .\verify.ps1
 ```
 
-55 methods, 90 cases. `InstallPlanTests` is the bulk of it — page flow, blocking reasons, and the variable dictionary. `ProbeTests` uses a stub `HttpMessageHandler` for `/health` and `SkippableFact` for anything needing a real SQL Server. `RuntimeDetectionTests` and `ContainerEngineDetectionTests` run against this machine and skip rather than fail where it cannot answer.
+69 methods, 116 cases. `InstallPlanTests` is the bulk of it — page flow, blocking reasons, and the variable dictionary. `ProbeTests` uses a stub `HttpMessageHandler` for `/health` and `SkippableFact` for anything needing a real SQL Server. `RuntimeDetectionTests` and `ContainerEngineDetectionTests` run against this machine and skip rather than fail where it cannot answer.
 
 Not in `enList_v3.slnx`, for the same reason the rest of `installer\` is not: it belongs to an artifact built deliberately, not on every inner loop.
 
@@ -154,6 +154,7 @@ The MSIs lay down files and create **stopped** services, and nothing else. Every
 
 | Step | Runs | When |
 |---|---|---|
+| `GrantCertificateAccess` | `<host>.exe grant-certificate-access` | a component with a TLS certificate |
 | `ApplySchema` | `Enlist.ControlPlane.exe apply-schema` | a control plane is being installed |
 | `CreatePortalKey` | `Enlist.ControlPlane.exe create-api-key --name portal --role Operator --expires never` | control plane **and** portal |
 | `StorePortalKey` | `Enlist.Portal.exe protect <key> --store` | the same |
@@ -177,6 +178,14 @@ Output is captured but reported only on *failure*, and even then only the traili
 
 **The ACL is the actual control.** Machine-scope DPAPI is decryptable by any process on the machine, so both secrets are written with inheritance off and an explicit reader list — SYSTEM, Administrators, the writer, and the account the service will run as. That last one is what an installer needs and a service does not: when a service writes its own secret the writer is already the reader, but here the writer is an elevated operator and the service account is a stranger to the file. `WindowsSecrets.ResolveAccount` handles the trap that makes this sharp — `LocalSystem`, the name every service definition uses, is not a name the account database knows.
 
+### The TLS certificate
+
+The last thing that stood between a clean install and a working one. Authentication is `Required`, `Required` refuses plain HTTP off loopback, and both listen defaults are `+` — so a real install serves HTTPS, and HTTPS with no certificate binds and then fails every handshake while complaining about an endpoint.
+
+**By thumbprint**, which ASP.NET Core cannot do for itself: its `Kestrel:Certificates:Default` takes a PFX path or a store lookup by *subject*, and a subject is not unique. The picker lists `LocalMachine\My` with the friendly name, subject, expiry and the last eight of the thumbprint — a machine store routinely holds several certificates identical in every other column. The machine this was built on has two `CN=localhost` entries **both** called "ASP.NET Core HTTPS development certificate", differing only in that one expires shortly; without the expiry and the thumbprint tail there is no way to choose. One within 60 days of expiring is offered with a warning rather than refused.
+
+**Reading a certificate and reading its private key are different permissions**, and that is the trap. The key is a file under `%ProgramData%\Microsoft\Crypto` whose ACL names only whoever imported it, so a certificate installed by an administrator and served by `NETWORK SERVICE` — the default for both hosts — fails every handshake with nothing about the certificate looking wrong. `grant-certificate-access` runs first among the post-install steps for exactly that reason.
+
 ## What is not here yet
 
-A TLS certificate for the control plane and portal listen addresses, which is why the Finish page says the services are installed and stopped rather than starting them.
+Nothing blocking an install. Code signing (section 12 item 7) is the remaining open decision, and it needs a certificate purchase rather than a design.

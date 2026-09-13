@@ -44,12 +44,20 @@ public static class PortalAuthentication
         }
     }
 
-    /// <summary>The hard rules first (R3: the portal has the same two), then the middleware. Throws so that under the SCM the reason lands in the Event Log.</summary>
+    /// <summary>The hard rules first (R3: the portal has the same two, and the same third), then the middleware. Throws so that under the SCM the reason lands in the Event Log.</summary>
     public static void UsePortalAuthentication(this WebApplication app, PortalAuthenticationOptions options)
     {
-        if (ListenerRules.Violation(ListenerRules.ConfiguredUrls(app.Configuration), options.Mode, "portal") is { } violation)
+        var urls = ListenerRules.ConfiguredUrls(app.Configuration);
+
+        if (ListenerRules.Violation(urls, options.Mode, "portal") is { } violation)
         {
             throw new InvalidOperationException(violation);
+        }
+
+        // Same as the control plane: HTTPS with no certificate binds and then fails every handshake.
+        if (ServerCertificate.Violation(urls, app.Configuration, "portal", app.Environment.IsDevelopment()) is { } missing)
+        {
+            throw new InvalidOperationException(missing);
         }
 
         app.UseAuthentication();

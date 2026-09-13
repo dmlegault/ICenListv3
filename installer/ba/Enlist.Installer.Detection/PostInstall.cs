@@ -18,6 +18,9 @@ namespace Enlist.Installer.Detection
 
         /// <summary>Exchange the join token for this agent's credential. The runner supplies the token.</summary>
         EnrollAgent,
+
+        /// <summary>Let a service account read the private key of the certificate it will serve TLS with.</summary>
+        GrantCertificateAccess,
     }
 
     /// <summary>
@@ -96,6 +99,44 @@ namespace Enlist.Installer.Detection
             }
 
             var steps = new List<PostInstallStep>();
+
+            // FIRST, because it is the difference between a service that can serve TLS and one that
+            // binds and then fails every handshake. A certificate in LocalMachine\My is readable by
+            // anyone; its private key is a separate file whose ACL names only whoever imported it - so
+            // the default service account, NETWORK SERVICE, cannot use a certificate an administrator
+            // installed. Nothing about the certificate looks wrong when this is missing, which is what
+            // makes it worth doing before anything else has a chance to obscure it.
+            if (plan.InstallsControlPlane && !string.IsNullOrWhiteSpace(plan.ControlPlaneCertificate))
+            {
+                steps.Add(new PostInstallStep(
+                    PostInstallStepKind.GrantCertificateAccess,
+                    "Granting the control plane access to its certificate",
+                    Path.Combine(plan.ResolvedControlPlaneDir, "Enlist.ControlPlane.exe"),
+                    new[]
+                    {
+                        "grant-certificate-access",
+                        "--thumbprint", plan.ControlPlaneCertificate,
+                        "--account", plan.ControlPlaneAccount,
+                    },
+                    needsDatabase: false,
+                    optional: false));
+            }
+
+            if (plan.InstallsPortal && !string.IsNullOrWhiteSpace(plan.PortalCertificate))
+            {
+                steps.Add(new PostInstallStep(
+                    PostInstallStepKind.GrantCertificateAccess,
+                    "Granting the portal access to its certificate",
+                    Path.Combine(plan.ResolvedPortalDir, "Enlist.Portal.exe"),
+                    new[]
+                    {
+                        "grant-certificate-access",
+                        "--thumbprint", plan.PortalCertificate,
+                        "--account", plan.PortalAccount,
+                    },
+                    needsDatabase: false,
+                    optional: false));
+            }
 
             if (plan.InstallsControlPlane)
             {

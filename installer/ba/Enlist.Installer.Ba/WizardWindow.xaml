@@ -142,6 +142,77 @@
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
 
+        <!--
+            Templated rather than merely recoloured. A ComboBox's default template paints its own
+            chrome from the system theme, so setting Background alone leaves a white control on a dark
+            page - the one thing the operator is meant to click.
+        -->
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="#1e1e2c" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="b" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="{StaticResource Primary}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+            <Setter Property="Background" Value="#1e1e2c" />
+            <Setter Property="BorderBrush" Value="{StaticResource Line}" />
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <Border x:Name="shell" Background="{TemplateBinding Background}" CornerRadius="6"
+                                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" />
+                            <ToggleButton Background="Transparent" BorderThickness="0" Focusable="False"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border Background="Transparent">
+                                            <Path HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0"
+                                                  Data="M 0 0 L 4 4 L 8 0 Z" Fill="{StaticResource TextSecondary}" />
+                                        </Border>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <ContentPresenter Margin="{TemplateBinding Padding}" VerticalAlignment="Center"
+                                              HorizontalAlignment="Left" IsHitTestVisible="False"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" />
+                            <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
+                                   AllowsTransparency="True" PopupAnimation="Slide" Focusable="False">
+                                <Border Background="#242435" BorderBrush="{StaticResource Line}" BorderThickness="1"
+                                        CornerRadius="6" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="260">
+                                    <ScrollViewer>
+                                        <ItemsPresenter />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="shell" Property="BorderBrush" Value="{StaticResource Primary}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="RadioButton">
             <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
             <Setter Property="Margin" Value="0,6" />
@@ -352,7 +423,8 @@
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
-                                <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
                             </Grid.RowDefinitions>
 
                             <TextBlock Grid.Row="0" Text="Listen on" Style="{StaticResource Label}" />
@@ -362,19 +434,28 @@
                             <TextBlock Grid.Row="1" Grid.Column="1" Style="{StaticResource Note}"
                                        Text="https, not http. Authentication is Required unless configured otherwise, and Required refuses plain HTTP anywhere but loopback - an http value here installs cleanly and then never starts." />
 
-                            <TextBlock Grid.Row="2" Text="Service account" Style="{StaticResource Label}" />
-                            <TextBox Grid.Row="2" Grid.Column="1"
+                            <TextBlock Grid.Row="2" Text="Certificate" Style="{StaticResource Label}" />
+                            <ComboBox Grid.Row="2" Grid.Column="1" Margin="0,8,0,0"
+                                      ItemsSource="{Binding Certificates}"
+                                      SelectedItem="{Binding ControlPlaneCertificate}"
+                                      DisplayMemberPath="Display" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="1" Style="{StaticResource Note}"
+                                       Text="{Binding ControlPlaneCertificateProblem}" Foreground="{StaticResource Warn}" />
+
+                            <TextBlock Grid.Row="4" Text="Service account" Style="{StaticResource Label}" />
+                            <TextBox Grid.Row="4" Grid.Column="1"
                                      Text="{Binding ControlPlaneAccount, UpdateSourceTrigger=PropertyChanged}" />
 
-                            <TextBlock Grid.Row="3" Text="Password" Style="{StaticResource Label}" />
-                            <PasswordBox Grid.Row="3" Grid.Column="1" x:Name="ControlPlanePasswordBox"
+                            <TextBlock Grid.Row="5" Text="Password" Style="{StaticResource Label}" />
+                            <PasswordBox Grid.Row="5" Grid.Column="1" x:Name="ControlPlanePasswordBox"
                                          PasswordChanged="ControlPlanePasswordBox_PasswordChanged" />
 
-                            <TextBlock Grid.Row="4" Grid.Column="1" Style="{StaticResource Note}"
-                                       Text="Leave blank for the built-in accounts - NETWORK SERVICE and LOCAL SYSTEM have no password." />
+                            <TextBlock Grid.Row="6" Grid.Column="1" Style="{StaticResource Note}"
+                                       Text="Leave blank for the built-in accounts - NETWORK SERVICE and LOCAL SYSTEM have no password. The chosen account is given read access to the certificate's private key during the install, which it does not have by default." />
 
-                            <TextBlock Grid.Row="5" Text="Install to" Style="{StaticResource Label}" />
-                            <TextBox Grid.Row="5" Grid.Column="1"
+                            <TextBlock Grid.Row="7" Text="Install to" Style="{StaticResource Label}" />
+                            <TextBox Grid.Row="7" Grid.Column="1"
                                      Text="{Binding ControlPlaneInstallDir, UpdateSourceTrigger=PropertyChanged}"
                                      ToolTip="Leave blank for %ProgramFiles%\enList\ControlPlane." />
                         </Grid>
@@ -471,29 +552,39 @@
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
-                                <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
                             </Grid.RowDefinitions>
 
                             <TextBlock Grid.Row="0" Text="Listen on" Style="{StaticResource Label}" />
                             <TextBox Grid.Row="0" Grid.Column="1"
                                      Text="{Binding PortalUrls, UpdateSourceTrigger=PropertyChanged}" />
 
-                            <TextBlock Grid.Row="1" Text="Control plane" Style="{StaticResource Label}" />
-                            <TextBox Grid.Row="1" Grid.Column="1"
-                                     Text="{Binding PortalControlPlaneUrl, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Grid.Row="1" Text="Certificate" Style="{StaticResource Label}" />
+                            <ComboBox Grid.Row="1" Grid.Column="1" Margin="0,8,0,0"
+                                      ItemsSource="{Binding Certificates}"
+                                      SelectedItem="{Binding PortalCertificate}"
+                                      DisplayMemberPath="Display" />
 
                             <TextBlock Grid.Row="2" Grid.Column="1" Style="{StaticResource Note}"
+                                       Text="{Binding PortalCertificateProblem}" Foreground="{StaticResource Warn}" />
+
+                            <TextBlock Grid.Row="3" Text="Control plane" Style="{StaticResource Label}" />
+                            <TextBox Grid.Row="3" Grid.Column="1"
+                                     Text="{Binding PortalControlPlaneUrl, UpdateSourceTrigger=PropertyChanged}" />
+
+                            <TextBlock Grid.Row="4" Grid.Column="1" Style="{StaticResource Note}"
                                        Text="Where the portal reaches the control plane. On a single Server install this is the address above it." />
 
-                            <TextBlock Grid.Row="3" Text="Service account" Style="{StaticResource Label}" />
-                            <TextBox Grid.Row="3" Grid.Column="1"
+                            <TextBlock Grid.Row="5" Text="Service account" Style="{StaticResource Label}" />
+                            <TextBox Grid.Row="5" Grid.Column="1"
                                      Text="{Binding PortalAccount, UpdateSourceTrigger=PropertyChanged}" />
 
-                            <TextBlock Grid.Row="4" Text="Password" Style="{StaticResource Label}" />
-                            <PasswordBox Grid.Row="4" Grid.Column="1" x:Name="PortalPasswordBox"
+                            <TextBlock Grid.Row="6" Text="Password" Style="{StaticResource Label}" />
+                            <PasswordBox Grid.Row="6" Grid.Column="1" x:Name="PortalPasswordBox"
                                          PasswordChanged="PortalPasswordBox_PasswordChanged" />
 
-                            <TextBlock Grid.Row="5" Grid.Column="1" Style="{StaticResource Note}"
+                            <TextBlock Grid.Row="7" Grid.Column="1" Style="{StaticResource Note}"
                                        Text="The portal's own key to the control plane is minted during the install and stored protected. It is never a service argument." />
                         </Grid>
                     </StackPanel>

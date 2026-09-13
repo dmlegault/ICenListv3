@@ -23,6 +23,14 @@ if (ManagementCli.IsVerb(args))
     return await ManagementCli.RunAsync(args);
 }
 
+// Separate from the management verbs because it needs no database - it touches a file ACL and exits.
+// The installer runs it between creating the service and starting it, since a service cannot grant
+// itself access to a private key it cannot read.
+if (CertificateCli.IsVerb(args) && OperatingSystem.IsWindows())
+{
+    return CertificateCli.Run(args);
+}
+
 // Hosting-mode neutral: the same binary runs under IIS, as a Windows Service, or from `dotnet run`.
 //
 // ContentRootPath has to be decided HERE, in the options, not afterwards. WebApplicationBuilder
@@ -45,6 +53,19 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 // case, which is the only place a service can report a startup failure — including the two
 // migration-verification failures below, which are precisely what a first production start hits.
 builder.Services.AddWindowsService(options => options.ServiceName = "enlist-controlplane");
+
+// The TLS certificate, before Build() because Kestrel's options are settled with the builder.
+//
+// Three lines rather than a shared extension method: ServerCertificate itself is shared, but wiring
+// Kestrel needs the ASP.NET Core framework reference, and Enlist.ControlPlane.Contracts is also what
+// the AGENT references. Putting this there would make every agent require the ASP.NET Core runtime -
+// which is exactly the 11 MB download the bundle goes out of its way not to do on an agent-only
+// install. Nothing happens here when no certificate is configured; the refusal for "HTTPS with none"
+// is a hard rule in UseEnlistAuthentication, with the others.
+if (OperatingSystem.IsWindows() && ServerCertificate.Load(builder.Configuration) is { } serverCertificate)
+{
+    builder.WebHost.ConfigureKestrel(o => o.ConfigureHttpsDefaults(https => https.ServerCertificate = serverCertificate));
+}
 
 // The LocalDB fallback is a DEVELOPMENT convenience and is now confined to Development. It used to
 // apply everywhere, and combined with the same string sitting in the base appsettings.json it meant a

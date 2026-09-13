@@ -49,6 +49,9 @@
                  Condition="NOT CP_ACCOUNT" Value="NT AUTHORITY\NetworkService" />
     <Property Id="CP_PASSWORD" Secure="yes" Hidden="yes" />
 
+    <!-- The thumbprint of a certificate in the machine's personal store. Not a secret; see SetCpArgsCertificate below. -->
+    <Property Id="CP_CERT" Secure="yes" />
+
     <!--
       DECLARED WITHOUT VALUES, and defaulted below with SetProperty, which is not a style choice.
 
@@ -107,6 +110,21 @@
     <SetProperty Id="CP_SERVICE_ARGS" Action="SetCpArgsWindowsAuth" Sequence="execute" After="SetCpArgs"
                  Condition="DB_AUTH = &quot;Windows&quot;"
                  Value="[CP_SERVICE_ARGS] --ConnectionStrings:ControlPlane=&quot;Server=[DB_SERVER];Database=[DB_NAME];Trusted_Connection=True;TrustServerCertificate=True;&quot;" />
+
+    <!--
+      The TLS certificate, as a thumbprint on the command line - which is allowed precisely because a
+      thumbprint is not a secret. It names a certificate; it does not grant anything. The private key
+      stays in the machine store, and the service account is given read access to it by the
+      bootstrapper, which is a thing an MSI cannot do and the reason it is not attempted here.
+      A PFX password would be a different matter entirely and never goes near this.
+
+      Omitted rather than passed empty when unset: the host refuses to start on https with no
+      certificate and says exactly that, which is a better failure than an empty thumbprint reported
+      as "not found".
+    -->
+    <SetProperty Id="CP_SERVICE_ARGS" Action="SetCpArgsCertificate" Sequence="execute" After="SetCpArgsWindowsAuth"
+                 Condition="CP_CERT"
+                 Value="[CP_SERVICE_ARGS] --Certificate:Thumbprint=&quot;[CP_CERT]&quot;" />
 
     <Feature Id="Main" Title="enList Control Plane" Level="1">
       <ComponentGroupRef Id="ControlPlaneFiles" />

@@ -43,9 +43,20 @@ public static class AuthenticationSetup
     public static void UseEnlistAuthentication(this WebApplication app)
     {
         var options = app.Services.GetRequiredService<IOptions<AuthenticationOptions>>().Value;
-        if (ListenerRules.Violation(ListenerRules.ConfiguredUrls(app.Configuration), options.Mode, "control plane") is { } violation)
+        var urls = ListenerRules.ConfiguredUrls(app.Configuration);
+
+        if (ListenerRules.Violation(urls, options.Mode, "control plane") is { } violation)
         {
             throw new InvalidOperationException(violation);
+        }
+
+        // The third hard rule, and the one the other two create: Required refuses plain HTTP off
+        // loopback, the listen default is `+`, so a real deployment serves HTTPS - and HTTPS with no
+        // certificate is a service that binds and then fails every handshake, complaining about an
+        // endpoint. Refused here instead, by name, next to the rules that made it necessary.
+        if (ServerCertificate.Violation(urls, app.Configuration, "control plane", app.Environment.IsDevelopment()) is { } missing)
+        {
+            throw new InvalidOperationException(missing);
         }
 
         // Order matters, and it was wrong until 2026-09-13: the audit middleware sat AFTER

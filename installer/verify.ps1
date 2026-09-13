@@ -304,6 +304,35 @@ Assert-That ($parsed -contains 'https://+:5293') 'the listen URL survives parsin
 Assert-That ($parsed -contains '--PackageStorage:Root=C:\ProgramData\enList\ControlPlane\PackageBlobs\') 'the blob root is absolute and whole'
 Assert-That ($parsed -contains '--ConnectionStrings:ControlPlane=Server=sql01.corp.local;Database=EnlistControlPlane;Trusted_Connection=True;TrustServerCertificate=True;') 'Windows auth composes the connection string'
 
+# ---- Both hosts: the TLS certificate, which a service that serves https cannot start without -----
+Write-Host ""
+Write-Host "  The TLS certificate"
+$thumbprint = 'A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4'
+$line = Get-ServiceCommandLine `
+    -Msi (Join-Path $OutDir 'Enlist.ControlPlane.msi') `
+    -Properties @{ CP_URLS = 'https://+:5293'; DB_AUTH = 'Windows'; CP_CERT = $thumbprint } `
+    -Actions @('SetCpArgs', 'SetCpArgsWindowsAuth', 'SetCpArgsCertificate') `
+    -ArgsProperty 'CP_SERVICE_ARGS' -ServiceExe 'Enlist.ControlPlane.exe'
+$parsed = @(Split-CommandLine $line)
+Assert-That ($parsed -contains "--Certificate:Thumbprint=$thumbprint") 'the control plane is told which certificate to serve'
+
+$line = Get-ServiceCommandLine `
+    -Msi (Join-Path $OutDir 'Enlist.Portal.msi') `
+    -Properties @{ PORTAL_URLS = 'https://+:5231'; PORTAL_CPURL = 'https://localhost:5293'; PORTAL_CERT = $thumbprint } `
+    -Actions @('SetPortalArgs', 'SetPortalArgsControlPlane', 'SetPortalArgsCertificate') `
+    -ArgsProperty 'PORTAL_SERVICE_ARGS' -ServiceExe 'Enlist.Portal.exe'
+Assert-That (@(Split-CommandLine $line) -contains "--Certificate:Thumbprint=$thumbprint") 'the portal is told which certificate to serve'
+
+# A thumbprint is not a secret - it NAMES a certificate rather than granting access to one - which is
+# the whole reason it may sit on a command line the machine can read. The private key is what matters,
+# and the bootstrapper grants the service account read access to it separately.
+$line = Get-ServiceCommandLine `
+    -Msi (Join-Path $OutDir 'Enlist.ControlPlane.msi') `
+    -Properties @{ CP_URLS = 'https://+:5293'; DB_AUTH = 'Windows'; CP_CERT = '' } `
+    -Actions @('SetCpArgs', 'SetCpArgsWindowsAuth', 'SetCpArgsCertificate') `
+    -ArgsProperty 'CP_SERVICE_ARGS' -ServiceExe 'Enlist.ControlPlane.exe'
+Assert-That ($line -notmatch 'Certificate:Thumbprint') 'an unset certificate is omitted rather than passed empty'
+
 # ---- Control plane: a SQL login is deliberately NOT put on the command line ----------------------
 Write-Host "  Enlist.ControlPlane.msi, SQL authentication"
 $line = Get-ServiceCommandLine `
@@ -608,4 +637,6 @@ if ($script:failures -gt 0) {
     exit 1
 }
 Write-Host "All checks passed." -ForegroundColor Green
+
+
 

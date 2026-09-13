@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
+using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 
 namespace Enlist.ControlPlane.Contracts;
@@ -105,5 +106,119 @@ public static class WindowsSecrets
         }
 
         return security;
+    }
+
+    /// <summary>
+    /// Lets a service account read a certificate's PRIVATE KEY, which is a separate permission from
+    /// reading the certificate and is the one everybody forgets.
+    ///
+    /// A certificate in LocalMachine\My is readable by anyone; its private key is a file under
+    /// %ProgramData%\Microsoft\Crypto with an ACL of its own, and importing a PFX grants that only to
+    /// the account that did the importing. So a certificate installed by an administrator and served
+    /// by a service running as NETWORK SERVICE - the default for both the control plane and the
+    /// portal - produces a host that starts, binds, and then fails every TLS handshake. The
+    /// certificate is right there, and the error talks about the endpoint.
+    ///
+    /// Read is granted rather than full control: serving TLS needs to use the key, never to change or
+    /// delete it. Returns the key file it touched, for a caller that wants to say so.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public static string GrantPrivateKeyAccess(X509Certificate2 certificate, string account)
+    {
+        if (certificate == null)
+        {
+            throw new ArgumentNullException(nameof(certificate));
+        }
+
+        if (!certificate.HasPrivateKey)
+        {
+            throw new InvalidOperationException(
+                $"The certificate {certificate.Thumbprint} has no private key in this store, so it cannot serve TLS. " +
+                "It was probably imported without one - re-import the PFX, including the private key.");
+        }
+
+        var keyFile = PrivateKeyFile(certificate)
+            ?? throw new InvalidOperationException(
+                $"The private key for {certificate.Thumbprint} is not a file this process can find - it may be held in a hardware or custom key store provider, " +
+                $"in which case '{account}' has to be granted access through that provider's own tools.");
+
+        var info = new FileInfo(keyFile);
+        var security = info.GetAccessControl();
+
+        // ADDED to whatever is there, not replacing it: the account that imported the certificate,
+        // and SYSTEM, must keep the access they have. This is the opposite of ClosedTo above, and
+        // deliberately so - this file is not ours to lock down.
+        security.AddAccessRule(new FileSystemAccessRule(
+            ResolveAccount(account),
+            FileSystemRights.Read,
+            AccessControlType.Allow));
+
+        info.SetAccessControl(security);
+        return keyFile;
+    }
+
+    /// <summary>
+    /// Where a private key actually lives. Two shapes, because Windows has two generations of key
+    /// storage and a certificate may use either: CNG keys are named files under Crypto\Keys, and the
+    /// older CAPI keys live under Crypto\RSA\MachineKeys.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    private static string? PrivateKeyFile(X509Certificate2 certificate)
+    {
+        var names = new List<string>();
+
+        using (var rsa = certificate.GetRSAPrivateKey())
+        {
+            if (rsa is System.Security.Cryptography.RSACng cng)
+            {
+                names.Add(cng.Key.UniqueName ?? "");
+            }
+            else if (rsa is System.Security.Cryptography.RSACryptoServiceProvider capi)
+            {
+                names.Add(capi.CspKeyContainerInfo.UniqueKeyContainerName ?? "");
+            }
+        }
+
+        using (var ecdsa = certificate.GetECDsaPrivateKey())
+        {
+            if (ecdsa is System.Security.Cryptography.ECDsaCng cng)
+            {
+                names.Add(cng.Key.UniqueName ?? "");
+            }
+        }
+
+        var common = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        var user = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+
+        foreach (var name in names.Where(n => !string.IsNullOrWhiteSpace(n)))
+        {
+            // A CAPI container name is already a bare file name in MachineKeys; a CNG UniqueName may
+            // be either a bare name or a full path, depending on the provider.
+            if (Path.IsPathRooted(name) && File.Exists(name))
+            {
+                return name;
+            }
+
+            // Machine locations first, because a service's certificate belongs in LocalMachine\My and
+            // that is what this is for. The user ones are last so a developer with a personal
+            // certificate gets an answer rather than a null.
+            foreach (var directory in new[]
+            {
+                Path.Combine(common, "Microsoft", "Crypto", "Keys"),
+                Path.Combine(common, "Microsoft", "Crypto", "RSA", "MachineKeys"),
+                Path.Combine(common, "Microsoft", "Crypto", "SystemKeys"),
+                Path.Combine(user, "Microsoft", "Crypto", "Keys"),
+                Path.Combine(user, "Microsoft", "Crypto", "RSA"),
+            })
+            {
+                var candidate = Path.Combine(directory, Path.GetFileName(name));
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+        }
+
+        return null;
     }
 }

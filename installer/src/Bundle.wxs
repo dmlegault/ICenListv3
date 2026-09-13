@@ -151,6 +151,9 @@
     -->
     <Variable Name="CP_PASSWORD" bal:Overridable="yes" Type="string" Value="" Hidden="yes" />
 
+    <!-- A thumbprint, not a secret: it names a certificate rather than granting access to one. -->
+    <Variable Name="CP_CERT" bal:Overridable="yes" Type="string" Value="" />
+
     <Variable Name="DB_SERVER" bal:Overridable="yes" Type="string" Value="" />
     <Variable Name="DB_NAME" bal:Overridable="yes" Type="string" Value="EnlistControlPlane" />
     <Variable Name="DB_AUTH" bal:Overridable="yes" Type="string" Value="Windows" />
@@ -161,6 +164,7 @@
     <Variable Name="PORTAL_CPURL" bal:Overridable="yes" Type="string" Value="" />
     <Variable Name="PORTAL_ACCOUNT" bal:Overridable="yes" Type="string" Value="NT AUTHORITY\NetworkService" />
     <Variable Name="PORTAL_PASSWORD" bal:Overridable="yes" Type="string" Value="" Hidden="yes" />
+    <Variable Name="PORTAL_CERT" bal:Overridable="yes" Type="string" Value="" />
 
     <Variable Name="AGENT_INSTALLDIR" bal:Overridable="yes" Type="string" Value="" />
     <Variable Name="AGENT_DATADIR" bal:Overridable="yes" Type="string" Value="" />
@@ -189,6 +193,7 @@
         <MsiProperty Name="CP_URLS" Value="[CP_URLS]" />
         <MsiProperty Name="CP_ACCOUNT" Value="[CP_ACCOUNT]" />
         <MsiProperty Name="CP_PASSWORD" Value="[CP_PASSWORD]" />
+        <MsiProperty Name="CP_CERT" Value="[CP_CERT]" />
         <MsiProperty Name="DB_SERVER" Value="[DB_SERVER]" />
         <MsiProperty Name="DB_NAME" Value="[DB_NAME]" />
         <MsiProperty Name="DB_AUTH" Value="[DB_AUTH]" />
@@ -205,6 +210,7 @@
         <MsiProperty Name="PORTAL_CPURL" Value="[PORTAL_CPURL]" />
         <MsiProperty Name="PORTAL_ACCOUNT" Value="[PORTAL_ACCOUNT]" />
         <MsiProperty Name="PORTAL_PASSWORD" Value="[PORTAL_PASSWORD]" />
+        <MsiProperty Name="PORTAL_CERT" Value="[PORTAL_CERT]" />
       </MsiPackage>
 
       <MsiPackage

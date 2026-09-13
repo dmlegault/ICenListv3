@@ -194,6 +194,46 @@ namespace Enlist.Installer.Ba
             set { Plan.ControlPlanePassword = value; Raise(); Revalidate(); }
         }
 
+        /// <summary>
+        /// The certificates this machine could serve with, offered rather than typed.
+        ///
+        /// A thumbprint is forty hex characters that certmgr renders with spaces and an invisible
+        /// left-to-right mark. Typing one correctly is possible; PASTING one correctly is the thing
+        /// that fails, and it fails as "certificate not found" for a certificate that is right there.
+        /// </summary>
+        public ObservableCollection<CertificateChoice> Certificates { get; } = new ObservableCollection<CertificateChoice>();
+
+        public CertificateChoice? ControlPlaneCertificate
+        {
+            get => Certificates.FirstOrDefault(c => c.Thumbprint == Plan.ControlPlaneCertificate);
+            set
+            {
+                Plan.ControlPlaneCertificate = value?.Thumbprint ?? "";
+                Raise();
+                Raise(nameof(ControlPlaneCertificateProblem));
+                Revalidate();
+            }
+        }
+
+        /// <summary>Said beside the choice rather than discovered at first start: an expired certificate is a service that will not serve.</summary>
+        public string ControlPlaneCertificateProblem =>
+            ControlPlaneCertificate?.Problem ?? ControlPlaneCertificate?.Caution ?? "";
+
+        public CertificateChoice? PortalCertificate
+        {
+            get => Certificates.FirstOrDefault(c => c.Thumbprint == Plan.PortalCertificate);
+            set
+            {
+                Plan.PortalCertificate = value?.Thumbprint ?? "";
+                Raise();
+                Raise(nameof(PortalCertificateProblem));
+                Revalidate();
+            }
+        }
+
+        public string PortalCertificateProblem =>
+            PortalCertificate?.Problem ?? PortalCertificate?.Caution ?? "";
+
         public string DatabaseServer
         {
             get => Plan.DatabaseServer;
@@ -458,6 +498,21 @@ namespace Enlist.Installer.Ba
             {
                 Raise(field);
             }
+
+            // Read once, here, rather than per page: opening the machine store is not free and both
+            // certificate pages offer the same list.
+            Certificates.Clear();
+            foreach (var certificate in CertificateDetection.Available())
+            {
+                Certificates.Add(certificate);
+            }
+
+            // A thumbprint given on the command line may name a certificate that is in the store but
+            // was not enumerable, so the plan's value is left exactly as it arrived; the pages simply
+            // show nothing selected. Overwriting it with null here would silently discard a perfectly
+            // good silent-install setting the moment a wizard was opened.
+            Raise(nameof(ControlPlaneCertificate));
+            Raise(nameof(PortalCertificate));
 
             RebuildPages();
             Revalidate();
