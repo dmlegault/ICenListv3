@@ -206,7 +206,7 @@ Separately, **razor markup** carries ~25 more em dashes. That is user-visible te
 - **[V]** `.gitignore` is correct: `.env`, `PackageBlobs/`, `.demo/`, `deploy/` generated content, `bin`/`obj`, `.vs/`, `.claude/settings.local.json` are all covered, and `deploy/README.md` stays tracked.
 - **[V]** Test counts match the documented 232 exactly: Runner 50, Deploy 5, ControlPlane 72, Agent 72, Portal 33.
 
-## 8. Ops docs, scripts and config
+## 8. Ops docs, scripts and config — DONE (`be8956e`, `4c0fdd6`, `d318fa3`, `435a285`)
 
 Read on the fourth attempt, after three rate-limit deaths. **43 findings across 18 files live in
 their own document: [review-2026-09-12-ops.md](review-2026-09-12-ops.md)**, which keeps each
@@ -276,14 +276,11 @@ Done:
 7. ~~§8 — read the ops area at all.~~ `97725d0`
 8. ~~§8 group 1 — the three demo scripts.~~ `be8956e`
 9. ~~§7 — config, the Dockerfile and two CVEs.~~ `4c0fdd6`
+10. ~~§8's ops documents — the installer design, Deployment-IaC, the Runbook, Test-Plan,
+    Demo-Install, the two developer guides and the READMEs.~~ `d318fa3`, `435a285`
 
 Left:
 
-10. **§8's ops documents.** The installer design first: its listen defaults would refuse to start,
-    its duplicate-name check calls an endpoint that answers 401, and it still says C2 is undecided.
-    That document is the basis for the next thing being built, so it is worth having true first.
-    Then Deployment-IaC, the Runbook, Test-Plan, Demo-Install, the two developer guides and the
-    READMEs.
 11. **§1 items 12, 13, 14, 19, 20, 24** — leaks and disposal. A retry list that grows without bound,
     disposal that is not idempotent, engine processes not killed on cancellation, a stop grace period
     the command timeout cuts short, and a test class that leaks a live runner on every run. Item 24
