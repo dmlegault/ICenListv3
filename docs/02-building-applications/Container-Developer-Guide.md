@@ -1,7 +1,7 @@
 # enList Containers — Developer Guide
 
 **Audience:** anyone working on, testing, or debugging enList's container support.
-**Status:** describes what is **implemented and working today** (phases C0–C5 of [`Container-Story.md`](../03-architecture/Container-Story.md), after a full regression review). Every command here was run on Windows 11 + Docker Desktop 29.7.2 (WSL2, Linux containers) on 2026-09-07 and produced the output shown. Where something does *not* work, that is stated with the evidence.
+**Status:** describes what is **implemented and working today** (phases C0–C5 of [`Container-Story.md`](../03-architecture/Container-Story.md), after a full regression review). Every command here was run on Windows 11 + Docker Desktop 29.7.2 (WSL2, Linux containers) on 2026-09-07 and produced the output shown, except the wslc material in §2a, verified against wslc 2.9.11.0. **Revised 2026-09-13** after a regression review: the authorization note in §1a, the TLS requirement in §1c, the ownership labels in §3, and the engine-agnostic timeout in §9. Where something does *not* work, that is stated with the evidence.
 
 For *why* the design is shaped this way, read [`Container-Story.md`](../03-architecture/Container-Story.md). This document is the how.
 
@@ -27,6 +27,12 @@ For *why* the design is shaped this way, read [`Container-Story.md`](../03-archi
 So: containers are a normal deployment choice now. See §1a for how to turn one on.
 
 ## 1a. Actually running something in a container
+
+> **Every `curl` in this guide assumes the loopback developer setup**, where the control plane runs
+> with `Authentication:Mode=Off` - which is allowed only because it is on loopback. Against anything
+> else, add `-H "Authorization: Bearer <key>"` with an Operator key for the writes and a Viewer key
+> for the reads (`Enlist.ControlPlane.exe create-api-key --name dev --role Operator`). Without it
+> every one of them answers 401.
 
 Two steps.
 
@@ -90,7 +96,7 @@ The isolation block carries three more fields, all honoured:
 ```json
 "isolation": {
   "mode": "container",
-  "image": "enlist/runner:3.2.0",       // pin THIS application to one runner release
+  "image": "enlist/runner:dev",         // pin THIS application to one runner release (":dev" and ":wslc" are what this repo builds; a version tag is an open release decision)
   "networks": ["shared-net"],           // named networks to attach to
   "env": {"ASPNETCORE_ENVIRONMENT": "Staging"},   // non-secret only
   "ports": [{"containerPort": 8080}]
@@ -149,7 +155,7 @@ docker run -d --name enlist-traefik-test -p 127.0.0.1:8090:8080 traefik:v3.1 \
   --providers.http.pollInterval=5s
 ```
 
-(`host.docker.internal` is how a container reaches the host. Start the control plane on `--urls http://0.0.0.0:5293` so it is reachable from outside loopback.)
+(`host.docker.internal` is how a container reaches the host. Start the control plane on `--urls https://0.0.0.0:5293` with a certificate, so it is reachable from outside loopback. **Plain `http://0.0.0.0:5293` will not start:** authentication defaults to `Required`, which refuses plain HTTP off loopback, and `Off` is honoured only when every listener IS loopback. The Traefik provider then needs a Viewer key on `GET /api/endpoints`.)
 
 Confirm Traefik accepted it:
 
@@ -207,7 +213,7 @@ Windows containers would make net472-in-a-container possible; that is C6 at the 
 
 ## 2. Prerequisites
 
-1. **Docker Desktop**, running, in **Linux container** mode.
+1. **Docker Desktop** (running, in **Linux container** mode) **or WSL 2.9.11+ with `wslc`** - see §2a, which is a full alternative, not a footnote: same seam, same image, same lifecycle, its own test class, and what the demo actually uses. Pick one; the rest of this section shows Docker.
    Verify — this must print `linux`:
    ```bash
    docker info --format '{{.OSType}}'
@@ -275,7 +281,10 @@ The image is deliberately generic: **one image for all applications**, containin
 The exact command the agent issues, written out:
 
 ```bash
-docker run -d -p 127.0.0.1:0:5000 -v "C:/Users/you/src/enList_v3/deploy/SampleService:/app:ro" enlist/runner:dev --listen 5000 --app /app
+docker run -d --name enlist-sampleservice-a1b2c3d4 \
+  --label enlist.agent=DEV-AGENT-01 --label enlist.application=SampleService \
+  -p 127.0.0.1:0:5000 -v "C:/Users/you/src/enList_v3/deploy/SampleService:/app:ro" \
+  enlist/runner:dev --listen 5000 --app /app
 ```
 
 Piece by piece:
@@ -287,6 +296,8 @@ Piece by piece:
 | `-v <hostPath>:/app:ro` | The extracted package directory, mounted **read-only**. Host path must be absolute and Windows-style (`C:/...` or `C:\...`). |
 | `--listen 5000` | The runner binds this port **inside** the container and waits for the agent to dial in. |
 | `--app /app` | Where to discover plugins — always `/app`, the mount point. |
+| `--name enlist-<app>-<8 hex>` | The naming scheme §8.1 describes. |
+| `--label enlist.agent=` / `enlist.application=` | **The ownership record, and load-bearing.** Orphan reaping (§8.2) finds containers by these labels, so a container created by hand WITHOUT them is one no agent will ever clean up - exactly the trap §8.2 warns about. They were missing from this command until 2026-09-13, which made "the exact command" a way to create that trap. |
 
 Then find the host port the engine chose:
 
@@ -571,7 +582,7 @@ Build the image first, then:
 dotnet test tests/Enlist.Agent.Tests/Enlist.Agent.Tests.csproj --filter "FullyQualifiedName~Container"
 ```
 
-Or the whole suite (121 tests):
+Or the whole suite (273 tests):
 
 ```bash
 dotnet test enList_v3.slnx
@@ -616,7 +627,7 @@ AgentHost ──holds──> IRunnerInstance        (never knows which kind)
 
 - ~~The Applications tab does not surface isolation per running instance.~~ Fixed on BOTH running views: the Applications tab chips each running row beside the agent name, and the Agents tab chips the application beside its state. Both tooltip `docker logs <short id>` from `RuntimeId`. Process rows deliberately carry no chip — process is the default and the overwhelming majority, so a chip there would be noise.
 - ~~Staging is wasted work for containers.~~ Fixed in C3: staging moved behind `IRunnerBackend`, so a containerized application no longer copies a runner nobody reads.
-- **`Pid` is `0` for containers.** Deliberate — a container's "host pid" on Docker Desktop lives inside a Linux VM and is meaningless to anything on the Windows host. Use `RuntimeId` (the container id) instead; it is what `docker logs` accepts. `AgentApplicationStatusDto` still carries only `Pid`, so the portal shows nothing useful for a containerized app until C3 surfaces `RuntimeId`.
+- **`Pid` is `0` for containers.** Deliberate — a container's "host pid" on Docker Desktop lives inside a Linux VM and is meaningless to anything on the Windows host. Use `RuntimeId` (the container id) instead; it is what `docker logs` accepts. The status report carries `IsolationMode`, `RuntimeId` and `Endpoints` alongside it (C3), and the portal renders all three - the container chip, the `docker logs` tooltip and the Endpoint column. Only the first sentence of this bullet was ever the lasting part; the rest described a gap that closed and is removed.
 - **The control channel is unauthenticated.** See the security note in §6.
 - **Linux containers only.** The image is `mcr.microsoft.com/dotnet/runtime:10.0`. A net472 application cannot run in it; that needs Windows containers, which is C6 at the earliest.
 - **The mismatch path in §7 is not integration-tested.** `RunnerProtocol.DescribeMismatch` is unit-tested and the happy path is proven end-to-end, but forcing a real runner to report a wrong version would mean adding a test-only override to production code.

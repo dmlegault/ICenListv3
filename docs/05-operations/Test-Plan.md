@@ -2,7 +2,7 @@
 
 **Product:** enList v3
 **Framework:** xUnit
-**Document status:** Derived from the actual test source under `tests/`; rewritten 2026-09-08 at class level after the per-test list drifted. Total: **232 tests, all passing** (15 skip themselves where the machine cannot run them — §2.6) (`dotnet test enList_v3.slnx`).
+**Document status:** Derived from the actual test source under `tests/`; rewritten 2026-09-08 at class level after the per-test list drifted; **revised 2026-09-13** (the authentication classes, the run-count figure, the skip arithmetic, and what the machine actually needs). Total: **273 tests, all passing** (15 skip themselves where the machine cannot run them — §2.6) (`dotnet test enList_v3.slnx`).
 
 ---
 
@@ -16,7 +16,7 @@
 
 Listed by test CLASS rather than by individual test. The per-test enumeration this section used to carry drifted badly — it described 51 tests under the pre-rename vocabulary (machines, assignments, labels) long after those concepts were gone — and a class-level inventory stays true for longer while still saying what is actually covered.
 
-### 2.1 `Enlist.ControlPlane.Tests` — 72 tests
+### 2.1 `Enlist.ControlPlane.Tests` — 90 tests
 
 Spawns the **real** `Enlist.ControlPlane.exe` against a throwaway LocalDB database per test class (`ControlPlaneTestServer`), so these exercise routing, EF Core, validation and JSON exactly as deployed.
 
@@ -39,7 +39,7 @@ Spawns the **real** `Enlist.ControlPlane.exe` against a throwaway LocalDB databa
 | `PortCollisionTests` | Two applications claiming one static host port on one agent both fail, each naming the other — plus the three cases that must NOT be conflicts (dynamic ports, same port on different agents, different host ports sharing a container port). |
 | `EndpointFeedTests` | The endpoint projection, staleness, the Traefik shape (and that it emits no `routers`), and that an unreadable snapshot degrades instead of breaking the feed. |
 
-### 2.2 `Enlist.Agent.Tests` — 72 tests
+### 2.2 `Enlist.Agent.Tests` — 80 tests
 
 Spawns real runner processes, and (where Docker is present) real containers.
 
@@ -66,7 +66,7 @@ Spawns real runner processes, and (where Docker is present) real containers.
 | `ContainerPortPublishingTests` | Static and dynamic ports published and reported as resolved endpoints; env and image overrides reach the ENGINE, not merely the API. |
 | `WslContainerEngineTests` | The second engine, over the real `wslc` CLI and the `enlist/runner:wslc` image: an unmodified package runs and completes discovery with its control port on loopback only; application ports land on all interfaces, static and dynamic, and are reported; a killed container is restarted by the same crash path a process uses; orphans are reaped by ownership label and another agent's are left alone. Skips without `wslc` or the image. |
 
-### 2.3 `Enlist.Runner.Tests` — 50 tests
+### 2.3 `Enlist.Runner.Tests` — 53 tests
 
 Drives a real `enlist-runner` process through `StubAgent`, with no in-process shortcuts — both builds: the modern one as `dotnet enlist-runner.dll`, the net472 one as its own `enlist-runner.exe` (`StubAgent.StartLegacyAsync`, located by path since a net472 executable cannot be referenced from a net10.0 project).
 
@@ -96,7 +96,7 @@ Drives a real `enlist-runner` process through `StubAgent`, with no in-process sh
 |---|---|
 | `DeployCliTests` | Zipping a source directory, uploading it, and printing the resulting digest and detected runtime flavor; and against a control plane that requires authentication: an Operator key uploads whether it comes from `--api-key` or `ENLIST_API_KEY`, no key is refused with the remedy rather than a bare 401, and a Viewer key is refused with why. |
 
-### 2.5 `Enlist.Portal.Tests` — 33 tests
+### 2.5 `Enlist.Portal.Tests` — 45 tests
 
 Plain xUnit over the portal assembly — no bUnit, no browser. What it pins are the portal's own copies of decisions the control plane makes, which is exactly the code that drifts silently: the review of 2026-09-09 found a private copy of the agreement rule on the Agents tab that had never learned about Isolation.
 
@@ -116,10 +116,12 @@ Component rendering and interaction stay manual (§5).
 
 ### 2.6 Tests that skip themselves
 
-The 16 container tests call `Skip.IfNot(...)` when their engine or its image is unavailable — Docker and `enlist/runner:dev` for the four Docker classes, `wslc` and `enlist/runner:wslc` for `WslContainerEngineTests` — and report as **skipped** rather than failed. The suite must stay runnable on a machine with no container engine, where a red test would say "enList is broken" when it means "Docker isn't installed". Build the image first (see [`Container-Developer-Guide.md` §3](../02-building-applications/Container-Developer-Guide.md)) or they will skip.
+**Up to 19 tests can skip; 15 do on a machine like this one.** The 16 container tests call `Skip.IfNot(...)` when their engine or its image is unavailable — Docker and `enlist/runner:dev` for the four Docker classes, `wslc` and `enlist/runner:wslc` for `WslContainerEngineTests` — and report as **skipped** rather than failed. The suite must stay runnable on a machine with no container engine, where a red test would say "enList is broken" when it means "Docker isn't installed". Build the image first (see [`Container-Developer-Guide.md` §3](../02-building-applications/Container-Developer-Guide.md)) or they will skip.
 
 Three `PortalAuthenticationTests` sign in to the portal as the account running the tests, and skip themselves — naming which of two reasons — on a machine that will not let an account sign in to itself: Windows refuses NTLM to the local machine under any name but its own (LSA's loopback check; the harness already dials the machine name over HTTPS for exactly this reason), and an account without a network-usable secret (a Microsoft account, Windows Hello) cannot start the handshake at all. Both are properties of the machine. What those tests would prove is pinned without a handshake by `PortalRolesTests`; the Negotiate challenge itself is asserted before the skip can happen.
 
+
+**Why 19 and not 15.** The four `WslContainerEngineTests` are among the 16 but do NOT skip on a machine that has `wslc` and `enlist/runner:wslc` - which this one does - so the observed figure is 12 Docker skips plus the 3 sign-in skips. A machine with Docker but no wslc sees the other 4 skip instead. Both numbers in this document are right; they answer different questions, and saying only one of them made them look like a contradiction.
 ## 2a. A note on determinism
 
 The suite spawns real processes — control planes, runners, and containers — concurrently. That was a genuine source of intermittent failure until the cause was found: `ControlPlaneTestServer` allocated a port by binding `TcpListener(port 0)`, reading the number, RELEASING it, and handing it to a child that bound it a moment later. Between release and bind, a sibling test class doing the same thing could be handed the same just-freed ephemeral port; the loser's Kestrel failed to bind and its process died with an unhandled exception, surfacing as an unexplained failure in whichever test drew the short straw.
@@ -128,7 +130,7 @@ The fix removes the window rather than narrowing it: the CHILD chooses its own p
 
 The child's stdout and stderr are also captured now and quoted in both failure messages. Previously a startup failure produced only "exited early with code -532462766" — which says a .NET process threw, and nothing whatsoever about why.
 
-**Verified by eight consecutive full-suite runs, 800/800**, including one started immediately after a process sweep, which was the condition that used to provoke it most reliably.
+**Verified by eight consecutive full-suite runs with no failures** (the figure here used to read "800/800", which was eight runs of a 100-test suite and had not been updated since), including one started immediately after a process sweep, which was the condition that used to provoke it most reliably.
 
 One residual flake is on record and not yet explained: on 2026-09-09, in a full-suite run started seconds after the demo processes were killed, `ConcurrentCommandTests.Start_then_stop_for_one_service_are_applied_in_order` timed out at 20 s once; it passed immediately after in isolation (156 ms) and in two consecutive runs of the whole Runner project (2 s each), and the full suite was green on the next run. The shape — one runner process slow to come up while five test assemblies spawn runners, containers and LocalDB in parallel — points at load, not logic. If it recurs, capture the runner's stderr from the failing test before anything else.
 
@@ -151,7 +153,7 @@ Or per project, e.g.:
 dotnet test tests/Enlist.ControlPlane.Tests/Enlist.ControlPlane.Tests.csproj
 ```
 
-No external services need to be started manually — `ControlPlaneTestServer` and `StubAgent` are constructed in-process per test.
+No external services need to be started manually - `ControlPlaneTestServer`, `StubAgent` and `PortalTestServer` start what they need as real CHILD PROCESSES, which is the point of the posture above and the opposite of in-process. What the machine must already have: **SQL Server LocalDB** (every control-plane test uses a throwaway database on it), and a container engine for the container tests in §2.6, which skip without one.
 
 ## 4. Requirements Traceability Summary
 
@@ -166,9 +168,12 @@ No external services need to be started manually — `ControlPlaneTestServer` an
 | Imperative Control (§3.6) | Not currently covered by an automated test (manually verified via the portal — see §5) |
 | Logging (§3.7) | `AgentFileLogSinkTests` |
 | Plugin Discovery (§3.8) | `RunnerLifecycleTests` |
-| Portal UI (§3.9) | `PolicyConflictDetectorTests`, `TagSelectorMatcherTests` for the portal's resolution logic; rendering and interaction verified manually in a browser (no component-test project) |
+| Authentication and access control (no SRS section - see below) | `AuthenticationTests`, `AccessEndpointsTests`, `ListenerRulesTests`, `ControlPlaneConcurrencyTests` (control plane); `AgentCredentialTests` (agent); `PortalAuthenticationTests`, `PortalRolesTests`, `ControlPlaneApiClientTests`, `ProtectedSettingsTests` (portal); the key cases in `DeployCliTests` |
+| Portal UI (§3.9) | `PolicyConflictDetectorTests`, `TagSelectorMatcherTests`, `KeyedRowsTests`, `AsciiTextRuleTests` for the portal's resolution logic and text rule; rendering and interaction verified manually in a browser (no component-test project) |
 
 ## 5. Known Gaps (not currently automated)
+
+- **Authentication has no SRS section to trace to.** Nine test classes cover it, listed above, but §4's left-hand column has no requirement to point at: the SRS was written before authentication existed and still has none. The tests are not the gap; the requirements are.
 
 - **Heartbeat loop** (`RunHeartbeatLoopAsync`, `AgentHostOptions.HeartbeatInterval`) — verified manually during development (baseline capture, wait, confirm `LastSeenUtc` advances with no other trigger) but has no automated test at this time.
 - **Imperative commands** (`AgentCommandRequest` end-to-end delivery) — exercised manually via the portal; no automated integration test exists for the `/api/agents/{name}/commands` → SignalR → runner path.

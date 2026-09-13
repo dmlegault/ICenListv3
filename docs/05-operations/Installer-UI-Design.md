@@ -1,7 +1,7 @@
 # enList Installer — UI Design (WiX)
 
 **Product:** enList v3
-**Document status:** Design draft, 2026-09-11. **Nothing in this document is implemented** — there is no installer project in the repository yet. It exists to agree on the shape of the installer, page by page, before any WiX is authored. Where it describes current product behaviour (ports, flags, config keys) it is accurate to the code; where it describes the installer it is a proposal.
+**Document status:** Design draft, 2026-09-11; **revised 2026-09-13** so the listen defaults, the duplicate-name check and the authentication section describe what the platform actually does (see §6.4, §6.7 and §8). **Nothing in this document is implemented** — there is no installer project in the repository yet. It exists to agree on the shape of the installer, page by page, before any WiX is authored. Where it describes current product behaviour (ports, flags, config keys) it is accurate to the code; where it describes the installer it is a proposal.
 
 > **Read with [`Deployment-IaC.md`](Deployment-IaC.md).** That document records how the platform is deployed *today* (by hand, with `sc.exe`). This one proposes the installer that replaces those hand steps, and its silent-install surface (§10) is what the IaC shape proposed in Deployment-IaC §4 would drive.
 
@@ -116,8 +116,8 @@ See §3. Property `INSTALLTYPE` = `Server | AgentOnly | Custom`; with `Custom`, 
  │ Install to     [C:\Program Files\enList\ControlPlane        ] [...]  │
  │ Data           [C:\ProgramData\enList\ControlPlane          ] [...]  │
  │                package blobs, logs, appsettings                       │
- │ Listen on      [http://+:5293                               ]        │
- │                 ✓ port 5293 is free                                   │
+ │ Listen on      [https://+:5293                              ]        │
+ │                 ✓ port 5293 is free   Certificate [Select...]        │
  │ Service account (•) Network Service  ( ) This account:               │
  │                 user [                 ]  password [        ] [Test] │
  └──────────────────────────────────────────────────────────────────────┘
@@ -128,7 +128,7 @@ See §3. Property `INSTALLTYPE` = `Server | AgentOnly | Custom`; with `Custom`, 
 | Hosting | Windows service | *Container* enabled only when an engine was detected (§4); engine dropdown lists the detected ones | `CP_HOSTING` = `Service | Container`, `CP_ENGINE` = `wslc | docker` |
 | Install to | `%ProgramFiles%\enList\ControlPlane` | Writable, not a system directory; hidden in Container mode (nothing is installed there) | `CP_INSTALLDIR` |
 | Data | `%ProgramData%\enList\ControlPlane` | Writable. Becomes `PackageStorage:Root` (`\PackageBlobs`) and the home of `appsettings.json`. In Container mode it is the bind-mounted volume | `CP_DATADIR` |
-| Listen on | `http://+:5293` | Parses as a URL prefix; port not currently bound (`GetActiveTcpListeners`). This is what goes into the service's `--urls` — a service has no shell, so the flag in `binPath` is how it learns its address (Deployment-IaC §1.6) | `CP_URLS` |
+| Listen on | `https://+:5293` | Parses as a URL prefix; port not currently bound (`GetActiveTcpListeners`). This is what goes into the service's `--urls` — a service has no shell, so the flag in `binPath` is how it learns its address (Deployment-IaC §1.6). **`https`, and the page must collect a certificate with it.** `+` is not loopback, so the control plane refuses to start on plain `http` there: authentication defaults to `Required` and `Required` will not carry credentials in the clear off loopback ([Authentication-Design.md §9](../03-architecture/Authentication-Design.md)). A `http://+:5293` default — which this page carried until 2026-09-13 — produces a service that installs cleanly and then never starts | `CP_URLS`, `CP_CERT` |
 | Service account | Network Service | *This account*: `LogonUser` test on *Test*; the MSI grants *Log on as a service* and write access to `CP_DATADIR`. Hidden in Container mode | `CP_ACCOUNT`, `CP_PASSWORD` (Hidden) |
 
 ### 6.5 Database (Control Plane only)
@@ -157,7 +157,7 @@ See §3. Property `INSTALLTYPE` = `Server | AgentOnly | Custom`; with `Custom`, 
 
 ### 6.6 Portal
 
-Same layout as §6.4 (hosting, install path, data path for `appsettings.json` and logs, listen `http://+:5231`, service account) plus:
+Same layout as §6.4 (hosting, install path, data path for `appsettings.json` and logs, listen `https://+:5231`, service account) plus:
 
 | Field | Default | Validation / behaviour | Property |
 |---|---|---|---|
@@ -187,10 +187,10 @@ The portal never touches SQL, so there is no database page for it.
 |---|---|---|---|
 | Install to | `%ProgramFiles%\enList\Agent` | Writable. Holds the agent, both runners (`enlist-runner`, and the net472 `enlist-runner.exe` for legacy applications) | `AGENT_INSTALLDIR` |
 | Data | `%ProgramData%\enList\Agent` | Becomes `--data`: `Packages\`, `Runners\`, `Logs\` (the layout `.demo/README.md` documents) | `AGENT_DATADIR` |
-| Agent name | machine name | Must be unique in the fleet — **two agents with one name silently corrupt each other's reports** (Runbook). *Verify* below also checks the name is not already registered and warns if it is | `AGENT_NAME` |
+| Agent name | machine name | Must be unique in the fleet — **two agents with one name silently corrupt each other's reports** (Runbook). The duplicate is caught by **enrollment itself**, which answers `409` for a name already holding a live credential, and the installer surfaces that as *this name is taken; revoke the old agent's credential first, or pick another*. It must NOT be checked with `GET /api/agents/{name}` as this page said until 2026-09-13: that endpoint is Viewer-policed, the installer holds at most a join token at that moment, and the call answers `401` — so the warning silently never fired on exactly the deployments that have authentication turned on | `AGENT_NAME` |
 | Tags | empty | `key=value` pairs; applied with `PUT /api/agents/{name}/tags` on first start — policies target agents by tag, so an agent installed with `env=prod` is schedulable the moment it registers | `AGENT_TAGS` |
-| Control plane URL | prefilled if CP is in this install | **Verify** (BA, `HttpClient`, 5 s timeout): `GET {url}/health` → 200 whose body names `enList control plane` = *reachable — enList control plane {version}, database healthy*; 503 with that same body = *reachable, but its database is down* (allowed, with a warning); a connection error or a non-JSON body = *not an enList control plane*. A second call, `GET {url}/api/agents/{name}`, warns if the agent name is already registered. Verification is **required** to proceed, with one escape hatch: *Continue anyway* for machines imaged before the control plane exists — recorded in the summary and on the Finish page | `AGENT_CPURL` |
-| Containers | the detected engine, else *None* | Radios enabled per §4 detection. Sets `--container-engine` and `--container-image`. Note under the group: *net472 applications cannot run in a container* (Deployment-IaC) | `AGENT_ENGINE` = `none | wslc | docker`, `AGENT_IMAGE` |
+| Control plane URL | prefilled if CP is in this install | **Verify** (BA, `HttpClient`, 5 s timeout): `GET {url}/health` → 200 whose body names `enList control plane` = *reachable — enList control plane {version}, database healthy*; 503 with that same body = *reachable, but its database is down* (allowed, with a warning); a connection error or a non-JSON body = *not an enList control plane*. Verification is **required** to proceed, with one escape hatch: *Continue anyway* for machines imaged before the control plane exists — recorded in the summary and on the Finish page | `AGENT_CPURL` |
+| Containers | the detected engine, else *None* | Radios enabled per §4 detection. Sets `--container-engine` and `--container-image`. Note under the group: *net472 applications cannot run in a container* (Deployment-IaC). **`enlist/runner:3.0.0` is a proposed RELEASE tag and does not exist yet** — the repository builds `enlist/runner:dev` and `enlist/runner:wslc`. Publishing a version-tagged image is an open item (§12) and the installer cannot ship before it is settled, since this field's default has to name something pullable | `AGENT_ENGINE` = `none | wslc | docker`, `AGENT_IMAGE` |
 | Service account | Local System | Local System is the pragmatic default: the agent starts child runners, enrols them in a Job Object, and (with an engine) drives `wslc`/`docker`, all of which want a broad host account. *This account* is offered for locked-down hosts, with the same *Test* | `AGENT_ACCOUNT`, `AGENT_PASSWORD` (Hidden) |
 
 The resulting service is `enlist-agent`, `binPath` = `"…\enlist-agent.exe" --control-plane {AGENT_CPURL} --agent {AGENT_NAME} --runner-bin "…\runner" --legacy-runner-bin "…\runner-legacy" --data "{AGENT_DATADIR}" [--container-engine {AGENT_ENGINE} --container-image {AGENT_IMAGE}]` — exactly the flags [`demo/start-demo.ps1`](../../demo/start-demo.ps1) passes today, so the installer and the demo cannot drift apart on what an agent needs.
@@ -211,7 +211,7 @@ Progress per package. Finish offers *Start services now* (checked) and *Open the
 
 **Container** hosting of the control plane or portal is not one thing but three, and it is worth being explicit because none of it exists yet:
 
-1. **An image for each.** Only the *runner* has a Dockerfile today. The control plane and portal need their own (`mcr.microsoft.com/dotnet/aspnet:10.0`, publish output, `--urls http://+:5293`). The MSI would carry each image as a `docker save`/`wslc save` tarball and `load` it, so an install needs no registry access.
+1. **An image for each.** Only the *runner* has a Dockerfile today. The control plane and portal need their own (`mcr.microsoft.com/dotnet/aspnet:10.0`, publish output, `--urls https://+:5293`, for the same reason §6.4 does). The MSI would carry each image as a `docker save`/`wslc save` tarball and `load` it, so an install needs no registry access.
 2. **Provisioning.** The BA creates the container: published port (`0.0.0.0:5293:5293` — a hosted control plane must be reachable from other machines, unlike the loopback-only runner control channel), the data directory as a volume, configuration as `--env` (`ConnectionStrings__ControlPlane`, `ControlPlane__BaseUrl`).
 3. **A host-side supervisor service.** `wslc` has **no restart policy** (Docker's `restart: unless-stopped` has no equivalent — learned the hard way on the demo, [`demo/sql-server/README.md`](../../demo/sql-server/README.md)), so a container hosted this way is simply stopped after every reboot. The MSI therefore installs a tiny service, `enlist-<component>-host`, whose whole job is `wslc start`/`docker start` at boot and `stop` on shutdown. With Docker the supervisor is redundant but harmless, so ship one shape.
 
@@ -231,9 +231,26 @@ Three different things get called a login on an installer page. Only two of them
 | **Database credentials** — how the control plane reaches SQL Server | Yes | Windows auth via the service account (preferred; nothing stored) or a SQL login written into the ACL-restricted `appsettings.json`. If SQL auth must be used, the connection string should be **DPAPI-protected at machine scope** rather than plaintext — a small addition to the control plane's configuration loading that is worth doing before an installer ships it |
 | **An application login for the portal / control plane** — a user and password to sign in to enList | **No, by design** — and never will be. People sign in with **Windows** (built 2026-09-11, [Authentication-Design.md §5](../03-architecture/Authentication-Design.md)); the installer collects two group names, not a password. Machines enroll with a join token; tools get API keys. | The Portal page's Operators and Viewers group fields; the Agent page's join-token field; the portal's key, minted with `create-api-key --name portal` and stored with `Enlist.Portal.exe protect`. |
 
-So for requirement 2's "provide a login for the portal / control plane if they are installed as a service": that is the **service logon account**, and it is designed in. An *initial administrator* page is reserved in the flow (between Database and Portal) and appears only once C2 is implemented; until then the Finish page carries the trusted-network warning verbatim from Deployment-IaC. The installer should be one of the reasons to resolve C2, not a way of papering over it.
+So for requirement 2's "provide a login for the portal / control plane if they are installed as a service": that is the **service logon account**, and it is designed in.
 
-**Update, 2026-09-11 - C2 is designed and built** ([Authentication-Design.md](../03-architecture/Authentication-Design.md) section 14 lists the page changes). In short: the reserved initial-administrator page is not needed at all, because operators authenticate with Windows and the Portal page asks for the Operators and Viewers group names instead of any password; the Agent page gains a Join token field (`AGENT_JOINTOKEN`), which the installer exchanges for the agent credential before the service is created; the Control Plane and Portal pages gain a TLS certificate, because authentication that is required off loopback refuses plain HTTP; and the installer creates the management key the portal uses with the control plane CLI verb and stores it DPAPI-protected.
+**There is no initial-administrator page, and there will not be one.** Authentication was built on
+2026-09-11 ([Authentication-Design.md §14](../03-architecture/Authentication-Design.md) lists the
+page changes), and it removed the need rather than filling it: people sign in with Windows, so the
+Portal page asks for the Operators and Viewers group names instead of a password. Concretely:
+
+- The **Agent page** gains a Join token field (`AGENT_JOINTOKEN`), which the installer exchanges for
+  the agent's credential *before* the service is created — the token must never end up in the
+  service's `binPath`, where any local user can read it out of the process list.
+- The **Control Plane and Portal pages** gain a TLS certificate, because authentication is `Required`
+  by default and `Required` refuses plain HTTP off loopback. This is not a nicety: without it the
+  listen defaults on those pages produce services that install and then never start.
+- The installer mints the portal's own key with the control plane's `create-api-key` verb and stores
+  it DPAPI-protected with `Enlist.Portal.exe protect`.
+
+*(This section previously said the administrator page "appears only once C2 is implemented" and that
+the Finish page would meanwhile carry a trusted-network warning. Both were written before the
+decision and neither survived it; the paragraph sat above its own correction for two days, which is
+long enough for someone to read the first half and stop.)*
 
 ---
 
@@ -261,9 +278,9 @@ The same properties, on the command line. This is the surface Deployment-IaC §4
 # Server: control plane + portal as services, migrate now, Windows auth to SQL
 enList-3.0.0-Setup.exe /quiet /log install.log `
   INSTALLTYPE=Server `
-  CP_URLS=http://+:5293 CP_ACCOUNT="NT AUTHORITY\NetworkService" `
+  CP_URLS=https://+:5293 CP_ACCOUNT="NT AUTHORITY\NetworkService" `
   DB_SERVER=sql01.corp.local DB_NAME=EnlistControlPlane DB_AUTH=Windows DB_MIGRATE=1 `
-  PORTAL_URLS=http://+:5231 PORTAL_CPURL=http://localhost:5293
+  PORTAL_URLS=https://+:5231 PORTAL_CPURL=https://localhost:5293
 
 # Agent only, on a machine with wslc
 enList-3.0.0-Setup.exe /quiet /log install.log `
@@ -296,6 +313,8 @@ These need a call before WiX is written. My recommendation is in bold.
 5. **Where do runner images come from for an agent install?** **Bundled tarball, loaded at install** (`wslc load` / `docker load`), so a fleet install needs no registry and no internet. Add a *pull from registry* option later if image size in the MSI becomes a problem (the runner image is ~200 MB).
 6. **Authentication (C2).** **Decided and built (2026-09-11).** The pages change as [Authentication-Design.md §14](../03-architecture/Authentication-Design.md) lists: the Portal page asks for the Operators and Viewers group names and a TLS certificate, the Control Plane page a certificate, the Agent page a join token (the installer enrolls and writes the credential file), and the installer mints the portal's key with `create-api-key` and stores it with `Enlist.Portal.exe protect`. No initial-administrator page.
 7. **Code signing.** The bundle and all three MSIs should be Authenticode-signed; an unsigned installer that creates three services is what a SmartScreen warning is for. Needs a certificate decision, not a design one.
+8. **What tag does a released runner image carry?** **`enlist/runner:<product version>`, i.e. `enlist/runner:3.0.0`** — which is what §6.7 and the silent example assume, and which **does not exist**: the repository builds `enlist/runner:dev` and `enlist/runner:wslc` only. Blocking, in a small way: the Agent page's Image default has to name something an engine can actually pull, and the bundled-tarball decision (item 5) has to load it under that name. Settle it with item 5, not separately.
+9. **TLS certificates for the control plane and portal.** Both listen fields now default to `https`, because `Required` authentication refuses plain HTTP off loopback and `+` is not loopback — an `http` default installs a service that never starts. So the pages need a certificate picker: machine store by thumbprint, a PFX path with a Hidden password property, or "already bound with `netsh http add sslcert`". **Machine store by thumbprint, with the PFX path as the fallback.** This is the one genuinely new page element authentication added, and it is not designed yet.
 
 ---
 

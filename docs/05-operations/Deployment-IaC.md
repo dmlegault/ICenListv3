@@ -1,7 +1,7 @@
 # Deployment & Infrastructure-as-Code (IaC) Specification
 
 **Product:** enList v3
-**Document status:** Derived from the current implementation. Originally 2026-09-03; revised 2026-09-08 — §1.4 (migrations are Development-only now), §1.6 (Windows Service / IIS hosting) and §1.7 (containerized applications, previously undocumented here) were added or rewritten, and the header's "no Dockerfile anywhere" claim was corrected.
+**Document status:** Derived from the current implementation. Originally 2026-09-03; revised 2026-09-08 — §1.4 (migrations are Development-only now), §1.6 (Windows Service / IIS hosting) and §1.7 (containerized applications, previously undocumented here) were added or rewritten, and the header's "no Dockerfile anywhere" claim was corrected. **Revised again 2026-09-13:** section 1.8 (authentication, added 2026-09-11) is newer than the line above ever admitted, and sections 4.1/4.2 now say plainly that their examples cannot start under those rules.
 
 > **Important:** deployment of the enList *platform itself* is manual — no compose file, no Terraform/Bicep/ARM, no CI/CD definitions (there is no `.github/` directory) — using the commands in [`Developer-Setup-Guide.md`](../01-start-here/Developer-Setup-Guide.md) or the service/IIS hosting in §1.6.
 >
@@ -17,10 +17,10 @@
 
 | Component | Cardinality | Runs where |
 |---|---|---|
-| Enlist.ControlPlane | 1 per environment | A host with outbound+inbound network access reachable by every managed machine and by Enlist.Portal. Runs as a Windows Service, under IIS, or in a container — see §1.6. |
+| Enlist.ControlPlane | 1 per environment | A host with outbound+inbound network access reachable by every managed machine and by Enlist.Portal. Runs as a Windows Service or under IIS — see §1.6. A container is §4's proposal, not current state, and §4.1 explains why its example does not start as written. |
 | SQL Server database | 1 per environment | Reachable from the control plane host. LocalDB is a development-only substitute, not a production target. |
 | Package blob storage | 1 per environment, colocated with or reachable from the control plane | Filesystem-backed (`PackageBlobStore`); `PackageStorage:Root` config key. No blob-storage-service integration currently exists (S3/Azure Blob, etc.) despite the code comment referencing that as a design possibility ("Package blobs on the filesystem or blob storage, keyed by digest"). |
-| Enlist.Portal | 1 per environment | A host reachable by operators' browsers, with outbound access to the control plane. Runs as a Windows Service, under IIS, or in a container — see §1.6 (IIS needs two app-pool changes for Blazor Server). |
+| Enlist.Portal | 1 per environment | A host reachable by operators' browsers, with outbound access to the control plane. Runs as a Windows Service or under IIS — see §1.6 (IIS needs two app-pool changes for Blazor Server). A container is §4's proposal, not current state. |
 | Enlist.Agent | **1 per managed machine** | Every machine an application should be able to run on — as a Windows Service in production, per `Program.cs`'s `AddWindowsService` wiring. |
 | Enlist.Runner build output | Not a standing service | Staged per-application-instance by each agent from its `--runner-bin` folder; that folder itself must be present on every managed machine (copied there once, e.g. as part of agent installation). |
 | `enlist-deploy` | Not a standing service | Run on demand from an operator's machine or a CI runner — needs only outbound HTTPS/HTTP to the control plane. |
@@ -44,7 +44,7 @@
 | Enlist.ControlPlane | `LogRetention:RetentionPeriod` / `:SweepInterval` | Same, defaults 3 days / 1 hour |
 | Enlist.ControlPlane | `ReportRetention:RetentionPeriod` / `:SweepInterval` | Same, defaults 1 day / 1 hour — status reports older than this are deleted, except each agent's newest |
 | Enlist.Portal | `ControlPlane:BaseUrl` | `appsettings.json` / environment variable `ControlPlane__BaseUrl` — **required**, the app throws at startup if absent |
-| Enlist.Agent | `--control-plane`, `--agent`, `--runner-bin`, `--data`, `--legacy-runner-bin`, `--container-image`, `--container-engine` (`docker`, the default, or `wslc`) | Command-line arguments only (this component reads no `appsettings.json`) |
+| Enlist.Agent | `--control-plane`, `--agent`, `--runner-bin`, `--data`, `--legacy-runner-bin`, `--container-image`, `--container-engine` (`docker`, the default, or `wslc`), `--join-token` (enrollment, once - see §1.8), `--assignments` (the control-plane-less local-file mode) | Command-line arguments only (this component reads no `appsettings.json`) |
 | Enlist.ControlPlane / Enlist.Portal | `ASPNETCORE_URLS` (or `--urls`) | Required when running as a Windows Service — a service has no shell to inherit a binding from (§1.6). |
 | Enlist.ControlPlane / Enlist.Portal | `ASPNETCORE_ENVIRONMENT` | Machine-level environment variable; a service does NOT inherit your user variables. Unset means `Production`, which activates the migration verification in §1.4. |
 
@@ -70,7 +70,7 @@ So production splits the work across three identities:
 **What the process does at startup outside Development** (`Program.cs`, immediately after `builder.Build()`):
 
 - Cannot connect → fails with *"Cannot connect to the control plane database. Outside Development this process never creates it…"*
-- Connects, but migrations are pending → fails naming them: *"The control plane database is missing 1 migration(s): 20260908171028_InitialCreate. Apply them as a deploy step with an account that has DDL rights…"*
+- Connects, but migrations are pending → fails naming them: *"The control plane database is missing 1 migration(s): 20260911192322_InitialCreate. Apply them as a deploy step with an account that has DDL rights…"*
 
 Both are checked separately and on purpose — the two failures have completely different fixes, and a missing database would otherwise surface as an opaque connection exception from the pending-migrations query.
 
@@ -87,7 +87,7 @@ out/migrate-controlplane.exe --connection "Server=…;Database=EnlistControlPlan
 
 `dotnet ef database update` or `dotnet ef migrations script --idempotent` work too, if you would rather hand SQL to a DBA for review.
 
-The schema is currently a **single** `InitialCreate` migration — the three that had accumulated during development were collapsed into one once it was established that no existing database needed preserving, so a first install is one step rather than a replay.
+The schema is currently a **single** migration, `20260911192322_InitialCreate` — collapsed three times during development (the last on 2026-09-11, folding in the authentication tables) once it was established that no existing database needed preserving. **That was the last collapse:** the installer is the next thing built, and from the first machine it installs on, a migration is a contract, so a first install is one step rather than a replay.
 
 ### 1.5 Build Artifacts per Component
 
@@ -173,7 +173,7 @@ An agent expected to run containerized applications needs three things:
 
 | Prerequisite | Notes |
 |---|---|
-| A working container engine | Docker today. The agent probes it (`docker version` against the **server**) on every heartbeat and reports the result. |
+| A working container engine | **Docker or wslc** (WSL 2.9.11+), chosen with `--container-engine`. The agent probes whichever it was given on every heartbeat and reports the result. wslc is what the demo uses. |
 | The `enlist/runner` image, locally available | Built from [`src/Enlist.Runner/Dockerfile`](../../src/Enlist.Runner/Dockerfile). **Rebuild it after any runner change** — the image carries a copy of the runner. |
 | `--container-image <image>` on the agent command line | Without it the agent reports `process` as its only supported isolation mode, and a container rule targeting it will not start. |
 
@@ -242,6 +242,18 @@ EXPOSE 8080
 ENTRYPOINT ["dotnet", "Enlist.ControlPlane.dll"]
 ```
 
+> **This image will not start as written, and the reason is the point.** The `aspnet:10.0` base sets
+> `ASPNETCORE_HTTP_PORTS=8080`, which binds every interface. Authentication defaults to `Required`,
+> and `Required` refuses plain HTTP off loopback (§1.8) — so the container exits at startup with that
+> message. Setting `Authentication:Mode=Off` does not rescue it either: `Off` is honoured only when
+> every listener is loopback, and `8080` on all interfaces is not.
+>
+> A container deployment therefore has to terminate TLS somewhere and tell the control plane about
+> it: either give the container a certificate and `ASPNETCORE_URLS=https://+:8443`, or put it behind
+> a proxy that does TLS and bind the container to loopback inside its own network namespace. Whatever
+> the shape, **it is a decision this section has not made**, which is part of why §4 is marked as not
+> implemented.
+
 The same two-stage shape applies to `Enlist.Portal`. **`Enlist.Agent` is a poor fit for a container** — it manages Windows Service Control Manager lifecycle and spawns/supervises OS processes (including, optionally, a Windows Job Object) directly on the host it's protecting; it is meant to run on the bare managed machine, not inside a container on that machine.
 
 ### 4.2 Example `docker-compose.yml` (development/staging convenience)
@@ -249,7 +261,7 @@ The same two-stage shape applies to `Enlist.Portal`. **`Enlist.Agent` is a poor 
 ```yaml
 services:
   sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: mcr.microsoft.com/mssql/server:2025-CU3-ubuntu-24.04
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: "<use a secret, not a literal here>"
@@ -274,11 +286,20 @@ services:
     depends_on: [controlplane]
 ```
 
+> **Same two problems, plus a third.** Both services hit the listener rules exactly as §4.1 describes.
+> And the portal carries no `ControlPlane:ApiKey`, so it could only ever talk to a control plane
+> running with authentication off — which, per the rule above, it cannot be. A working compose file
+> needs TLS on both, a key minted with `create-api-key --name portal --role Operator`, and that key
+> supplied as a secret rather than an environment literal.
+>
+> Left standing rather than quietly corrected, because a compose file that looks right and fails at
+> runtime is worse than one that says what is missing.
+
 ### 4.3 Example CI Pipeline Stages
 
 1. `dotnet restore enList_v3.slnx`
 2. `dotnet build enList_v3.slnx --configuration Release --no-restore`
-3. `dotnet test enList_v3.slnx --configuration Release --no-build` — gate on all 121 tests passing (see [`Test-Plan.md`](Test-Plan.md)).
+3. `dotnet test enList_v3.slnx --configuration Release --no-build` — gate on all 273 tests passing (see [`Test-Plan.md`](Test-Plan.md)).
 4. `dotnet publish` each of the five components (§1.5).
 5. Run pending EF Core migrations against the target database as an explicit step (replacing the app's own auto-migrate — §1.4).
 6. Deploy `Enlist.ControlPlane` and `Enlist.Portal` build outputs to their hosts (container image push + orchestrator rollout, or a direct file copy + service restart, depending on chosen hosting).
@@ -286,4 +307,13 @@ services:
 
 ### 4.4 Secrets
 
-No secret currently needs to cross a network boundary as part of enList's own protocol (agents authenticate to nothing — there is no auth layer at all, see [`BRD.md` §5.2](../04-requirements/BRD.md#52-out-of-scope-not-present-in-the-current-implementation)). The only secret an IaC pipeline needs to manage today is the SQL Server connection string / credentials for the control plane, which should come from the deployment platform's own secret store (e.g. a Kubernetes `Secret`, an Azure App Service connection-string app setting marked as a secret, or equivalent), never committed to `appsettings.json`.
+**Secrets an IaC pipeline has to manage.** This section said there were none worth naming, on the grounds that "agents authenticate to nothing — there is no auth layer at all". That stopped being true on 2026-09-11 (§1.8), and the list is now short but real:
+
+| Secret | Who holds it | Where it should come from |
+|---|---|---|
+| SQL Server connection string / credentials | Control plane | The platform's own secret store — a Kubernetes `Secret`, an Azure App Service connection string marked as a secret, or equivalent. Never `appsettings.json`. |
+| The portal's control-plane API key | Portal | Minted once with `create-api-key --name portal --role Operator --expires never`, delivered as a secret, and stored DPAPI-protected with `Enlist.Portal.exe protect` so it is not readable from the config file. |
+| Agent join tokens | Whatever provisions an agent | Short-lived and single-use by design. Must not reach the service's `binPath`, where any local user can read it out of the process list — the agent enrolls once, interactively or via the installer, and keeps its own credential file afterwards. |
+| TLS certificates | Control plane, portal | The machine store or the platform's certificate mechanism. Required off loopback (§1.8), not optional. |
+
+An agent's own credential is deliberately absent from that list: nothing provisions it, because the agent mints it for itself at enrollment and stores it DPAPI-protected under its data directory.

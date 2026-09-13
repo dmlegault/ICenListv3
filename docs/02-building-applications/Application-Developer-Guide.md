@@ -417,4 +417,4 @@ enlist-runner --dev --log-window --app <dir>   # log output in its own console w
 src/Enlist.Runner.Legacy/bin/Debug/net472/enlist-runner.exe --dev --app <dir>
 ```
 
-Inside `--dev`: `list`, `start <svc>`, `stop <svc>`, `run <job> [k=v]`, `pause <job>`, `resume <job>`, `quit`, `help`.
+Inside `--dev`: `list`, `start <svc>`, `stop <svc>`, `run <job> [k=v]`, `cancel <job>`, `quit`, `help`.
