@@ -37,10 +37,13 @@
     <Property Id="PORTAL_DATADIR" Secure="yes" />
 
     <!-- https for the same reason the control plane uses it: Required refuses plain HTTP off loopback. -->
-    <Property Id="PORTAL_URLS" Secure="yes" Value="https://+:5231" />
+    <Property Id="PORTAL_URLS" Secure="yes" />
+    <SetProperty Id="PORTAL_URLS" Sequence="both" Before="CostInitialize" Condition="NOT PORTAL_URLS" Value="https://+:5231" />
     <Property Id="PORTAL_CPURL" Secure="yes" />
 
-    <Property Id="PORTAL_ACCOUNT" Secure="yes" Value="NT AUTHORITY\NetworkService" />
+    <Property Id="PORTAL_ACCOUNT" Secure="yes" />
+    <SetProperty Id="PORTAL_ACCOUNT" Sequence="both" Before="CostInitialize"
+                 Condition="NOT PORTAL_ACCOUNT" Value="NT AUTHORITY\NetworkService" />
     <Property Id="PORTAL_PASSWORD" Secure="yes" Hidden="yes" />
 
     <StandardDirectory Id="ProgramFiles64Folder">

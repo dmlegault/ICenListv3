@@ -27,35 +27,62 @@
 
   <Fragment>
     <!--
-      Detection reads a VALUE NAMED FOR THE VERSION, which is how the .NET installers record
-      themselves: the key holds one DWORD per installed version rather than a "latest" value. So this
-      asks whether one specific version is present, and a newer patch that is installed does NOT
-      satisfy it.
+      Bitness="always32" states the REGISTRY VIEW rather than changing it. The .NET installers write
+      their records to the 32-bit view - HKLM\SOFTWARE\dotnet under x64 is empty and everything lives
+      under WOW6432Node - and a Burn RegistrySearch already reads that view unless told otherwise. So
+      this is documentation with teeth: it is what someone would reach for if a search ever came back
+      empty, and writing it down stops the next person adding Win64="yes" to "fix" something and
+      breaking every check on every machine.
 
-      That is a deliberate trade rather than an oversight. Getting it wrong in this direction costs a
-      redundant prerequisite install, which the Microsoft installers detect and no-op in a few
-      seconds. Getting it wrong the other way - treating any 10.x as sufficient - would let a machine
-      with only a broken partial install through to a service that will not start.
+      Worth recording that this was NOT the cause of the redundant download below, though it was
+      confidently written up as such for one commit. The searches were always reading the right view;
+      the base runtime check was simply asking the wrong question. Being sure and wrong is cheap to
+      write and expensive to read.
+    -->
 
-      Note also that no Win64 attribute appears here. The Burn engine is 32-bit, so it reads
-      SOFTWARE\dotnet through the WOW6432Node view, which is exactly where these values live. Adding
-      Win64="yes" makes every check fail on every machine, and the symptom is the prerequisite being
-      installed on a machine that already has it.
+    <!--
+      The BASE RUNTIME, read as a version and compared, so any .NET 10 satisfies it.
+
+      This used to look for a value NAMED for the exact patch, because that is how the shared-framework
+      key records installations: one DWORD per version, with no "latest" to read. A machine with
+      10.0.3 therefore failed a check for 10.0.12 and downloaded 30 MB it did not need - which is what
+      happened on the first real run of this bundle, on a machine that had .NET 10 installed.
+      Every agent in a fleet needs this package, so that mistake is paid for once per machine.
+
+      hostfxr's Version is the one value in the whole tree that names a version rather than being named
+      for one, and the .NET host is updated with every runtime install, so it reports the newest 10.x
+      present. Burn parses it into a version variable and the condition below is a real comparison.
     -->
     <util:RegistrySearch
-      Id="SearchNetCoreRuntime"
-      Variable="NetCoreRuntimeDetected"
+      Id="SearchNetCoreHostVersion"
+      Variable="NetCoreHostVersion"
       Root="HKLM"
-      Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.NETCore.App"
-      Value="$(DotnetRuntimeVersion)"
-      Result="exists" />
+      Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\hostfxr"
+      Value="Version"
+      Bitness="always32"
+      Result="value" />
 
+    <!--
+      ASP.NET CORE has no equivalent. Its only record is the same list of version-named DWORDs, so the
+      only question Burn can ask is whether one exact patch is present - and this one still asks it.
+
+      Kept exact on purpose rather than approximated. The near-miss alternatives ("the ASP.NET Core
+      folder exists AND the host is 10.x") are wrong precisely on the machine that has ASP.NET Core 8
+      and a bare .NET 10 runtime, and being wrong THAT way produces a control plane that installs and
+      never starts. Being wrong this way costs 11 MB on the one box that hosts enList, never on an
+      agent: the install condition below keeps this package out of every agent-only install.
+
+      The proper fix is detection in the bootstrapper, which can enumerate the key and compare
+      properly - Enlist.Installer.Detection.RuntimeDetection already does exactly that, with tests.
+      This becomes a variable the wizard sets as soon as the wizard is wired in.
+    -->
     <util:RegistrySearch
       Id="SearchAspNetCoreRuntime"
       Variable="AspNetCoreRuntimeDetected"
       Root="HKLM"
       Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.AspNetCore.App"
       Value="$(DotnetRuntimeVersion)"
+      Bitness="always32"
       Result="exists" />
 
     <PackageGroup Id="Prerequisites">
@@ -71,7 +98,7 @@
         Vital="yes"
         Cache="remove"
         PerMachine="yes"
-        DetectCondition="NetCoreRuntimeDetected"
+        DetectCondition="NetCoreHostVersion &gt;= v$(DotnetRuntimeMinimum)"
         InstallArguments="/install /quiet /norestart"
         RepairArguments="/repair /quiet /norestart"
         UninstallArguments="/uninstall /quiet /norestart">

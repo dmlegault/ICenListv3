@@ -35,7 +35,20 @@
 param(
     [string] $Configuration = 'Release',
     [switch] $SkipPublish,
-    [string] $DotnetRuntimeVersion = '10.0.12'
+    [string] $DotnetRuntimeVersion = '10.0.12',
+
+    # The oldest .NET the bundle accepts as already present. Separate from the version above, which is
+    # what it INSTALLS when nothing satisfies this. They were the same value once, and a machine with
+    # .NET 10.0.3 downloaded 30 MB it did not need.
+    [string] $DotnetRuntimeMinimum = '10.0.0',
+
+    # Override the product version. Only for testing an upgrade, where a higher version of the same
+    # source is needed to install over the one already there. An ordinary build leaves this empty and
+    # takes the version from Directory.Build.props.
+    [string] $Version = '',
+
+    # Build somewhere other than out\, so a test build does not replace the real one.
+    [string] $OutputDirectory = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,12 +58,17 @@ $installerRoot = $PSScriptRoot
 $repoRoot = Split-Path -Parent $installerRoot
 $publishRoot = Join-Path $installerRoot 'publish'
 $stagingRoot = Join-Path $installerRoot 'staging'
-$outRoot = Join-Path $installerRoot 'out'
+$outRoot = if ($OutputDirectory) { $OutputDirectory } else { Join-Path $installerRoot 'out' }
 
 # One product version, from the one place that defines it.
 $propsPath = Join-Path $repoRoot 'Directory.Build.props'
-$version = ([xml](Get-Content $propsPath)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
-if (-not $version) { throw "No <Version> found in $propsPath." }
+if ($Version) {
+    $version = $Version
+}
+else {
+    $version = ([xml](Get-Content $propsPath)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+    if (-not $version) { throw "No <Version> found in $propsPath." }
+}
 Write-Host "enList $version" -ForegroundColor Cyan
 
 # Each component, the project that produces it, and the executable its service runs. That executable
@@ -149,7 +167,8 @@ try {
     Write-Host "  building $(Split-Path -Leaf $setup)" -ForegroundColor DarkGray
     $args = @('wix', 'build', '-arch', 'x64',
         '-ext', 'WixToolset.Util.wixext', '-ext', 'WixToolset.BootstrapperApplications.wixext', '-I', 'src',
-        '-d', "ProductVersion=$version", '-d', "DotnetRuntimeVersion=$DotnetRuntimeVersion", '-d', "OutDir=$outRoot",
+        '-d', "ProductVersion=$version", '-d', "DotnetRuntimeVersion=$DotnetRuntimeVersion",
+        '-d', "DotnetRuntimeMinimum=$DotnetRuntimeMinimum", '-d', "OutDir=$outRoot",
         '-o', $setup, 'src\Bundle.wxs', 'src\Prerequisites.wxs')
     & dotnet @args
     if ($LASTEXITCODE -ne 0) { throw 'wix build failed for the bundle' }

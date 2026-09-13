@@ -40,15 +40,40 @@
       http listen value here produces a service that installs and then never starts, which section 8
       calls out and the 2026-09-13 TLS rehearsal confirmed.
     -->
-    <Property Id="CP_URLS" Secure="yes" Value="https://+:5293" />
+    <Property Id="CP_URLS" Secure="yes" />
+    <SetProperty Id="CP_URLS" Sequence="both" Before="CostInitialize" Condition="NOT CP_URLS" Value="https://+:5293" />
 
     <!-- Network Service: enough to listen and to reach SQL Server with Windows auth, and nothing more. -->
-    <Property Id="CP_ACCOUNT" Secure="yes" Value="NT AUTHORITY\NetworkService" />
+    <Property Id="CP_ACCOUNT" Secure="yes" />
+    <SetProperty Id="CP_ACCOUNT" Sequence="both" Before="CostInitialize"
+                 Condition="NOT CP_ACCOUNT" Value="NT AUTHORITY\NetworkService" />
     <Property Id="CP_PASSWORD" Secure="yes" Hidden="yes" />
 
-    <Property Id="DB_SERVER" Secure="yes" Value="(localdb)\MSSQLLocalDB" />
-    <Property Id="DB_NAME" Secure="yes" Value="EnlistControlPlane" />
-    <Property Id="DB_AUTH" Secure="yes" Value="Windows" />
+    <!--
+      DECLARED WITHOUT VALUES, and defaulted below with SetProperty, which is not a style choice.
+
+      A Property element's value is the Property TABLE default, and a value passed on the command line
+      replaces it - including an EMPTY one. The bundle passes every variable through to every MSI
+      unconditionally, so a bundle variable that is empty blanks whatever default was here. That is not
+      hypothetical: on the first real run of this bundle, DB_SERVER was empty at the bundle level and
+      the control plane would have been installed with
+
+          ConnectionStrings:ControlPlane="Server=;Database=EnlistControlPlane;..."
+
+      which installs perfectly and then never starts. Defaulting with a conditional SetProperty means
+      an empty incoming value falls back rather than overriding, which is how AGENT_NAME and the data
+      directories already behaved - this brings the rest into line with them.
+    -->
+    <Property Id="DB_SERVER" Secure="yes" />
+    <Property Id="DB_NAME" Secure="yes" />
+    <Property Id="DB_AUTH" Secure="yes" />
+
+    <SetProperty Id="DB_SERVER" Sequence="both" Before="CostInitialize"
+                 Condition="NOT DB_SERVER" Value="(localdb)\MSSQLLocalDB" />
+    <SetProperty Id="DB_NAME" Sequence="both" Before="CostInitialize"
+                 Condition="NOT DB_NAME" Value="EnlistControlPlane" />
+    <SetProperty Id="DB_AUTH" Sequence="both" Before="CostInitialize"
+                 Condition="NOT DB_AUTH" Value="Windows" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="ENLISTROOT" Name="enList">

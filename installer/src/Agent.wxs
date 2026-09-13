@@ -47,14 +47,16 @@
     <Property Id="AGENT_NAME" Secure="yes" />
     <Property Id="AGENT_CPURL" Secure="yes" />
     <Property Id="AGENT_ENGINE" Secure="yes" />
-    <Property Id="AGENT_IMAGE" Secure="yes" Value="enlist/runner:$(ProductVersion)" />
+    <Property Id="AGENT_IMAGE" Secure="yes" />
+    <SetProperty Id="AGENT_IMAGE" Sequence="both" Before="CostInitialize" Condition="NOT AGENT_IMAGE" Value="enlist/runner:$(ProductVersion)" />
 
     <!--
       Local System is the default for the reason section 6.7 gives: the agent starts child runners,
       puts them in a Job Object, and drives wslc or docker. An ordinary account can do none of that
       without being granted each piece separately.
     -->
-    <Property Id="AGENT_ACCOUNT" Secure="yes" Value="LocalSystem" />
+    <Property Id="AGENT_ACCOUNT" Secure="yes" />
+    <SetProperty Id="AGENT_ACCOUNT" Sequence="both" Before="CostInitialize" Condition="NOT AGENT_ACCOUNT" Value="LocalSystem" />
     <Property Id="AGENT_PASSWORD" Secure="yes" Hidden="yes" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
