@@ -106,7 +106,7 @@ turns a 25% chance of catching a regression into roughly 97%, and fails by name 
 "not running - ignored" signature instead of blocking twenty seconds to report only that a token was
 cancelled. **Any test whose subject is a race needs to say how many times it looked.**
 
-## 2. Stale comments and doc-comments (source)
+## 2. Stale comments and doc-comments (source) — COMPLETE (`59194c8`)
 
 Authentication is done; a lot of prose still says it isn't.
 
@@ -132,7 +132,7 @@ Authentication is done; a lot of prose still says it isn't.
 - Build-phase references nobody can resolve now: `ControlPlane/Data/ApplicationPolicyEntity.cs:21`, `Program.cs:1358` ("the original step-3 shape"); `Contracts/ApplicationPolicyDto.cs:57` ("in this first cut"); `Runner.Legacy/Protocol/RunnerMessage.cs:40`, `Hosting/LegacyPluginLoadContext.cs:9-10`.
 - Deferrals living as comments rather than tracked work: `Agent/AgentHost.cs:606-611, 1006-1009`.
 
-## 3. Dead code
+## 3. Dead code — COMPLETE (`59194c8`)
 
 `ControlPlane`: `AuthenticationOptions.IsKnownMode` (:22, no callers); unused usings in `AuditMiddleware.cs:3`, `Data/ApiKeyEntity.cs:1`.
 
@@ -286,8 +286,9 @@ Done:
     per-request allocation, the silently ignored CLI flags, the Location headers, the error pages,
     the unpassed cancellation tokens. §4 complete.~~ `9292077`
 
+13. ~~§2, §3 — stale comments, dead code, and the duplicated test helpers.~~ `59194c8`
+
 Left:
 
-13. **§2, §3** — stale comments and dead code, including the seven-way duplicated test helpers.
 14. **§6** — the architecture and requirements docs, starting with the ten "wrong" items.
 15. **§9** — the coverage gaps worth closing.
