@@ -25,6 +25,8 @@ Four directories are source and four are build output. Nothing under the second 
 | `out\` | *output* | The three MSIs, the bundle, and their `.wixpdb` files. `enList-<version>-Setup.exe` here is the thing a person runs. |
 | `.wix\` | *output* | The WiX extension cache, populated by `build.ps1` on first run. Delete it if an extension ever reports itself damaged. |
 
+And three scripts at the root, which is the whole of the tooling: **`build.ps1`** publishes, harvests and builds; **`verify.ps1`** proves the packages without installing them (and with `-Live`, by installing them); **`live-e2e.ps1`** installs for real and then makes the product *run*, which is the only way to find the things none of the others can see.
+
 **Why `staging\` exists.** MSI derives a service's binary path from the key path of the component its `ServiceInstall` sits in, so each service executable has to be declared by hand in the `.wxs` rather than harvested with everything else. WiX 5 has no way to exclude one file from a `Files` glob, so `build.ps1` harvests a copy that does not contain it. The `.wxs` then declares that one file explicitly. Each package therefore reads from both trees: `$(…Staging)` for the glob and `$(…Publish)` for the service exe.
 
 ## Build and check
@@ -32,9 +34,18 @@ Four directories are source and four are build output. Nothing under the second 
 ```powershell
 .\build.ps1              # publish everything, build the MSIs, then the bundle
 .\build.ps1 -SkipPublish # reuse publish\, for when only the WiX changed
-.\verify.ps1             # 116 detection tests + 68 installer checks
+.\verify.ps1             # 128 detection tests + 70 installer checks
 .\verify.ps1 -Live       # really install, upgrade and uninstall (elevated shell)
+.\live-e2e.ps1           # a real install that RUNS (elevated shell) - see below
 ```
+
+**`live-e2e.ps1` is the one that cannot be faked.** `verify.ps1 -Live` proves the packages install, upgrade and uninstall; this proves the product *works* — a silent Server install over TLS through the bundle, the schema applied, the portal's key minted and stored, both services started and answering HTTPS, a real join token exchanged for an agent credential, and then all of it removed. It takes a thumbprint and a transcript path:
+
+```powershell
+.\live-e2e.ps1 -Thumbprint <cert in LocalMachine\My> -Transcript "$env:TEMP\enlist-e2e.txt"
+```
+
+It always uninstalls, in a `finally`. `-TrustCertificate` adds a self-signed test certificate to `LocalMachine\Root` for the run and removes it again, which is what an agent needs before it will talk to a control plane serving one — the agent runs as LocalSystem and consults the *machine* trust store, not the operator's.
 
 `build.ps1` also takes `-Version` and `-OutputDirectory`, which exist for one purpose: building a higher version of the same source, somewhere else, so an upgrade can be tested without replacing the real output. `verify.ps1 -Live` uses both.
 
@@ -64,6 +75,7 @@ Three consequences worth knowing before wondering whether something is broken:
 - **Every service is created stopped.** The control plane may have no schema yet, the portal no key, the agent no credential. A service that starts here and fails is a restart loop in the Event Log; one that waits is a clear state the bootstrapper resolves.
 - **No secret ever reaches a service command line.** A `binPath` is readable by any local user out of the process list. So a SQL login produces no connection string at all (Windows authentication, which has no secret, does), the portal's own key is absent, and a join token is never passed. Each is the bootstrapper's job, and `verify.ps1` asserts all three absences.
 - **`%ProgramData%` is never touched by an upgrade or an uninstall.** The package cache, staged runners and package blobs outlive both, on purpose.
+- **There is no default SQL Server, and LocalDB is refused.** A LocalDB instance belongs to the account that starts it, so the database this installer creates as the elevated operator is *not* the one a service can see — it gets an empty instance of its own, and the control plane correctly refuses to create a schema outside Development. The operator is then left with "Cannot connect to the control plane database" after an install that reported success. With no `DB_SERVER` this package writes no connection string at all, the control plane refuses by name (`DatabaseRules`), and the wizard blocks the page. Found by installing for real.
 
 ## The two decisions taken here that are yours to overturn
 
@@ -90,7 +102,7 @@ Section 4 names the ASP.NET Core **Hosting Bundle** as the prerequisite for the 
 
 ## The wizard, in `ba\`
 
-Three projects, split on one line: what can be tested, and what cannot. `Enlist.Installer.Detection` holds every decision and has 116 tests over it; `Enlist.Installer.Ba` is the WPF shell and holds none, because a bootstrapper's pages cannot be exercised by a test.
+Three projects, split on one line: what can be tested, and what cannot. `Enlist.Installer.Detection` holds every decision and has 128 tests over it; `Enlist.Installer.Ba` is the WPF shell and holds none, because a bootstrapper's pages cannot be exercised by a test.
 
 **It is what the bundle chains.** Eight pages, styled to the portal's own palette, with `build.ps1 -StandardBootstrapper` as the way back to the stock WixStdBA if it ever regresses. A silent install reaches no window under either one, so the surface in section 10 is unaffected by the choice.
 
