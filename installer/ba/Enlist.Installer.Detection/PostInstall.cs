@@ -159,7 +159,12 @@ namespace Enlist.Installer.Detection
                     PostInstallStepKind.CreatePortalKey,
                     "Creating the portal's key",
                     Path.Combine(plan.ResolvedControlPlaneDir, "Enlist.ControlPlane.exe"),
-                    new[] { "create-api-key", "--name", PortalKeyName, "--role", "Operator", "--expires", "never" },
+                    // --replace, because the control plane's database is Permanent and survives an
+                    // uninstall. Removing enList and putting it back finds the portal's key already
+                    // there, and without this the install fails on its third step with a duplicate
+                    // name - which is the right answer for a person at a terminal and the wrong one
+                    // for an installer. A key is readable once, so the portal needs a new one anyway.
+                    new[] { "create-api-key", "--name", PortalKeyName, "--role", "Operator", "--expires", "never", "--replace" },
                     needsDatabase: true,
                     optional: false));
 

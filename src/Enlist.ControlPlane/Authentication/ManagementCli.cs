@@ -121,6 +121,24 @@ public static class ManagementCli
             return Usage($"create-api-key needs --role {ManagementRoles.Operator} or {ManagementRoles.Viewer}.");
         }
 
+        // --replace revokes a live key of the same name first, which is what an INSTALLER needs and a
+        // person at a terminal does not.
+        //
+        // The control plane's database is deliberately Permanent: it survives an uninstall, so an
+        // operator who removes enList and puts it back finds their policy rules and packages intact.
+        // The consequence nobody had met until a reinstall was tried: the portal's key is already
+        // there, create-api-key refuses a duplicate name - correctly, for a person - and the whole
+        // install fails on its third step.
+        //
+        // Replacing rather than reusing, because a key is only ever readable once. The stored plaintext
+        // does not exist anywhere to be recovered, so the portal must be given a new one either way,
+        // and leaving the old one live would be an extra Operator credential nobody is holding.
+        var replace = options.ContainsKey("replace");
+        if (replace && await CredentialIssuer.RevokeApiKeyAsync(db, name))
+        {
+            Console.WriteLine($"Revoked the existing API key '{name.Trim()}'.");
+        }
+
         var (entity, key) = await CredentialIssuer.CreateApiKeyAsync(db, name, role, options.GetValueOrDefault("expires"), Operator);
 
         Console.WriteLine($"Created API key '{entity.Name}' ({entity.Role}, expires {Describe(entity.ExpiresAtUtc)}).");
@@ -225,16 +243,33 @@ public static class ManagementCli
     /// <summary>"--name x --role y" into a dictionary. A flag with no value is an error rather than a silent empty string.</summary>
     private static Dictionary<string, string> ParseOptions(IEnumerable<string> args)
     {
+        // Flags that are a yes or a no rather than a setting. Named rather than inferred, so a value
+        // left off by accident is still the error it has always been - that check is what turns
+        // "--name" with nothing after it into a message instead of a silently missing name.
+        var switches = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "replace" };
+
         var options = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var list = args.ToList();
         for (var i = 0; i < list.Count; i++)
         {
-            if (!list[i].StartsWith("--", StringComparison.Ordinal) || i + 1 >= list.Count)
+            if (!list[i].StartsWith("--", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException($"unexpected argument '{list[i]}'. Options are --name, --role, --expires and --uses, each followed by a value.");
+                throw new InvalidOperationException($"unexpected argument '{list[i]}'. Options are --name, --role, --expires and --uses, each followed by a value, and --replace.");
             }
 
-            options[list[i][2..]] = list[++i];
+            var name = list[i][2..];
+            if (switches.Contains(name))
+            {
+                options[name] = "yes";
+                continue;
+            }
+
+            if (i + 1 >= list.Count)
+            {
+                throw new InvalidOperationException($"'--{name}' needs a value. Options are --name, --role, --expires and --uses, each followed by a value, and --replace.");
+            }
+
+            options[name] = list[++i];
         }
 
         return options;
@@ -269,7 +304,7 @@ public static class ManagementCli
 
         Console.Error.WriteLine("Usage:");
         Console.Error.WriteLine("  apply-schema");
-        Console.Error.WriteLine("  create-api-key    --name <name> --role Operator|Viewer [--expires 90d|never]");
+        Console.Error.WriteLine("  create-api-key    --name <name> --role Operator|Viewer [--expires 90d|never] [--replace]");
         Console.Error.WriteLine("  create-join-token [--expires 24h] [--uses <n>]");
         Console.Error.WriteLine("  revoke-api-key    --name <name>");
         Console.Error.WriteLine("  revoke-agent      --name <agent>");

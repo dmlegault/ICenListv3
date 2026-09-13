@@ -194,6 +194,7 @@ try {
         '-d', "ProductVersion=$version", '-d', "DotnetRuntimeVersion=$DotnetRuntimeVersion",
         '-d', "DotnetRuntimeMinimum=$DotnetRuntimeMinimum", '-d', "OutDir=$outRoot",
         '-d', "BaDir=$baDir",
+        '-d', "IconFile=$(Join-Path $installerRoot 'ba\Enlist.Installer.Ba\media\enlist.ico')",
         '-o', $setup, 'src\Bundle.wxs', 'src\Prerequisites.wxs')
     if ($StandardBootstrapper) { $args += @('-d', 'StandardBootstrapper=1') }
     & dotnet @args

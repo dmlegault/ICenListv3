@@ -57,6 +57,50 @@ namespace Enlist.Installer.Ba
         {
             base.OnCreate(args);
             _command = args.Command;
+            ApplyCommandLineVariables();
+        }
+
+        /// <summary>
+        /// Applies NAME=VALUE from the command line to the bundle's variables.
+        ///
+        /// A CUSTOM BOOTSTRAPPER HAS TO DO THIS ITSELF, and not knowing that silently removed the
+        /// entire silent surface the moment this wizard replaced the standard bootstrapper.
+        /// bal:Overridable="yes" is a WixStdBA feature: the engine parses its own switches, hands the
+        /// rest to the bootstrapper, and wixstdba is what turns them into variables. With a custom BA
+        /// and nobody doing it, every documented command line was accepted and ignored -
+        ///
+        ///     /quiet INSTALLTYPE=AgentOnly AGENT_NAME=WEB-07 CP_CERT=...
+        ///
+        /// installed with defaults for all of it. It looked like it worked, because the default
+        /// INSTALLTYPE happens to be Server, and the certificate arrived at the MSI as CP_CERT="".
+        ///
+        /// The bal:Overridable declarations are not wasted: the compiler writes them into
+        /// BootstrapperApplicationData.xml, SetOverridableVariables reads that list, and only the
+        /// variables the bundle marked overridable are settable. So a command line cannot reach
+        /// AspNetCorePresent, which is a detected fact rather than a preference.
+        /// </summary>
+        private void ApplyCommandLineVariables()
+        {
+            try
+            {
+                // System.IO stays fully qualified here: a `using System.IO` pulls in
+                // System.IO.ErrorEventArgs, which collides with the engine's own ErrorEventArgs and
+                // breaks OnError further down this file.
+                var data = new BootstrapperApplicationData(new System.IO.FileInfo(_command!.BootstrapperApplicationDataPath));
+                var parsed = _command.ParseCommandLine();
+                parsed.SetOverridableVariables(data.Bundle.OverridableVariables, this.engine);
+
+                // Names only. Values are the operator's business and one of them is a join token.
+                Trace("command line set: " + string.Join(", ", parsed.Variables.Select(v => v.Key).ToArray()));
+            }
+            catch (Exception ex)
+            {
+                // Worth failing loudly rather than installing with defaults nobody asked for, but the
+                // engine is not ready to be told to stop this early - so it is recorded, and the
+                // install proceeds with whatever the bundle declared.
+                Program.LogCrash(ex);
+                Trace("could not apply command-line variables: " + ex.Message);
+            }
         }
 
         /// <summary>Whether a person is watching. Everything interactive is conditional on this.</summary>

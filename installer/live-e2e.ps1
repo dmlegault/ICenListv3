@@ -107,7 +107,56 @@ function Service-Of([string] $name) {
     Get-CimInstance Win32_Service -Filter "Name='$name'" -ErrorAction SilentlyContinue
 }
 
+<#
+  Runs the bundle and waits for THE BUNDLE, which is not what Start-Process -Wait does.
+
+  -Wait waits for the process TREE, and an MSI install leaves msiexec.exe alive for about ten
+  minutes afterwards before it idles out. The bundle itself exits in seconds. Using -Wait made the
+  first successful run of this script look like a hang: setup.exe had finished, the install had
+  worked, every post-install step had run, and PowerShell sat there waiting for a service process
+  that had nothing to do with it.
+
+  $p.Handle is touched before waiting on purpose. A Process object from Start-Process -PassThru does
+  not cache the process handle, and reading ExitCode after the process has gone then throws
+  "process has exited, so the requested information is not available".
+#>
+function Invoke-Bundle([string[]] $arguments, [int] $timeoutSeconds = 600) {
+    $p = Start-Process -FilePath $setup -ArgumentList $arguments -PassThru
+    $null = $p.Handle
+
+    if (-not $p.WaitForExit($timeoutSeconds * 1000)) {
+        Say "    (the bundle did not exit within $timeoutSeconds seconds; killing it)"
+        try { $p.Kill() } catch { }
+        return -1
+    }
+
+    return $p.ExitCode
+}
+
 try {
+    # ---------------------------------------------------------------------------------------------
+    Phase "Start from a clean slate"
+
+    # Repeatable on purpose. This gets run several times while something is being got right, and an
+    # install over an existing one proves something quite different from a first install - Burn would
+    # detect the packages present and do nothing, and every assertion below would pass while testing
+    # nothing at all.
+    if (@(Get-Package -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^enList' }).Count -gt 0) {
+        Say "    enList is already installed; removing it first"
+        foreach ($name in 'enlist-agent', 'enlist-portal', 'enlist-controlplane') {
+            Stop-Service $name -Force -ErrorAction SilentlyContinue
+        }
+
+        $exit = Invoke-Bundle @('/uninstall', '/quiet', '/norestart')
+        Check ($exit -eq 0) "the previous install was removed" "exit $exit"
+        Start-Sleep -Seconds 3
+    }
+    else {
+        Say "    nothing installed"
+    }
+
+    Check ((Get-CimInstance Win32_Service -Filter "Name LIKE 'enlist-%'" -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) "no enList service to begin with"
+
     # ---------------------------------------------------------------------------------------------
     Phase "Install the Server role over TLS, silently, through the bundle"
 
@@ -120,8 +169,8 @@ try {
         "PORTAL_CPURL=$cpUrl"
     )
     Say "    $setup $($arguments -join ' ')"
-    $process = Start-Process -FilePath $setup -ArgumentList $arguments -Wait -PassThru
-    Check ($process.ExitCode -eq 0) "the bundle exits 0" "exit $($process.ExitCode)"
+    $exit = Invoke-Bundle $arguments
+    Check ($exit -eq 0) "the bundle exits 0" "exit $exit"
 
     $cp = Service-Of 'enlist-controlplane'
     $portal = Service-Of 'enlist-portal'
@@ -217,8 +266,8 @@ try {
             "AGENT_CPURL=$cpUrl",
             "AGENT_JOINTOKEN=$joinToken"
         )
-        $process = Start-Process -FilePath $setup -ArgumentList $arguments -Wait -PassThru
-        Check ($process.ExitCode -eq 0) "adding the agent exits 0" "exit $($process.ExitCode)"
+        $exit = Invoke-Bundle $arguments
+        Check ($exit -eq 0) "adding the agent exits 0" "exit $exit"
 
         $agent = Service-Of 'enlist-agent'
         Check ($null -ne $agent) "the agent service exists"
@@ -275,16 +324,27 @@ finally {
         Stop-Service $name -Force -ErrorAction SilentlyContinue
     }
 
-    $process = Start-Process -FilePath $setup -ArgumentList @('/uninstall', '/quiet', '/norestart', '/log', (Join-Path $env:TEMP 'enlist-e2e-uninstall.log')) -Wait -PassThru
-    Check ($process.ExitCode -eq 0) "the uninstall exits 0" "exit $($process.ExitCode)"
+    # Only if there is something to remove. This runs in a finally, so it runs even when the install
+    # never happened - and uninstalling nothing exits 1, which reported a failure for the one thing
+    # that had gone right. A cleanup step that cries wolf is worse than none.
+    $registered = @(Get-Package -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^enList' }).Count
+    $present = (Get-CimInstance Win32_Service -Filter "Name LIKE 'enlist-%'" -ErrorAction SilentlyContinue | Measure-Object).Count
 
-    Start-Sleep -Seconds 3
-    Check ((Get-CimInstance Win32_Service -Filter "Name LIKE 'enlist-%'" -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) "no enList service remains"
-    Check (-not (Test-Path (Join-Path $env:ProgramFiles 'enList'))) "no binaries remain"
-    Check (@(Get-Package -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^enList' }).Count -eq 0) "nothing is left registered"
+    if ($registered -eq 0 -and $present -eq 0 -and -not (Test-Path (Join-Path $env:ProgramFiles 'enList'))) {
+        Say "    nothing was installed, so there is nothing to remove"
+    }
+    else {
+        $exit = Invoke-Bundle @("/uninstall", "/quiet", "/norestart", "/log", (Join-Path $env:TEMP "enlist-e2e-uninstall.log"))
+        Check ($exit -eq 0) "the uninstall exits 0" "exit $exit"
 
-    # ProgramData is Permanent by design - an operator's data outlives an uninstall.
-    Check (Test-Path (Join-Path $env:ProgramData 'enList')) "ProgramData is retained, as designed"
+        Start-Sleep -Seconds 3
+        Check ((Get-CimInstance Win32_Service -Filter "Name LIKE 'enlist-%'" -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) "no enList service remains"
+        Check (-not (Test-Path (Join-Path $env:ProgramFiles 'enList'))) "no binaries remain"
+        Check (@(Get-Package -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^enList' }).Count -eq 0) "nothing is left registered"
+
+        # ProgramData is Permanent by design - an operator's data outlives an uninstall.
+        Check (Test-Path (Join-Path $env:ProgramData 'enList')) "ProgramData is retained, as designed"
+    }
 
     Say ""
     Say "RESULT: $(if ($script:failures -eq 0) { 'all checks passed' } else { "$script:failures check(s) failed" })"

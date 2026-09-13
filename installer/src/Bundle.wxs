@@ -22,11 +22,22 @@
      xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
   <?include Common.wxi ?>
 
+  <!--
+    IconSourceFile is what Windows shows in Installed apps and Add/Remove Programs, and it is a
+    SEPARATE thing from the wizard's window icon. Setting the window icon alone - which was the state
+    until someone looked at the Apps list - leaves the entry with the generic installer glyph, so the
+    one place a person goes to check what is on their machine is the one place enList is unbranded.
+
+    The same generated .ico the wizard uses, so the two cannot drift. Passed as an absolute path by
+    build.ps1 like every other source path here: a relative one resolves against the WORKING
+    directory rather than this file, which is a distinction that only shows up as a build error.
+  -->
   <Bundle
     Name="enList $(ProductVersion)"
     Manufacturer="$(Manufacturer)"
     Version="$(ProductVersion)"
     UpgradeCode="D4E6A821-5C93-4F17-B0A8-6E2D9F30C574"
+    IconSourceFile="$(IconFile)"
     Compressed="yes">
 
     <!--
