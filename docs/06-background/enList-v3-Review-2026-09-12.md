@@ -146,7 +146,7 @@ Authentication is done; a lot of prose still says it isn't.
 
 **Duplication worth consolidating into TestSupport** (the single biggest cleanup in the suite): a polling helper copy-pasted **seven** ways plus ~8 inline deadline loops; `Receive<T>`/`ReceiveUntil<T>`/`DrainUntilExitAsync` across 7 runner test classes **with two different semantics** (first-message-must-be-T vs skip-until-T — the former would break if a plugin logged at module-init); docker CLI helpers in 4 classes; `Authentication__Mode=Required` in 5; agent-log readers in 5.
 
-## 4. Consistency and correctness-adjacent
+## 4. Consistency and correctness-adjacent — COMPLETE (`794aae9`, `b91bf2f`, `9292077`)
 
 - ~~**Case sensitivity, three places.**~~ (**fixed**, `b91bf2f` - the rule now lives once, in `AgentTags`) `ControlPlane/Program.cs:1008,1017` compares the implicit self-tag `{"agent": name}` case-sensitively while agent names are case-insensitive everywhere else (SQL collation, `EndpointPolicyHandler:66`, `ApplicationPolicyHub:35`) — so `{"agent":"web-07"}` never matches `WEB-07`. `Contracts/IsolationSpec.cs:49` compares `Protocol` by record equality (`tcp` ≠ `TCP`) while validation accepts either case, producing phantom conflicts and missed port collisions. Portal filters use ordinal `==` where the server groups `OrdinalIgnoreCase` (5 sites).
 - ~~**Portal mirrors drifting from the authority they mirror.**~~ (**fixed**, `b91bf2f` - the detector calls `AgreesWith`, the wizard passes its real isolation) `PolicyConflictDetector.CanonicalIsolation` drops `PortMapping.Name` and compares case-sensitively, so it flags what the server accepts and vice versa; the wizard's hypothetical rule omits `Isolation` entirely, previewing "agrees" where the server will flag a conflict.
@@ -282,12 +282,12 @@ Done:
 
 11. ~~§1 items 12, 13, 14, 19, 20, 24 — leaks and disposal, finishing §1.~~ `b3ed881`
 
+12. ~~§4's remainder — the expiry overflow, the untrimmed revoke, the endpoint feed's N+1 and
+    per-request allocation, the silently ignored CLI flags, the Location headers, the error pages,
+    the unpassed cancellation tokens. §4 complete.~~ `9292077`
+
 Left:
 
-12. **§4's remainder** — an expiry overflow that 500s, a revoke that does not trim, the endpoint
-    feed's per-request allocation and N+1, silently ignored CLI flags, `Location` headers pointing at
-    routes with no GET, `[Authorize]` on the error and not-found pages, cancellation tokens not
-    passed.
 13. **§2, §3** — stale comments and dead code, including the seven-way duplicated test helpers.
 14. **§6** — the architecture and requirements docs, starting with the ten "wrong" items.
 15. **§9** — the coverage gaps worth closing.
