@@ -107,7 +107,7 @@ One row per agent ever heard from, or pre-registered.
 
 | Column | Type | Nullable | Notes |
 |---|---|---|---|
-| `Name` | `nvarchar` | No | **Primary key.** The agent's identity string (`--agent` CLI arg, defaults to `Environment.AgentName`). Also the ownership tag stamped on containers it creates (`enlist.agent`), which is what makes orphan reaping safe on a host shared by several agents — so it must be STABLE across restarts. |
+| `Name` | `nvarchar` | No | **Primary key.** The agent's identity string (`--agent` CLI arg, defaults to `Environment.MachineName`). Also the ownership tag stamped on containers it creates (`enlist.agent`), which is what makes orphan reaping safe on a host shared by several agents — so it must be STABLE across restarts. |
 | `TagsJson` | `nvarchar` | No | Default `"{}"`. Serialized `Dictionary<string,string>` — the tag set matched against `ApplicationPolicies.TagSelectorJson`. Every agent additionally carries an implicit self-tag `{"agent": name}`, synthesized at resolution time and never stored. |
 | `FirstSeenUtc` | `datetimeoffset` | No | Set once, at row creation. |
 | `LastSeenUtc` | `datetimeoffset` | No | Updated on every `GET /api/agents/{name}/policies` call and every `POST /api/agents/{name}/report` — the sole liveness signal; no separate heartbeat table or column exists. Also drives the 5-minute staleness window in the endpoint feed and the portal. |

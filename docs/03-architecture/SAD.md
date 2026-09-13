@@ -144,7 +144,7 @@ Portal: polls GET /api/agents/{machine}/report/latest every ~3s while a detail v
 | Decision | Rationale |
 |---|---|
 | Assignments and status are **separate** tables (`ApplicationPolicyEntity` normalized, `AgentReportEntity` an opaque JSON blob) | Desired state is queried/filtered/joined constantly (needs a real schema); reported state is only ever read whole, by machine, most-recent-first, and its shape evolves with the agent — a migration per shape change would be friction with no query benefit. |
-| tag-selector resolution lives in exactly one function server-side (`ResolveEffectivePoliciesForAgentAsync`), reused by both the agent-facing and portal-facing endpoints | Two independent implementations of "does this machine match this selector" previously drifted (a machine reachable only via tag selector showed 0 assignments in one view and the correct count in another) until they were unified — see [`Runbook.md`](../05-operations/Runbook.md) for the incident this produced. |
+| tag-selector MATCHING lives in exactly one function server-side (`ResolveMatchingPoliciesForAgentAsync`), which both the agent-facing and portal-facing endpoints call. What each does with the match set differs deliberately — the agent-facing endpoint collapses it through `ResolveEffectivePoliciesForAgentAsync` to one outcome per application, the portal-facing one returns it raw so an operator can see two rules fighting — but neither decides for itself what matches | Two independent implementations of "does this machine match this selector" previously drifted (a machine reachable only via tag selector showed 0 assignments in one view and the correct count in another) until they were unified — see [`Runbook.md`](../05-operations/Runbook.md) for the incident this produced. |
 | Agent → control plane is fetch-and-push, not poll-only | A push (`ApplicationPoliciesChanged`) makes convergence near-instant. Push is the fast path, not the only path: the agent reconnects indefinitely and re-fetches on every reconnect, and `WaitForChangeAsync` also returns every 3 minutes, so a push lost to a dead connection costs at most one interval — one small GET per agent per interval, not a poll loop that trades latency for load. |
 | Package identity is a content hash, not a caller-supplied version string | Removes an entire class of "which build is actually on this machine" ambiguity — the digest either matches or it doesn't, and re-uploading identical bytes is provably a no-op rather than trusted metadata. |
 | Runner isolation is per-application-**instance** (`AssemblyLoadContext`), not per-application-**definition** | Two machines running the same application are two independent processes with independent isolation contexts; there is no shared runtime state between them to keep in sync. |
@@ -160,7 +160,7 @@ Portal: polls GET /api/agents/{machine}/report/latest every ~3s while a detail v
 | Agent process hosting | `Microsoft.Extensions.Hosting`, `Microsoft.Extensions.Hosting.WindowsServices` 10.0.0 |
 | Cron parsing | Cronos 0.11.0 |
 | Web UI | Blazor Server + MudBlazor 8.6.0 |
-| Testing | xUnit across all four test projects |
+| Testing | xUnit across all five test projects |
 
 ## 7. Deployment Topology
 

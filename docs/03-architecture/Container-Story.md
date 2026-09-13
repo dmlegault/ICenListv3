@@ -688,6 +688,24 @@ That the third transport cost one `ListenAsync` method and one CLI flag is C1's 
 
 **`StartAsync` became a request record.** The parameter list had grown every phase and each backend legitimately ignored parts of it. `RunnerStartRequest` means a later phase can append a field without touching backends that do not care — the cleanup C0 anticipated, done when the growth actually justified it.
 
+### 12.6 What C5 shipped
+
+**`GET /api/endpoints`** projects every endpoint every agent last reported, optionally filtered by application. **`GET /api/endpoints/traefik`** renders the same data in Traefik's HTTP-provider shape.
+
+**It emits `services` and deliberately NOT `routers`.** A service is the live set of servers for an application — the thing enList uniquely knows and a proxy cannot discover for itself. A router is a hostname, a TLS certificate and a path rule: how an organisation wants traffic to arrive, which §8.4 explicitly refuses to own. An operator declares routers once in their own Traefik config and points each at a service named here; enList keeps the server list underneath current as applications move between agents. A test asserts `routers` is ABSENT, so the boundary is enforced rather than merely described.
+
+**Staleness is reported, not applied, in enList's own feed.** An agent past the 5-minute liveness window still has a last-known report, and its endpoints come back with `stale: true` rather than vanishing — "the agent went quiet" and "the application stopped" are different events and an operator must be able to tell them apart. The Traefik projection then **excludes** stale entries, because a proxy routing live traffic to a host presumed dead is a different question from a human reading a screen. Facts in the feed; policy in the adapter.
+
+**On reading the opaque blob.** This is the first thing in the control plane to parse `AgentReportEntity.SnapshotJson`, which is stored unparsed precisely so the agent's status shape can evolve with no server migration (docs/03-architecture/SAD.md §5). Reading at QUERY time is a much weaker coupling than storing parsed columns: no schema, no migration, and an unreadable shape degrades the feed (that agent contributes nothing) instead of breaking ingestion for everyone. The parse is tolerant and case-insensitive, and a test feeds it a deliberately wrong shape to prove one bad agent cannot take the feed down.
+
+**Verified against a real proxy, not a mock.** Traefik 3.1 in a container polled the feed and registered `orderprocessor` with `status: enabled` and `provider: http`. The application container was then killed; the agent restarted it on a new ephemeral port, the feed moved from `50605` to `58350`, and Traefik followed within one poll — the whole placement-to-routing chain, unassisted.
+
+**All three collision surfaces from §8.2 are built.** The wizard gained container-port inputs and warns BEFORE saving, naming the agent, the port and the application that already holds it — the thing the engine's own "port is already allocated" cannot tell anyone. The policy screen and the Applications tab each chip a `port collision`, distinct from the existing `conflict` chip because the cause and the fix both differ: one means two rules for THIS application disagree, the other that a DIFFERENT application holds the port.
+
+The latter two were missed on the first pass and caught by a regression review. `FindConflictsByAgent` — which every reactive surface was built on — groups by application and asks whether rules for the same application disagree; a port collision happens BETWEEN applications, so it falls between the groups and is structurally invisible to it. `FindPortCollisionsByAgent` is the counterpart, and the shape of that mistake is worth remembering: a check can be correct, well-tested and simply unable to see the thing you assumed it covered.
+
+This also exposed a C3 omission in the portal. `PolicyConflictDetector.Canonical` had not been extended with isolation when isolation joined the control plane's comparison, so its doc comment claiming to "mirror the control plane" had quietly stopped being true — two rules differing only in process-vs-container would have been flagged by the agent and silently accepted by the wizard. Isolation is compared there through `AgreesWith` semantics for the same reference-equality reason as everywhere else.
+
 ### 12.7 Flavor × isolation, and the end of the silent skip
 
 Prompted by one question of the running system: *what happens if I deploy a net472 application and assign it to a container?* The answer was "it appears to work", for three compounding reasons — each fixed.
@@ -726,25 +744,13 @@ After C5, a deliberate sweep for things "missed or left out" across every phase.
 
 The common thread is worth stating because it recurs: **enList deliberately duplicates several things** — two runner builds sharing no assembly, a portal conflict detector mirroring the control plane's, a status DTO mirrored on both sides of an opaque blob. Each duplication is a considered decision with a real justification. Each is also a place where a fix lands on one side and not the other, and neither the compiler nor the tests will say so. Every defect above, and both bugs found the day before it, are that same shape.
 
-### 12.6 What C5 shipped
+### 12.10 What each phase deliberately left for the next
 
-**`GET /api/endpoints`** projects every endpoint every agent last reported, optionally filtered by application. **`GET /api/endpoints/traefik`** renders the same data in Traefik's HTTP-provider shape.
+Newest first. Each note was written when its phase shipped, saying what it had chosen NOT to do and
+who would pick it up — which is why they read as a chain and why they are kept together rather than
+buried in the section of the phase that wrote them.
 
-**It emits `services` and deliberately NOT `routers`.** A service is the live set of servers for an application — the thing enList uniquely knows and a proxy cannot discover for itself. A router is a hostname, a TLS certificate and a path rule: how an organisation wants traffic to arrive, which §8.4 explicitly refuses to own. An operator declares routers once in their own Traefik config and points each at a service named here; enList keeps the server list underneath current as applications move between agents. A test asserts `routers` is ABSENT, so the boundary is enforced rather than merely described.
-
-**Staleness is reported, not applied, in enList's own feed.** An agent past the 5-minute liveness window still has a last-known report, and its endpoints come back with `stale: true` rather than vanishing — "the agent went quiet" and "the application stopped" are different events and an operator must be able to tell them apart. The Traefik projection then **excludes** stale entries, because a proxy routing live traffic to a host presumed dead is a different question from a human reading a screen. Facts in the feed; policy in the adapter.
-
-**On reading the opaque blob.** This is the first thing in the control plane to parse `AgentReportEntity.SnapshotJson`, which is stored unparsed precisely so the agent's status shape can evolve with no server migration (docs/03-architecture/SAD.md §5). Reading at QUERY time is a much weaker coupling than storing parsed columns: no schema, no migration, and an unreadable shape degrades the feed (that agent contributes nothing) instead of breaking ingestion for everyone. The parse is tolerant and case-insensitive, and a test feeds it a deliberately wrong shape to prove one bad agent cannot take the feed down.
-
-**Verified against a real proxy, not a mock.** Traefik 3.1 in a container polled the feed and registered `orderprocessor` with `status: enabled` and `provider: http`. The application container was then killed; the agent restarted it on a new ephemeral port, the feed moved from `50605` to `58350`, and Traefik followed within one poll — the whole placement-to-routing chain, unassisted.
-
-**All three collision surfaces from §8.2 are built.** The wizard gained container-port inputs and warns BEFORE saving, naming the agent, the port and the application that already holds it — the thing the engine's own "port is already allocated" cannot tell anyone. The policy screen and the Applications tab each chip a `port collision`, distinct from the existing `conflict` chip because the cause and the fix both differ: one means two rules for THIS application disagree, the other that a DIFFERENT application holds the port.
-
-The latter two were missed on the first pass and caught by a regression review. `FindConflictsByAgent` — which every reactive surface was built on — groups by application and asks whether rules for the same application disagree; a port collision happens BETWEEN applications, so it falls between the groups and is structurally invisible to it. `FindPortCollisionsByAgent` is the counterpart, and the shape of that mistake is worth remembering: a check can be correct, well-tested and simply unable to see the thing you assumed it covered.
-
-This also exposed a C3 omission in the portal. `PolicyConflictDetector.Canonical` had not been extended with isolation when isolation joined the control plane's comparison, so its doc comment claiming to "mirror the control plane" had quietly stopped being true — two rules differing only in process-vs-container would have been flagged by the agent and silently accepted by the wizard. Isolation is compared there through `AgreesWith` semantics for the same reference-equality reason as everywhere else.
-
-**Not done in C4:** level 3 (external ingress, `GET /api/endpoints`) is C5 and remains a proposal.
+**Not done in C4:** level 3 (external ingress, `GET /api/endpoints`) — which was C5, and shipped (§12.6). This note is left as written because it is the record of what C4 knew at the time; only the verdict is added.
 
 **A correction to C2's reasoning, found by inspecting real containers.** §12.3 claimed containment "needs nothing at all, because the container IS the boundary a Job Object approximates." That is backwards on the case the Job Object actually exists for: it ensures an ABNORMALLY DEAD agent takes its runners with it. A container has no such link and outlives a killed agent indefinitely — so on orphan cleanup containers are **weaker** than processes, not stronger. Every hard agent restart was leaking a stopped container.
 

@@ -1,7 +1,7 @@
 # enList Authentication and Authorization — Design (review finding C2)
 
 **Product:** enList v3
-**Document status:** Design, decided 2026-09-11 and implemented the same day — all three steps of §13. **C2 is closed.** Still deferred from the text below: `--control-plane-ca` (§9) and an audit table (§16); the audit is the log line of 6.3. Closes review finding **C2** ([`enList-v3-Review-2026-09-09.md` §3.2](../06-background/enList-v3-Review-2026-09-09.md)), the one open item in that review: *no authentication or authorization on any surface*. C2 stays open in the review until this is built; this document is what "built" means.
+**Document status:** Design, decided 2026-09-11 and implemented the same day — all three steps of §13. **C2 is closed.** Still deferred from the text below: `--control-plane-ca` (§9) and an audit table (§16); the audit is the log line of 6.3. Closes review finding **C2** ([`enList-v3-Review-2026-09-09.md` §3.2](../06-background/enList-v3-Review-2026-09-09.md)), the one open item in that review: *no authentication or authorization on any surface*. (When this was still a design, that sentence read "C2 stays open in the review until this is built". It was built the same day; the line is kept only so a reader who remembers the older wording knows it moved rather than vanished.)
 
 **The four decisions this rests on**, taken on 2026-09-11 after discussion, with the alternatives they rejected:
 

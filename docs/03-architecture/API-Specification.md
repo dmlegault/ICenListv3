@@ -260,7 +260,7 @@ Verified against a real Traefik 3.1, including it following an application to a 
 ## 5b. Health — for probes, the installer and the portal
 
 ### `GET /health`
-Liveness with a verdict. Unauthenticated, like every other endpoint (review finding C2), and it says nothing secret: which product and build is answering, and whether its database does — never the connection string.
+Liveness with a verdict. The ONE anonymous endpoint once authentication is Required — `EndpointPolicies` gives it `Anonymous` and everything else a credential — because a probe, a load balancer and the installer’s Verify step all have to reach it before anyone has a key. It says nothing secret: which product and build is answering, whether its database does, and whether authentication is on — never the connection string.
 **200** → `HealthDto` with `Status: "Healthy"` — the database answered.
 **503** → the same `HealthDto` with `Status: "Unhealthy"` and `Database.Error` set — the control plane is up but its database is not. Still a JSON body naming the product, so a caller can tell *enList, degraded* from *not enList at all* (a connection error, or a non-JSON body). Only ever seen after a successful start: outside Development the process refuses to start against an absent database ([`Deployment-IaC.md` §1.4](../05-operations/Deployment-IaC.md)).
 
@@ -272,7 +272,8 @@ The database check is bounded at 5 s, so a database that accepts the connection 
   "product": "enList control plane",
   "version": "3.0.0",
   "database": { "reachable": true, "latestMigration": "20260911192322_InitialCreate", "error": null },
-  "checkedAtUtc": "2026-09-11T14:02:11.4Z"
+  "checkedAtUtc": "2026-09-11T14:02:11.4Z",
+  "authentication": "Required"
 }
 ```
 
@@ -298,10 +299,10 @@ Both push types are **fire-and-forget** from the server's point of view — `Cli
 
 ### `HealthDto`, `HealthDatabaseDto`
 ```csharp
-record HealthDto(string Status, string Product, string Version, HealthDatabaseDto Database, DateTimeOffset CheckedAtUtc);
+record HealthDto(string Status, string Product, string Version, HealthDatabaseDto Database, DateTimeOffset CheckedAtUtc, string Authentication);
 record HealthDatabaseDto(bool Reachable, string? LatestMigration, string? Error);
 ```
-`Status` is `Healthy` or `Unhealthy` and mirrors the HTTP status (200 / 503); `Error` is set only when `Reachable` is false. See §5b.
+`Status` is `Healthy` or `Unhealthy` and mirrors the HTTP status (200 / 503); `Error` is set only when `Reachable` is false. `Authentication` is `"Required"` or `"Off"`, so an agent with no credential — or the installer’s Verify — can tell whether one is needed before failing on a 401. See §5b.
 
 **File:** `src/Enlist.ControlPlane.Contracts/`
 
@@ -317,7 +318,10 @@ record ApplicationPolicyDto(
 
 record AgentDto(string Name, IReadOnlyDictionary<string,string> Tags,
     DateTimeOffset FirstSeenUtc, DateTimeOffset LastSeenUtc,
-    bool SchedulingEnabled = true, AgentCapabilitiesDto? Capabilities = null);
+    bool SchedulingEnabled = true, AgentCapabilitiesDto? Capabilities = null,
+    // One of AgentCredentialStates: does this agent hold a live credential, was it revoked, or has
+    // it never enrolled - which under authentication Off is every agent.
+    string CredentialState = AgentCredentialStates.None);
 
 // HOW an application is hosted — orthogonal to RuntimeFlavor, which is WHAT it needs to run at all.
 record IsolationSpec(string Mode = "process", string? Image = null,
@@ -343,9 +347,11 @@ record AgentCommandRequest(string ApplicationName, string TargetKind, string Tar
     // TargetKind: "Service" | "Job"   Action: "Start" | "Stop"
 
 record PackageInfo(string Digest, long SizeBytes, DateTimeOffset UploadedAtUtc,
-    string? ApplicationName = null, int? VersionNumber = null);
+    string? ApplicationName = null, int? VersionNumber = null,
+    string RuntimeFlavor = RuntimeFlavors.Default);
 
-record UploadPackageResponse(string Digest, long SizeBytes, bool AlreadyExisted);
+record UploadPackageResponse(string Digest, long SizeBytes, bool AlreadyExisted,
+    string RuntimeFlavor = RuntimeFlavors.Default);
 
 record AgentLogEntryDto(long Id, string ApplicationName, string Level, string Source, string Text, DateTimeOffset TimestampUtc);
 record SubmitLogEntriesRequest(IReadOnlyList<LogEntrySubmission> Entries);
@@ -367,7 +373,7 @@ static class RuntimeFlavors
 
 Declares which `enlist-runner` build a policy rule needs — see [`SAD.md` §9](SAD.md#9-design-vs-implementation), [`LLD.md` §8](LLD.md#8-agent-background-loops), and `docs/03-architecture/enList-v3-Design.md` §11 step 5. Defined once in `Enlist.ControlPlane.Contracts` and shared by the control plane (detection and validation), the agent (runner-bin selection), and `enlist-deploy` (which prints it), so all three agree on the exact string values.
 
-- **Detected server-side at upload**, from the package itself — the presence of any `*.deps.json` entry means `net10.0`, its absence `net472`. There is no CLI flag: `enlist-deploy` takes only `--control-plane`, `--app` and `--source`, and prints the detected flavor for confirmation. A policy rule inherits its package's detected flavor, and a rule claiming a contradicting one is rejected.
+- **Detected server-side at upload**, from the package itself — the presence of any `*.deps.json` entry means `net10.0`, its absence `net472`. There is no CLI flag for the FLAVOR: `enlist-deploy` takes `--control-plane`, `--app`, `--source` and `--api-key` (or `ENLIST_API_KEY`), and prints the detected flavor for confirmation. A policy rule inherits its package's detected flavor, and a rule claiming a contradicting one is rejected.
 - **`enlist-agent --legacy-runner-bin <path>`** registers a second runner build under `net472`, alongside the always-required `--runner-bin` (registered under `net10.0`). One agent process can host both flavors side by side — this is a per-application routing decision at start time, not a separate agent identity.
 - A rule naming a flavor the agent has no runner-bin configured for is marked `Failed` immediately (not retried — a missing runner-bin is a configuration problem, not a transient one) with a log line naming the missing flavor and every flavor the agent *does* have configured.
 - Changing `RuntimeFlavor` on a running rule (via `PUT`) is treated exactly like changing `Path`/`CronOverrides` — it triggers a stop-and-restart under the newly-selected runner.

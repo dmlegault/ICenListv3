@@ -31,9 +31,9 @@ Covers five components, all under this repository:
 | **Service** | A long-running component with `[EnlistStart]`/optional `[EnlistStop]` methods, started when its application starts and running until stopped. |
 | **Job** | A scheduled or on-demand unit of work with an `[EnlistExecute]` method and an optional cron expression. |
 | **Application Policy rule** | A row declaring that one Application should run (`Running`) or not (`Stopped`) on whichever agents a tag selector currently matches. Formerly called an *Assignment*. |
-| **Machine** | One registered managed host, identified by name, carrying a set of key/value tags. |
-| **Package** | A content-addressed (SHA-256 digest) zip of an application's build output, stored once and reused across every machine it is assigned to. |
-| **Desired state** | The persisted intent (`Running`/`Stopped`) an Assignment carries — what the agent is supposed to converge its machine toward. |
+| **Agent** | One registered managed host, identified by name, carrying a set of key/value tags. Called a *Machine* throughout v2 and the early v3 documents; the rename is real everywhere in the code and the portal. |
+| **Package** | A content-addressed (SHA-256 digest) zip of an application's build output, stored once and reused across every agent it is assigned to. |
+| **Desired state** | The persisted intent (`Running`/`Stopped`) an Application Policy rule carries — what the agent is supposed to converge its host toward. |
 | **Reported state** | What an agent's latest status snapshot says is actually happening right now. |
 
 ### 1.4 References
@@ -55,10 +55,10 @@ enList v3 is a new, standalone system (not a plugin or extension of another prod
 
 ### 2.2 Product Functions (summary)
 
-1. Register and tag machines.
+1. Register and tag agents.
 2. Package and upload an application's build output; store it deduplicated and versioned.
 3. Declare desired state for an application on whichever agents a tag selector currently matches. There is no second, "explicit" targeting mode: every agent carries an implicit self-tag `{"agent": name}`, so targeting one specific agent is simply the most specific possible selector.
-4. Reconcile that desired state on each managed machine: start/stop application processes, register/unregister scheduled jobs.
+4. Reconcile that desired state on each managed host: start/stop application processes, register/unregister scheduled jobs.
 5. Report live status (per-application, per-service, per-job) back to the control plane, both reactively and on a fixed heartbeat.
 6. Forward application log output for centralized tailing.
 7. Issue imperative start/stop commands against one service or job without affecting the rest of its application — stopping a job both unregisters its schedule and cancels any run in flight.
@@ -97,27 +97,27 @@ enList v3 is a new, standalone system (not a plugin or extension of another prod
 
 Each requirement is tagged `SRS-<area>-<n>` and is implemented and exercised by the test(s) named where one exists.
 
-### 3.1 Machine Registry
+### 3.1 Agent Registry
 
-- **SRS-MCH-1**: The system SHALL create a machine record the first time that machine's agent calls `GET /api/agents/{agentName}/policies` or `POST /api/agents/{agentName}/report`, if no record already exists.
-- **SRS-MCH-2**: The system SHALL allow a machine to be pre-registered with tags (`PUT /api/agents/{name}/tags`) before its agent ever connects.
-- **SRS-MCH-3**: The system SHALL update a machine's `LastSeenUtc` on every policy-fetch and every status report it sends.
-- **SRS-MCH-4**: *(withdrawn)* — deleting an agent is a registry cleanup, not data destruction: the agent reappears on its next contact, and policy rules target tags rather than agent rows, so there is nothing for a referential check to protect. The former `409 Conflict` on delete existed only while explicit per-agent targeting did.
+- **SRS-AGT-1**: The system SHALL create an agent record the first time that agent calls `GET /api/agents/{agentName}/policies` or `POST /api/agents/{agentName}/report`, if no record already exists.
+- **SRS-AGT-2**: The system SHALL allow an agent to be pre-registered with tags (`PUT /api/agents/{name}/tags`) before its agent ever connects.
+- **SRS-AGT-3**: The system SHALL update an agent’s `LastSeenUtc` on every policy-fetch and every status report it sends.
+- **SRS-AGT-4**: *(withdrawn)* — deleting an agent is a registry cleanup, not data destruction: the agent reappears on its next contact, and policy rules target tags rather than agent rows, so there is nothing for a referential check to protect. The former `409 Conflict` on delete existed only while explicit per-agent targeting did.
   *(Verified by `AgentRegistryTests`.)*
 
-### 3.2 Placement (Assignments)
+### 3.2 Application Policy rules
 
 - **SRS-ASG-1**: A policy rule SHALL target agents by `TagSelector` only. There is no `AgentName` field and no explicit targeting mode: every agent carries an implicit `agent=<name>` tag, so "this one agent" is the narrowest possible selector rather than a second mechanism. *(Revised — this requirement previously mandated exactly one of `AgentName` or `TagSelector`, contradicting §2.3 of this same document.)*
 - **SRS-ASG-1a**: A policy rule SHALL specify a `PackageDigest` obtained from a prior upload; `enlist-deploy` never creates one, so deploying a build and deciding where it runs remain separate acts.
-- **SRS-ASG-2**: An assignment SHALL specify exactly one of a local `Path` or a `PackageDigest` as its source, never both, never neither.
-- **SRS-ASG-3**: The system SHALL resolve, for a given agent, every rule whose `TagSelector` is fully satisfied by that agent's effective tags (its own, plus the implicit `agent=<name>`), then collapse the result to at most one outcome per application — agreeing rules resolve to one, disagreeing rules yield a `ConflictReason` rather than a silently-chosen winner — using one shared resolution routine (`ResolveEffectivePoliciesForAgentAsync`) for both the agent-facing and portal-facing query paths, so the two views can never disagree.
+- **SRS-ASG-2**: A policy rule SHALL specify exactly one of a local `Path` or a `PackageDigest` as its source, never both, never neither.
+- **SRS-ASG-3**: The system SHALL resolve, for a given agent, every rule whose `TagSelector` is fully satisfied by that agent's effective tags (its own, plus the implicit `agent=<name>`), then collapse the result to at most one outcome per application — agreeing rules resolve to one, disagreeing rules yield a `ConflictReason` rather than a silently-chosen winner — using one shared MATCHING routine (`ResolveMatchingPoliciesForAgentAsync`) for both the agent-facing and portal-facing query paths, so the two views can never disagree about which rules match. Only the agent-facing path performs the collapse (`ResolveEffectivePoliciesForAgentAsync`); the portal-facing path returns the raw match set, because an operator needs to SEE the several rules that the agent must be given one answer about.
 - **SRS-ASG-4**: *(withdrawn)* — the filtered unique index on `(AgentName, ApplicationName)` is gone along with explicit targeting. Two tag selectors can begin matching the same agent at any time simply because someone re-tagged it, so overlap cannot be prevented by a database constraint and is instead detected at resolution: disagreeing rules for one application yield a `ConflictReason`, and a static host-port collision between different applications yields another. See [`Container-Story.md` §8.2](../03-architecture/Container-Story.md).
-- **SRS-ASG-5**: Creating, updating, or deleting an assignment SHALL push an `ApplicationPoliciesChanged` notification (no payload) to every machine that assignment affects, over the SignalR hub.
+- **SRS-ASG-5**: Creating, updating, or deleting a policy rule SHALL push an `ApplicationPoliciesChanged` notification (no payload) to every agent that rule affects, over the SignalR hub.
 
 ### 3.3 Reconciliation (Agent)
 
 - **SRS-RCN-1**: On startup, and on every `ApplicationPoliciesChanged` signal (including one synthesized on hub reconnect), the agent SHALL re-fetch its full assignment list and converge: stop applications no longer wanted, start applications newly wanted, restart applications whose Path/PackageDigest/CronOverrides changed.
-- **SRS-RCN-2**: The agent's SignalR connection SHALL re-join its machine's hub group after every reconnect, not only at initial connect — a connection that reconnects without rejoining receives no further pushes even though it appears healthy.
+- **SRS-RCN-2**: The agent's SignalR connection SHALL re-join its agent’s hub group after every reconnect, not only at initial connect — a connection that reconnects without rejoining receives no further pushes even though it appears healthy.
 - **SRS-RCN-3**: A crashed application instance SHALL be restarted automatically with exponential backoff, up to a configured maximum attempt count, after which it is marked `Failed` and not retried further.
 - **SRS-RCN-4**: Stopping an application SHALL tear down its runner process and mark every one of its previously-known services `Stopped` in the next status report — a stale `Running` service entry under a stopped application is a defect.
 
@@ -125,7 +125,7 @@ Each requirement is tagged `SRS-<area>-<n>` and is implemented and exercised by 
 
 - **SRS-STA-1**: The agent SHALL POST a status snapshot after every service/job state transition and after every reconciliation pass.
 - **SRS-STA-2**: The agent SHALL POST a status snapshot on a fixed heartbeat interval (default 2 minutes) regardless of whether anything changed, so a healthy but quiescent agent's last-report age never falsely implies it is offline.
-- **SRS-STA-3**: The portal SHALL treat a machine as stale once its most recent status report is older than a fixed threshold (5 minutes) and SHALL visually distinguish stale data from live data rather than presenting both identically.
+- **SRS-STA-3**: The portal SHALL treat an agent as stale once its most recent status report is older than a fixed threshold (5 minutes) and SHALL visually distinguish stale data from live data rather than presenting both identically.
 
 ### 3.5 Package Distribution
 
@@ -142,8 +142,8 @@ Each requirement is tagged `SRS-<area>-<n>` and is implemented and exercised by 
 
 ### 3.7 Logging
 
-- **SRS-LOG-1**: The agent SHALL buffer and forward application log lines to the control plane in batches, tagged by machine, application, level, source, and timestamp.
-- **SRS-LOG-2**: The portal SHALL retrieve log lines for a (machine, application) pair paged strictly after the highest `Id` already retrieved, so a continuous tail never re-fetches or skips a line.
+- **SRS-LOG-1**: The agent SHALL buffer and forward application log lines to the control plane in batches, tagged by agent, application, level, source, and timestamp.
+- **SRS-LOG-2**: The portal SHALL retrieve log lines for an (agent, application) pair paged strictly after the highest `Id` already retrieved, so a continuous tail never re-fetches or skips a line.
 - **SRS-LOG-3**: Forwarded log rows SHALL be subject to their own retention policy (default 3 days) independent of an agent's local on-disk log files.
 
 ### 3.8 Plugin Discovery
@@ -155,9 +155,54 @@ Each requirement is tagged `SRS-<area>-<n>` and is implemented and exercised by 
 
 ### 3.9 Portal (see [`FRS.md`](FRS.md) for full page-level detail)
 
-- **SRS-UI-1**: The portal SHALL present a master list of Applications with per-application aggregate counts (assignment count, machine count) and, on selection, a detail view per machine that application runs on.
-- **SRS-UI-2**: The portal SHALL present a master list of Machines with per-machine aggregate counts (application count, assignment count), online/offline status, and, on selection, a detail view of every application assigned to that machine.
-- **SRS-UI-3**: Every Start/Stop control that would send an imperative command to a machine with no recent report SHALL be disabled, with an explanation, rather than silently accepting a click that cannot reach anything.
+- **SRS-UI-1**: The portal SHALL present a master list of Applications with per-application aggregate counts (policy rule count, agent count) and, on selection, a detail view per agent that application runs on. *(Built — `Applications.razor`, expandable rows over `RunningInstancesTable`.)*
+- **SRS-UI-2**: The portal SHALL present a master list of Agents with per-agent aggregate counts (application count, policy rule count), online/offline status, and, on selection, a detail view of every application that agent runs. *(Built — `Agents.razor`, expandable rows over `AgentRunningApplicationsTable`. The counts include rules a tag selector fans out to the agent, not only rules naming it.)*
+- **SRS-UI-3**: Every Start/Stop control that would send an imperative command to an agent with no recent report SHALL be disabled, with an explanation, rather than silently accepting a click that cannot reach anything.
+
+### 3.10 Authentication and Authorization
+
+Added 2026-09-13. These requirements were missing entirely: the whole area was designed, built and
+tested on 2026-09-11 (see [`Authentication-Design.md`](../03-architecture/Authentication-Design.md))
+without ever being written down as requirements, which is how a document like this goes quietly out
+of date while every individual statement in it stays true.
+
+- **SRS-AUTH-1**: The control plane SHALL run in one of exactly two modes, `Required` or `Off`, named
+  by `Authentication:Mode`, and SHALL default to `Required` when configuration says nothing.
+- **SRS-AUTH-2**: The system SHALL refuse to start in `Off` mode when any configured listener binds
+  an address that is not loopback, and SHALL refuse to start in `Required` mode on a plain-HTTP
+  listener that is not loopback. Both are startup refusals naming the offending address, never
+  warnings. *(The dangerous state is unreachable by configuration, not merely discouraged.)*
+- **SRS-AUTH-3**: Every endpoint SHALL carry an explicit policy in one table (`EndpointPolicies`), and
+  an endpoint absent from that table SHALL be refused rather than allowed. *(Fail-closed: adding a
+  route without deciding who may call it is a 403, not an accidental public API.)*
+- **SRS-AUTH-4**: `GET /health` SHALL be the only anonymous endpoint, and SHALL report which mode the
+  control plane is in, so a caller can discover that a credential is needed rather than inferring it
+  from a 401.
+- **SRS-AUTH-5**: The system SHALL accept three kinds of bearer credential, distinguished by prefix:
+  an agent credential (`enla_`), a management key (`enlk_`), and a single-use join token (`enlj_`).
+  Each SHALL be stored only as a SHA-256 hash, and its plaintext SHALL be shown exactly once, at the
+  moment it is minted.
+- **SRS-AUTH-6**: An agent SHALL obtain its own credential by presenting a join token to
+  `POST /api/agents/enroll`. A join token SHALL be spendable at most once, SHALL be charged only
+  after the enrollment is known to be otherwise valid, and SHALL NOT be spendable by two concurrent
+  callers.
+- **SRS-AUTH-7**: An agent SHALL store its credential encrypted at rest under the machine's own key
+  (DPAPI, machine scope), and SHALL present it on every call to the control plane including the
+  SignalR hub connection.
+- **SRS-AUTH-8**: An agent-scoped route SHALL be callable only by the agent it names. One agent's
+  credential SHALL NOT grant access to another agent's policies, reports or logs.
+- **SRS-AUTH-9**: A management key SHALL carry exactly one role, `Operator` or `Viewer`. A `Viewer`
+  SHALL be refused every write. Revoking a key SHALL take effect on its next use, with no restart.
+- **SRS-AUTH-10**: The portal SHALL authenticate a person with Windows (Negotiate) and map Windows
+  group membership to those same two roles. A person in neither group SHALL be refused, not silently
+  given the lesser role.
+- **SRS-AUTH-11**: Every administrative WRITE SHALL produce one audit line naming the method, the
+  path, the outcome and WHO — including a write that throws. Reads and an agent's own telemetry SHALL
+  NOT be audited, because they arrive every few seconds from every agent and would bury the rest.
+- **SRS-AUTH-12**: The operator identity the portal forwards (`X-Enlist-Operator`) is a courtesy for
+  the audit line and SHALL NEVER be an authorization input. It SHALL be sanitized of control
+  characters and length-capped before it reaches a log line or a `CreatedBy` column.
+
 
 ---
 
@@ -165,7 +210,7 @@ Each requirement is tagged `SRS-<area>-<n>` and is implemented and exercised by 
 
 | ID | Requirement |
 |---|---|
-| NFR-1 | **Outbound-only agents.** No managed machine SHALL require an inbound firewall rule for enList traffic. |
+| NFR-1 | **Outbound-only agents.** No managed host SHALL require an inbound firewall rule for enList traffic. |
 | NFR-2 | **Idempotent redeploy.** Re-running `enlist-deploy` with unchanged bytes and the same target SHALL be safe to repeat and SHALL not re-upload or duplicate an assignment. |
 | NFR-3 | **Bounded staleness signal.** The gap between an agent going truly offline and the portal showing it as such SHALL be bounded by the heartbeat interval plus the staleness threshold (≤ ~7 minutes with current defaults), not unbounded. |
 | NFR-4 | **Graceful shutdown.** An agent SHALL attempt to stop every running application within a configured grace period before the process is force-killed, on both a normal service stop and a deploy-driven application stop. |

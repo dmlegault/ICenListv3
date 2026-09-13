@@ -22,7 +22,7 @@ cd enList_v3
 dotnet build enList_v3.slnx
 ```
 
-This restores and builds every project in the solution: `src/` (5 components), `samples/` (reference plugin apps), `tests/` (4 test projects + shared test support), `contracts/` (source-only plugin attribute file, pulled in via `.props` import, not built standalone).
+This restores and builds every project in the solution: `src/` (7 projects: the control plane and its contracts, the agent, the two runners, the deploy CLI and the portal), `samples/` (reference plugin apps), `tests/` (5 test projects, plus shared test support and a deliberately misbehaving plugin used as a fixture), `contracts/` (source-only plugin attribute file, pulled in via `.props` import, not built standalone).
 
 ## 3. Run the Control Plane
 
@@ -48,6 +48,23 @@ ControlPlane__BaseUrl=http://localhost:5293 dotnet run --project src/Enlist.Port
 Open `http://localhost:5231` — you should see the Applications page (empty, with an info alert, on a fresh system) under the "enList Portal" dark theme.
 
 Authentication is `Off` in the portal's `appsettings.Development.json` (as in the control plane's), which the portal permits only because `launchSettings.json` binds to `localhost` — so `dotnet run` needs no Windows groups and no key, and everyone is an Operator. A real deployment runs `Required`: Windows sign-in, two group names, and the portal's own key ([Deployment-IaC §1.8](../05-operations/Deployment-IaC.md)).
+
+Setting that up, once, is three commands and one configuration value:
+
+```bash
+# 1. Mint a key for the portal. Shown once; only its hash is stored.
+dotnet src/Enlist.ControlPlane/bin/Debug/net10.0/Enlist.ControlPlane.dll create-api-key --name portal --role Operator --expires never
+
+# 2. Protect it so it is not a plaintext value in the portal's configuration.
+src/Enlist.Portal/bin/Debug/net10.0/Enlist.Portal.exe protect <the-key-from-step-1>
+
+# 3. Put the protected "dpapi:..." value in the portal’s ControlPlane:ApiKey, and name the two Windows
+#    groups in Authentication:Windows:OperatorsGroup and Authentication:Windows:ViewersGroup.
+```
+
+The portal talks to the control plane with **its own key**, not with the signed-in person's identity — the control plane speaks bearer tokens, not Windows. The person's identity travels alongside it in the `X-Enlist-Operator` header, and reaches the audit line and `CreatedBy` columns. It is never an authorization input, so a portal key of role `Viewer` cannot be talked into a write by any header.
+
+A person in neither Windows group is refused with a page that says so, rather than admitted as a `Viewer` — see [UI-UX-Design-Spec §5a](../03-architecture/UI-UX-Design-Spec.md).
 
 ## 5. Run an Agent
 
@@ -81,16 +98,30 @@ dotnet src/Enlist.Agent/bin/Debug/net10.0/enlist-agent.dll \
 sc.exe create enlist-agent binPath= "C:\path\to\enlist-agent.exe --control-plane https://your-control-plane --runner-bin C:\path\to\runner-bin"
 ```
 
+> **Enroll the agent BEFORE you create the service, not after.** Against a control plane running
+> `Required`, the agent needs a join token on its first start, and the service definition above
+> carries no `--join-token`. Run the agent interactively once with `--join-token <token>` and let it
+> enroll; it writes its credential into the data directory, encrypted under the machine key, and
+> every start after that needs no token. Create the service only then.
+>
+> Done in the other order the service starts, fails to authenticate, and stops — and the Event Log
+> entry is not enough to tell you which of the two it was, because "no credential" and "credential
+> rejected" look alike from the outside. The agent's own log says which, once, with the remedy.
+>
+> The credential is protected with DPAPI **machine** scope, so the file is unreadable on another
+> machine and readable to any account on this one. That is what makes the useful order work: enroll
+> interactively as yourself, then run the service as LocalSystem.
+
 ## 6. Build and Deploy a Sample Application
 
 Four reference plugin apps exist under `samples/`, each building straight into `deploy/<AppName>/` (see each project's `OutputPath`):
 
 | Sample | Target | Deploys to | Contents |
 |---|---|---|---|
-| `Enlist.Sample.Service` | net10.0 | `deploy/SampleService` | 1 service, 1 job — also the only one shipping a `*.settings.json` |
+| `Enlist.Sample.Service` | net10.0 | `deploy/SampleService` | 2 services, 1 job — the second, **Inherited Service**, has its `[EnlistStart]`/`[EnlistStop]` on a base class, which is what proves discovery walks the hierarchy. Also the only sample shipping a `*.settings.json` |
 | `Enlist.Sample.OrderProcessor` | net10.0 | `deploy/OrderProcessor` | 4 services, 5 jobs — including **Ledger Rebuild**, the one sample with a long-running job that honors its CancellationToken |
 | `Enlist.Sample.DataPipeline` | net10.0 | `deploy/DataPipeline` | 5 services, 3 jobs |
-| `Enlist.Sample.Legacy` | **net472** | `deploy/LegacySample` | 1 service, 2 jobs — exercises the legacy runner end to end (§5), including job cancellation under net472 |
+| `Enlist.Sample.Legacy` | **net472** | `deploy/LegacySample` | 2 services, 2 jobs — the net472 mirror of the first sample, inherited service included, exercising the legacy runner end to end (§5) and job cancellation under net472 |
 
 ```bash
 dotnet build samples/Enlist.Sample.Service/Enlist.Sample.Service.csproj
@@ -102,7 +133,7 @@ dotnet src/Enlist.Deploy/bin/Debug/net10.0/enlist-deploy.dll \
   --source deploy/SampleService
 ```
 
-**`enlist-deploy` uploads a package and nothing else** — those three flags are its entire surface. It does not create a placement, choose agents, or set a desired state, and the runtime flavor is detected server-side from the uploaded build rather than declared on the command line.
+**`enlist-deploy` uploads a package and nothing else.** It does not create a placement, choose agents, or set a desired state, and the runtime flavor is detected server-side from the uploaded build rather than declared on the command line. Its whole surface is four flags: the three above, plus `--api-key` (or `ENLIST_API_KEY`), which is required once the control plane runs with authentication Required and ignored when it does not.
 
 > Earlier revisions of this guide showed `--machines`, `--tags`, `--desired-state` and `--runtime` here. Those flags no longer exist; deciding *where* an application runs is the portal's job, through an Application Policy rule. The example above is the current, complete invocation.
 
@@ -179,7 +210,9 @@ Deciding where it runs is a separate step: open the portal's **Applications** ta
 dotnet test enList_v3.slnx
 ```
 
-Runs all five test projects (`Enlist.ControlPlane.Tests`, `Enlist.Agent.Tests`, `Enlist.Runner.Tests`, `Enlist.Deploy.Tests`, `Enlist.Portal.Tests`) — see [`Test-Plan.md`](../05-operations/Test-Plan.md) for what each covers. As of this writing: 232 tests, all passing (50 Runner, 5 Deploy, 72 ControlPlane, 72 Agent, 33 Portal). The 16 container tests skip themselves when their engine (Docker or wslc) or its runner image is unavailable — see Container-Developer-Guide.md &sect;9. Three portal tests that sign in with Windows skip themselves on a machine that refuses its own NTLM sign-in ([Test-Plan §2.6](../05-operations/Test-Plan.md)).
+Runs all five test projects (`Enlist.ControlPlane.Tests`, `Enlist.Agent.Tests`, `Enlist.Runner.Tests`, `Enlist.Deploy.Tests`, `Enlist.Portal.Tests`) — see [`Test-Plan.md`](../05-operations/Test-Plan.md) for what each covers. Measured 2026-09-13: 283 tests (53 Runner, 7 Deploy, 93 ControlPlane, 85 Agent, 45 Portal), 268 passing and 15 skipping on this machine. Container tests skip themselves when their engine (Docker or wslc) or its runner image is unavailable — see Container-Developer-Guide.md &sect;9 — which accounted for 12 of those skips. Three portal tests that sign in with Windows skip themselves on a machine that refuses its own NTLM sign-in ([Test-Plan §2.6](../05-operations/Test-Plan.md)), which is the other three.
+
+Each of those projects pins `maxParallelThreads` to 8 in its own `xunit.runner.json`, and that is not a detail to remove. Every test in four of the five starts a real server process; xunit otherwise defaults the limit to the processor count, and on a 32-core machine the control plane assembly was found to survive exactly 92 tests before the 93rd made fifteen unrelated classes fail together on startup timeouts.
 
 ## 9. Common Pitfalls
 
@@ -190,6 +223,6 @@ Runs all five test projects (`Enlist.ControlPlane.Tests`, `Enlist.Agent.Tests`, 
 | Two agent processes with the same `--agent` name | Started twice; both heartbeat and both POST status, so `report/latest` alternates between them | The loser cannot run the applications the winner owns, so it reports them `Failed` with a climbing restart count — which looks exactly like stale portal data. Expect one `enlist-agent.exe` per name (`dotnet run` shows a launcher + child pair, so N agents look like 2N rows). |
 | Portal loads with no styling / broken images, no visible error | Launched via `dotnet <dll>` instead of `dotnet run --project` | See the warning in §4. |
 | Build fails with "file is locked by .NET Host (PID)" | A previous `dotnet run`/`dotnet <dll>` instance of the same component is still running and holding its own output DLL open | Stop the running process (`Stop-Process -Id <PID>`) before rebuilding — the running agent/portal/control-plane process must be stopped, not just the build re-attempted. |
-| An agent reachable only via a tag selector shows "no rules" in one view but the correct count in another | Two independent tag-matching implementations drifted (fixed — see [`SAD.md` §5](../03-architecture/SAD.md#5-cross-cutting-design-decisions)); if this recurs, check that both `/api/application-policies?machineName=` and `/api/agents/{name}/policies` still route through `ResolveEffectivePoliciesForAgentAsync`. |
+| An agent reachable only via a tag selector shows "no rules" in one view but the correct count in another | Two independent tag-matching implementations drifted (fixed — see [`SAD.md` §5](../03-architecture/SAD.md#5-cross-cutting-design-decisions)); if this recurs, check that both `/api/application-policies?agentName=` and `/api/agents/{name}/policies` still get their match set from `ResolveMatchingPoliciesForAgentAsync`. (Only the second collapses it through `ResolveEffectivePoliciesForAgentAsync`; the first returns the raw matches on purpose.) |
 | A machine stays "Stale" indefinitely with nothing obviously wrong | Confirm the agent's heartbeat loop is actually running (`AgentHostOptions.HeartbeatInterval`, default 2 min) — a report age past 5 minutes with a genuinely healthy, idle agent should self-correct within one heartbeat interval. |
 | A policy change made right after a control-plane restart never reaches the agent | The agent's SignalR connection reconnected but didn't re-join its machine group — confirmed fixed in `ControlPlaneAssignmentSource`'s `Reconnected` handler; if this regresses, verify `JoinAgentGroupMethod` is re-invoked on every reconnect, not only at initial connect. |

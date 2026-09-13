@@ -186,6 +186,29 @@ Every such disabled button carries a `MudTooltip` saying *which* of those two it
 
 **Declarative** state changes — an application policy's desired state, an agent's scheduling flag — are never gated this way. They only write intent to the database, which is always meaningful regardless of whether the target agent is currently reachable.
 
+## 5a. Role-Gating Conventions
+
+*Added 2026-09-13. Built 2026-09-11; this document had no convention for it, which is how two pages end up disagreeing about what a Viewer sees.*
+
+**A write control is HIDDEN from a Viewer, not disabled.** Every one is wrapped in `<AuthorizeView Policy="@PortalRoles.Operator" Context="access">`, which renders nothing at all for anyone else.
+
+That is deliberately the OPPOSITE of §5, and the two are not in conflict once the question is put properly: *will this control work for this person later?*
+
+| | Convention | Why |
+|---|---|---|
+| **Command-gating** (§5): stale agent, application not running | **Disabled**, with a tooltip saying which | It will work again in a minute. Hiding it would read as a missing feature, and the tooltip is the explanation. |
+| **Role-gating**: a Viewer | **Hidden** | It will never work for them. A permanently dead button is clutter, and a tooltip saying "you may not do this" on every row is worse. |
+
+`Context="access"` on every `AuthorizeView` is not decoration: these sit inside `MudTable` row templates, which already bind `context`, and the name collides without it.
+
+**The app bar always says who you are.** `MainLayout` renders the Windows identity and a role chip on every page — `Operator` in the primary colour, `Viewer` outlined — and never renders blank, because a blank identity reads as a bug rather than as a state. Under authentication `Off` (permitted only on loopback) it says so explicitly, with a tooltip explaining that nobody signed in and everyone is an Operator, rather than showing an empty space or a fake name.
+
+An operator has to be able to answer "why can I not see the button" without reading a log, and the answer is always one of two things: the wrong account, or the wrong role. Both are on screen.
+
+**A person in neither group is refused, with a page that says so** (`Components/Shared/AccessDenied.razor`), not admitted as a Viewer. Silently granting the lesser role would leave someone who is supposed to be an Operator quietly unable to work, with nothing on screen to explain it.
+
+---
+
 ## 6. Confirmation Dialogs
 
 Destructive or broad-fanout actions use `DialogService.ShowMessageBox(...)`, and the message always names the concrete blast radius rather than asking a generic "are you sure?":

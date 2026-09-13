@@ -266,3 +266,42 @@ There is no longer an explicit-versus-selector branch — targeting is tags only
 The confirmation exists because the blast radius is not visible from the button. A rule reading `env=prod` may look like one application in the UI while governing forty agents, and `DesiredState` is declarative — flipping it to `Stopped` stops the application *everywhere the selector reaches*, including on agents that begin matching later. Naming the current matches makes the immediate effect concrete; the "and future" caveat is what stops that list being mistaken for the complete one.
 
 > **Not gated on liveness, deliberately.** Unlike the per-service commands in §11, this only writes `DesiredState` to the control plane's database. That is a real, always-effective action whether or not any matching agent is currently reachable — an offline agent picks it up when it reconnects.
+
+---
+
+## 13. Authorization — `EndpointPolicies` and `EndpointPolicyHandler`
+
+*Added 2026-09-13. Built 2026-09-11; the LLD had no section on it, which for the one algorithm that decides who may do what is the worst place to have a gap.*
+
+Authorization is a **table lookup with a fail-closed default**, not an attribute per endpoint. `EndpointPolicies.Table` is keyed by `(HTTP method, route template as written)` and returns one of six policies:
+
+| Policy | Satisfied by |
+|---|---|
+| `Anonymous` | anyone. Only `GET /health`. |
+| `JoinToken` | a live join token. Only `POST /api/agents/enroll`. |
+| `Agent` | an agent credential **whose name equals the agent named in the route**. |
+| `AgentOrViewer` | any agent credential or any management key. Package download, which both need. |
+| `Viewer` | any management key, either role. Every read. |
+| `Operator` | a management key carrying the `Operator` role. Every write. |
+
+### 13.1 The default is refusal
+
+`EndpointPolicies.For` returns `null` for a route that is not in the table, and every path the handler cannot decide — no `HttpContext`, no `RouteEndpoint`, no route template, no table entry — returns **without calling `context.Succeed`**. Not succeeding *is* the refusal: ASP.NET Core's authorization middleware then answers 401 to a caller with no credential and 403 to one with the wrong kind or role.
+
+That is the load-bearing design decision in this whole area. Adding a route and forgetting to authorize it produces a 403 that someone notices immediately, not a public API that nobody notices at all. The cost is that the table must be edited whenever a route is added, which is the intended friction: it is one screen, and reviewing it answers "who can do what" completely.
+
+### 13.2 The agent name binding
+
+`EndpointPolicy.Agent` is the only policy that inspects the request beyond its route template. It reads `agentName` (or `name`) from the route values and compares it to the `agent` claim on the credential, **case-insensitively, because that is how the database compares agent names**. An agent credential is therefore not a fleet-wide pass: `DEV-AGENT-02`'s credential cannot fetch `DEV-AGENT-07`'s policies, reports or logs.
+
+A mismatch here is a 403 rather than a 404, deliberately. Hiding the existence of another agent from a holder of a valid agent credential buys nothing — every agent already sees other agents' names in ordinary operation — and a 404 would send whoever is debugging it looking for a registration problem that does not exist.
+
+### 13.3 The hub is decided separately
+
+SignalR's negotiate and connection endpoints are matched by path prefix (`EndpointPolicies.IsHub`) rather than by table entry, because their route templates are the framework's, not this application's. Any agent credential may connect. **Which group a connection may join is checked inside the hub**, not here: group membership is a per-connection call (`JoinAgentGroup`), not a route, so it is outside what a route table can express at all.
+
+### 13.4 What is audited, and what is not
+
+`AuditMiddleware` reuses this same table to decide what to record — one structured line per administrative **write**, naming method, path, outcome and who. It skips reads (`GET`/`HEAD`/`OPTIONS`), the hub, and anything whose policy is `Agent` — an agent acting as itself is telemetry arriving every few seconds from every agent, and auditing it would bury every line worth reading. Enrollment is audited: it is the one thing a join token does.
+
+A write that **throws** is audited too, from a `catch` that re-throws. It is the line most worth having and, until 2026-09-12, the only one that produced nothing at all — the exception unwound straight past the logging call. No status code is reported on that path, deliberately: the exception handler upstream has not run yet, so `Response.StatusCode` is still whatever it was before the failure, usually 200, which would be a lie in an audit trail.

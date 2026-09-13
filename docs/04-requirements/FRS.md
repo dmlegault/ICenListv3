@@ -9,7 +9,8 @@
 
 - **Operator** — uses Enlist.Portal in a browser.
 - **Deployer** — runs `enlist-deploy` (interactively or from a script/CI job).
-- **Agent** — the automated actor running on every managed machine; several functions below describe the agent's own behavior, not a human's.
+- **Viewer** — uses the portal too, and may change nothing. Every write control is hidden from them rather than disabled (FA-14).
+- **Agent** — the automated actor running on every managed host; several functions below describe the agent’s own behavior, not a human’s.
 
 ---
 
@@ -143,12 +144,12 @@ Those three flags are the CLI's **entire** surface. It uploads a package and not
 ### FA-8: Manage Packages
 
 **Actor:** Operator / Deployer
-**Entry point:** Packages page (`/packages`) and `enlist-deploy`/`POST /api/packages`.
+**Entry point:** an application’s Packages screen (`/applications/{name}/packages`) and `enlist-deploy`/`POST /api/packages`. There is no site-wide packages page: a package belongs to an application, and the portal only ever shows one application’s.
 
 **Flow:**
 
 - **Upload:** see FA-1, step 2.
-- **List:** the Packages page shows every stored digest, size, upload time, owning application name (if known), and version number.
+- **List:** the application’s Packages screen shows that application’s stored digests with size, upload time and version number.
 - **Delete:** blocked with `409 Conflict` if any assignment (Running or Stopped) still references the digest — a Stopped assignment still means "this is what would run if flipped back on," so it still counts as a reference. The portal disables the delete button under the same condition the API enforces.
 - **Automatic retention:** independent of manual delete, `PackageRetentionSweepService` marks a package `UnreferencedSinceUtc` the first sweep that finds no assignment pointing at it, and only physically deletes it once that mark has stood for the configured retention period (default 30 days) — so a digest superseded minutes ago remains available for a quick rollback.
 
@@ -223,3 +224,61 @@ Those three flags are the CLI's **entire** surface. It uploads a package and not
 **Distinct from disabling a rule (FA-4):** disabling a rule stops one application *everywhere its selector reaches*; excluding an agent stops *everything* on one host and leaves every rule untouched. The first is about an application, the second about a machine — draining a box for maintenance, most often.
 
 **Precondition:** the agent must already be registered — `404` otherwise. Unlike the tags endpoint, this one does not create the row, since excluding an agent that has never existed has no meaning.
+
+---
+
+### FA-14: Sign In to the Portal
+
+*Added 2026-09-13. Built 2026-09-11; the FRS simply never gained an area for it.*
+
+**Actor:** Operator or Viewer
+**Entry point:** opening any portal page.
+
+**Flow:**
+
+1. The portal authenticates with Windows (Negotiate). There is no login form and no password to type: the browser and the host negotiate the identity the person is already signed in as.
+2. Their Windows group membership decides their role. One configured group maps to `Operator`, another to `Viewer`.
+3. A person in neither group is refused with an explanation, not quietly given the lesser role. Being unable to do anything and not knowing why is the failure this avoids.
+4. The app bar names who the portal thinks they are and at what role, on every page. An operator who has been demoted, or who is signed in as the wrong account, should not have to deduce it from a disabled button.
+
+**A `Viewer` sees everything and changes nothing.** Every control that would write is HIDDEN from them (`<AuthorizeView Policy="Operator">`), not disabled. That is the opposite of the stale-agent gating in FA-5, and the difference is deliberate: a Start button greyed out on a stale agent will work again in a minute, so it is worth showing and explaining, while a Delete button a Viewer will never be allowed to press is permanent clutter. Transient unavailability is disabled with a tooltip; permanent unavailability is absent.
+
+**The portal talks to the control plane with its own key**, not with the person's identity — the control plane speaks bearer tokens, not Windows. The key is minted with `Enlist.ControlPlane create-api-key --name portal --role Operator` and given to the portal as `ControlPlane:ApiKey`, protected with `Enlist.Portal.exe protect`. The person's identity travels alongside it in `X-Enlist-Operator`, for the audit line only — see FA-16.
+
+---
+
+### FA-15: Enroll an Agent, and Revoke It
+
+*Added 2026-09-13. Built 2026-09-11.*
+
+**Actor:** Operator
+**Entry point:** the Enroll button on the Agents page, and the Access page.
+
+**Flow:**
+
+1. The operator mints a join token. It is shown **once**, in the enrollment dialog, alongside the exact `enlist-agent` command line that consumes it. Only a SHA-256 hash is stored, so there is nowhere to go and look it up later.
+2. The agent is started with `--join-token`. It calls `POST /api/agents/enroll`, which spends the token and returns that agent's own credential.
+3. The agent stores the credential encrypted under the machine's own key (DPAPI, machine scope) and presents it on every subsequent call, the SignalR hub connection included. `--join-token` is needed once, not on every start.
+4. A join token is spendable exactly once, and is charged only after the enrollment is otherwise known to be valid — so a conflicting enrollment does not silently burn it, and two agents racing on the same token cannot both win.
+5. The Agents page shows each agent's credential state: holds a live credential, was revoked, or never enrolled — which under authentication `Off` is every agent.
+
+**Revoking takes effect on the agent's next call**, with nothing to restart. A revoked agent keeps running what it already started and stops being able to fetch, report or connect; it says so once in its own log, with the remedy, rather than once per refused call.
+
+---
+
+### FA-16: Manage API Keys, and Read the Audit Trail
+
+*Added 2026-09-13. Built 2026-09-11.*
+
+**Actor:** Operator (a Viewer may do none of it)
+**Entry point:** the Access page.
+
+**Flow:**
+
+1. An operator creates a key with a name and one role, `Operator` or `Viewer`. The key is displayed once and stored as a hash.
+2. The list shows each key's name, role, creation time and who created it — never the key.
+3. Revoking a key takes effect on its next use.
+
+**The audit trail in v1 is the log**, not a table ([`Authentication-Design.md` §6.3](../03-architecture/Authentication-Design.md)). Every administrative write produces one line naming the method, the path, the outcome and who — including a write that **throws**, which is the one most worth having. Reads are not audited, and neither is an agent's own telemetry: status reports, log batches and capability reports arrive every few seconds from every agent and would bury everything else. Enrollment **is** audited, being the one thing a join token does.
+
+**A key's own name identifies it in the audit line.** Where the portal is the caller, the line names both: the portal's key and, from `X-Enlist-Operator`, the person whose action it was. That header is a courtesy, never an authorization input, and is stripped of control characters and length-capped before it can reach a log line or a `CreatedBy` column.

@@ -68,7 +68,7 @@ This is slow, error-prone (a missed machine, a stale copy), and has no record of
 - An application can be placed on N machines by a single tag-selector rule, off one `enlist-deploy` upload, with zero manual file copying.
 - The portal reflects a machine's real running state (per-service, per-job) within one polling interval (a few seconds) of a change taking effect on that machine.
 - A machine whose agent goes offline is visibly distinguished ("Offline"/"Stale") from one that is online but has nothing new to report, within the 5-minute staleness threshold the portal applies.
-- Deleting a package or a machine that is still in active use is rejected by the API, not silently allowed.
+- Deleting a package that is still in active use is rejected by the API, not silently allowed. Deleting an AGENT is not blocked, deliberately: an agent row is a record of a machine that reported in, and the machine it describes may already be gone — refusing to remove it would leave no way to tidy up after a decommission. The policy rules that targeted it are untouched and simply stop matching.
 - No enList component requires an inbound network rule on a managed machine.
 
 ## 7. Constraints and Assumptions
