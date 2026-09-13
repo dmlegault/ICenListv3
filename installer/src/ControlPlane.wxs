@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Enlist.ControlPlane.msi.
+
+  Lays down the published control plane, creates its data root, and installs the service. It does NOT
+  run migrations, create a database, or call anything over HTTP: those are bootstrapper work
+  (Installer-UI-Design.md section 2, "the MSIs stay dumb").
+
+  On the connection string. Windows authentication is the default and has no secret in it, so the MSI
+  can put it on the service command line and a Windows-auth install works from this package alone.
+  A SQL LOGIN is different: section 8 says it belongs in an ACL-restricted appsettings.json, and a
+  password on a service's binPath is readable by any local user out of the process list. So when
+  DB_AUTH is anything but Windows this package writes no connection string at all and leaves it to
+  the bootstrapper - a service that will not start is a better outcome than a leaked password.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <?include Common.wxi ?>
+
+  <Package
+    Name="enList Control Plane"
+    Manufacturer="$(Manufacturer)"
+    Version="$(ProductVersion)"
+    UpgradeCode="89D6E349-C819-40F9-BBB3-DC968710AC35"
+    Scope="perMachine"
+    Compressed="yes">
+
+    <MajorUpgrade
+      Schedule="afterInstallExecute"
+      DowngradeErrorMessage="A newer version of the enList Control Plane is already installed. Uninstall it first if you mean to go back." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="CP_INSTALLDIR" Secure="yes" />
+    <Property Id="CP_DATADIR" Secure="yes" />
+
+    <!--
+      https, not http, and that is not a default anyone should quietly change: authentication is
+      Required unless configured otherwise, and Required refuses plain HTTP anywhere but loopback. An
+      http listen value here produces a service that installs and then never starts, which section 8
+      calls out and the 2026-09-13 TLS rehearsal confirmed.
+    -->
+    <Property Id="CP_URLS" Secure="yes" Value="https://+:5293" />
+
+    <!-- Network Service: enough to listen and to reach SQL Server with Windows auth, and nothing more. -->
+    <Property Id="CP_ACCOUNT" Secure="yes" Value="NT AUTHORITY\NetworkService" />
+    <Property Id="CP_PASSWORD" Secure="yes" Hidden="yes" />
+
+    <Property Id="DB_SERVER" Secure="yes" Value="(localdb)\MSSQLLocalDB" />
+    <Property Id="DB_NAME" Secure="yes" Value="EnlistControlPlane" />
+    <Property Id="DB_AUTH" Secure="yes" Value="Windows" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="ENLISTROOT" Name="enList">
+        <Directory Id="INSTALLFOLDER" Name="ControlPlane" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="DATAROOT" Name="enList">
+        <Directory Id="CPDATA" Name="ControlPlane">
+          <Directory Id="CPBLOBS" Name="PackageBlobs" />
+          <Directory Id="CPLOGS" Name="Logs" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <SetProperty Id="CP_DATADIR" Sequence="both" Before="CostInitialize"
+                 Condition="NOT CP_DATADIR" Value="[CommonAppDataFolder]enList\ControlPlane" />
+
+    <SetDirectory Id="INSTALLFOLDER" Value="[CP_INSTALLDIR]" Condition="CP_INSTALLDIR" Sequence="both" />
+    <SetDirectory Id="CPDATA" Value="[CP_DATADIR]" Condition="CP_DATADIR" Sequence="both" />
+
+    <!--
+      After CostFinalize so the directory properties have resolved. The blob root is passed rather
+      than left to default, because a service's working directory is System32 and a relative default
+      would put package blobs there.
+    -->
+    <SetProperty Id="CP_SERVICE_ARGS" Action="SetCpArgs" Sequence="execute" After="CostFinalize"
+                 Value="--urls &quot;[CP_URLS]&quot; --PackageStorage:Root=&quot;[CPBLOBS]\&quot;" />
+
+    <SetProperty Id="CP_SERVICE_ARGS" Action="SetCpArgsWindowsAuth" Sequence="execute" After="SetCpArgs"
+                 Condition="DB_AUTH = &quot;Windows&quot;"
+                 Value="[CP_SERVICE_ARGS] --ConnectionStrings:ControlPlane=&quot;Server=[DB_SERVER];Database=[DB_NAME];Trusted_Connection=True;TrustServerCertificate=True;&quot;" />
+
+    <Feature Id="Main" Title="enList Control Plane" Level="1">
+      <ComponentGroupRef Id="ControlPlaneFiles" />
+      <ComponentRef Id="ControlPlaneService" />
+      <ComponentRef Id="ControlPlaneDataFolder" />
+    </Feature>
+
+    <ComponentGroup Id="ControlPlaneFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(ControlPlaneStaging)\**" />
+    </ComponentGroup>
+
+    <Component Id="ControlPlaneService" Directory="INSTALLFOLDER" Guid="5F2C81A7-9D34-4B60-B1E8-3A7C06D5E249">
+      <File Id="ControlPlaneExe" Source="$(ControlPlanePublish)\Enlist.ControlPlane.exe" KeyPath="yes" />
+
+      <ServiceInstall
+        Id="ControlPlaneServiceInstall"
+        Name="$(ControlPlaneServiceName)"
+        DisplayName="enList Control Plane"
+        Description="Holds the policy rules, packages and agent registry, and pushes changes to agents."
+        Type="ownProcess"
+        Start="auto"
+        ErrorControl="normal"
+        Account="[CP_ACCOUNT]"
+        Password="[CP_PASSWORD]"
+        Arguments="[CP_SERVICE_ARGS]"
+        Vital="yes">
+        <util:ServiceConfig
+          FirstFailureActionType="restart"
+          SecondFailureActionType="restart"
+          ThirdFailureActionType="none"
+          RestartServiceDelayInSeconds="60"
+          ResetPeriodInDays="1" />
+      </ServiceInstall>
+
+      <!--
+        Created stopped. The schema may not be applied yet at this point - the bundle runs migrations
+        as a separate step - and the control plane deliberately refuses to start against a missing or
+        stale schema (Deployment-IaC section 1.4). Starting it here would turn that clear refusal into
+        a restart loop in the Event Log.
+      -->
+      <ServiceControl
+        Id="ControlPlaneServiceControl"
+        Name="$(ControlPlaneServiceName)"
+        Stop="both"
+        Remove="uninstall"
+        Wait="yes" />
+    </Component>
+
+    <!--
+      Package blobs are content-addressed and expensive to replace; they survive upgrade and uninstall
+      alike. The service account needs write access here, which is granted rather than inherited: the
+      ProgramData default gives Users write on new subdirectories, and the blob store should not be
+      one of them.
+    -->
+    <Component Id="ControlPlaneDataFolder" Directory="CPDATA" Guid="B3D7E1F5-2A94-4C68-9E07-5D8B6F2A1C43" NeverOverwrite="yes" Permanent="yes">
+      <CreateFolder Directory="CPBLOBS">
+        <util:PermissionEx User="[CP_ACCOUNT]" GenericAll="yes" />
+      </CreateFolder>
+      <CreateFolder Directory="CPLOGS">
+        <util:PermissionEx User="[CP_ACCOUNT]" GenericAll="yes" />
+      </CreateFolder>
+      <RegistryValue Root="HKLM" Key="SOFTWARE\enList\ControlPlane" Name="DataDirectory" Type="string" Value="[CPDATA]" KeyPath="yes" />
+    </Component>
+
+  </Package>
+</Wix>

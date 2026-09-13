@@ -79,6 +79,17 @@ PackageBlobs/
 # (tests/Enlist.TestPlugins.Misbehaving).
 /.testplugins/
 
+# Installer build artefacts. The WiX source, the build script and the pinned toolchain
+# are tracked; everything the build produces is not. publish/ and staging/ are a
+# copy of the compiled product, and out/ holds the MSIs themselves.
+/installer/publish/
+/installer/staging/
+/installer/out/
+
+# Restored WiX extensions, the same idea as a NuGet package cache. build.ps1 restores
+# them, and .config/dotnet-tools.json pins which version.
+/installer/.wix/
+
 # --- OS cruft ----------------------------------------------------------------
 Thumbs.db
 ehthumbs.db

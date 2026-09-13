@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What every enList MSI shares.
+
+  The three packages are deliberately separate products with their own UpgradeCodes, because
+  "agent only" is the common install and it has to be independently installable, upgradable and
+  removable without a control plane anywhere near it (Installer-UI-Design.md section 2). They share
+  only this: a manufacturer, a version, and the two directory roots.
+
+  Binaries under Program Files, everything that changes under ProgramData, per component - so an
+  upgrade replaces the former and must never touch the latter (section 9).
+-->
+<Include xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <?define Manufacturer = "enList" ?>
+
+  <!--
+    Passed in by build.ps1 from Directory.Build.props, never typed here. One product version, one
+    place, is the same rule Directory.Build.props exists to enforce for the assemblies.
+  -->
+  <?ifndef ProductVersion ?>
+    <?error ProductVersion must be defined: pass -d ProductVersion=x.y.z to wix build. ?>
+  <?endif ?>
+
+  <!--
+    Windows service names, fixed. The Runbook, Deployment-IaC and every sc.exe example name these
+    exactly, so they are not configurable: a service someone cannot find by the documented name is
+    worse than one installed somewhere unexpected.
+  -->
+  <?define ControlPlaneServiceName = "enlist-controlplane" ?>
+  <?define PortalServiceName = "enlist-portal" ?>
+  <?define AgentServiceName = "enlist-agent" ?>
+
+</Include>

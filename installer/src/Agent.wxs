@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Enlist.Agent.msi - the fleet-wide one.
+
+  This is the MSI that gets installed hundreds of times and upgraded on every release, so it is the
+  one whose upgrade has to be boring: stop, replace, start. The package cache and staged runners live
+  under ProgramData and are never touched (Installer-UI-Design.md sections 9 and 11).
+
+  WHAT THIS MSI DOES NOT DO, and deliberately: it does not enroll the agent, call the control plane,
+  or write a join token anywhere. A join token in the service's binPath would be readable by any
+  local user out of the process list, which section 8 calls out by name. Enrollment happens in the
+  bootstrapper, BEFORE the service is created, and the agent then holds a DPAPI credential of its
+  own. Everything this MSI puts in binPath is non-secret by construction: a URL, a name, paths.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <?include Common.wxi ?>
+
+  <Package
+    Name="enList Agent"
+    Manufacturer="$(Manufacturer)"
+    Version="$(ProductVersion)"
+    UpgradeCode="17EB03A7-5BD5-427C-8DB5-F8DE0C13CEEB"
+    Scope="perMachine"
+    Compressed="yes">
+
+    <!--
+      Stop the service, replace, start again - and afterwards, so a failed new version does not leave
+      the machine with nothing running. Downgrades are refused rather than half-applied.
+    -->
+    <MajorUpgrade
+      Schedule="afterInstallExecute"
+      DowngradeErrorMessage="A newer version of enList Agent is already installed. Uninstall it first if you mean to go back." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!--
+      Secure="yes" on every public property is what makes silent install work at all: without it a
+      value passed on the command line is dropped when the install elevates, and the service would be
+      created with the defaults while the log cheerfully showed the value being set.
+
+      Defaults that reference another property cannot be written here (a Property value is a string
+      literal, not a formatted one); they are set below, where they can be.
+    -->
+    <Property Id="AGENT_INSTALLDIR" Secure="yes" />
+    <Property Id="AGENT_DATADIR" Secure="yes" />
+    <Property Id="AGENT_NAME" Secure="yes" />
+    <Property Id="AGENT_CPURL" Secure="yes" />
+    <Property Id="AGENT_ENGINE" Secure="yes" />
+    <Property Id="AGENT_IMAGE" Secure="yes" Value="enlist/runner:$(ProductVersion)" />
+
+    <!--
+      Local System is the default for the reason section 6.7 gives: the agent starts child runners,
+      puts them in a Job Object, and drives wslc or docker. An ordinary account can do none of that
+      without being granted each piece separately.
+    -->
+    <Property Id="AGENT_ACCOUNT" Secure="yes" Value="LocalSystem" />
+    <Property Id="AGENT_PASSWORD" Secure="yes" Hidden="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="ENLISTROOT" Name="enList">
+        <Directory Id="INSTALLFOLDER" Name="Agent">
+          <Directory Id="RUNNERDIR" Name="runner" />
+          <Directory Id="RUNNERLEGACYDIR" Name="runner-legacy" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="DATAROOT" Name="enList">
+        <Directory Id="AGENTDATA" Name="Agent" />
+      </Directory>
+    </StandardDirectory>
+
+    <!--
+      Defaults first, then the directories that depend on them, then the command line that depends on
+      the directories. The sequencing is explicit rather than left to WiX's default scheduling,
+      because getting it wrong produces a service whose binPath contains a literal bracket expression
+      instead of a path, and that fails at first start with nothing pointing at the cause.
+    -->
+    <SetProperty Id="AGENT_DATADIR" Sequence="both" Before="CostInitialize"
+                 Condition="NOT AGENT_DATADIR" Value="[CommonAppDataFolder]enList\Agent" />
+    <SetProperty Id="AGENT_NAME" Sequence="both" Before="CostInitialize"
+                 Condition="NOT AGENT_NAME" Value="[ComputerName]" />
+
+    <SetDirectory Id="INSTALLFOLDER" Value="[AGENT_INSTALLDIR]" Condition="AGENT_INSTALLDIR" Sequence="both" />
+    <SetDirectory Id="AGENTDATA" Value="[AGENT_DATADIR]" Condition="AGENT_DATADIR" Sequence="both" />
+
+    <!--
+      After CostFinalize, not before: the directory properties this reads have no final value until
+      costing has resolved them. Two actions rather than one so an absent engine means the flags are
+      OMITTED - an empty container engine is not the same as none, and the agent reads a missing one
+      as process isolation only.
+
+      THE DOUBLED BACKSLASH before each closing quote is not a typo and must not be tidied away. An
+      MSI directory property always ends in a backslash, so a naively quoted [RUNNERDIR] renders as
+      the runner-bin flag followed by "C:\Program Files\enList\Agent\runner\" - and Windows
+      command-line parsing reads that final backslash-quote as an ESCAPED QUOTE. The argument becomes
+      C:\Program Files\enList\Agent\runner" and everything after it is mis-parsed: the agent would
+      start with a garbled runner path and fail at first use, for a reason nothing in its own logs
+      could explain. Doubling it makes the backslash literal and closes the quote, which is what was
+      meant. Found on 2026-09-13 by evaluating the computed binPath before ever installing.
+    -->
+    <SetProperty Id="AGENT_SERVICE_ARGS" Action="SetAgentArgs" Sequence="execute" After="CostFinalize"
+                 Value="--control-plane &quot;[AGENT_CPURL]&quot; --agent &quot;[AGENT_NAME]&quot; --runner-bin &quot;[RUNNERDIR]\&quot; --legacy-runner-bin &quot;[RUNNERLEGACYDIR]\&quot; --data &quot;[AGENTDATA]\&quot;" />
+
+    <SetProperty Id="AGENT_SERVICE_ARGS" Action="SetAgentArgsEngine" Sequence="execute" After="SetAgentArgs"
+                 Condition="AGENT_ENGINE"
+                 Value="[AGENT_SERVICE_ARGS] --container-engine &quot;[AGENT_ENGINE]&quot; --container-image &quot;[AGENT_IMAGE]&quot;" />
+
+    <Feature Id="Main" Title="enList Agent" Level="1">
+      <ComponentGroupRef Id="AgentFiles" />
+      <ComponentGroupRef Id="RunnerFiles" />
+      <ComponentGroupRef Id="RunnerLegacyFiles" />
+      <ComponentRef Id="AgentService" />
+      <ComponentRef Id="AgentDataFolder" />
+    </Feature>
+
+    <!--
+      Harvested from a STAGED copy, which build.ps1 makes by publishing and then removing the one
+      executable the service points at. WiX 5's Files element has no exclude, and that executable has
+      to be declared by hand below: MSI derives a service's binary path from the KEY PATH of the
+      component the ServiceInstall sits in, so it cannot live in an auto-generated component.
+    -->
+    <ComponentGroup Id="AgentFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(AgentStaging)\**" />
+    </ComponentGroup>
+
+    <ComponentGroup Id="RunnerFiles" Directory="RUNNERDIR">
+      <Files Include="$(RunnerPublish)\**" />
+    </ComponentGroup>
+
+    <!--
+      The net472 runner, in its own directory. Two runner builds cannot share one: both produce an
+      executable called enlist-runner.exe, and which flavor an agent gets is decided entirely by
+      WHICH directory it is pointed at (see Enlist.Runner.Legacy.csproj on why the names match).
+    -->
+    <ComponentGroup Id="RunnerLegacyFiles" Directory="RUNNERLEGACYDIR">
+      <Files Include="$(RunnerLegacyPublish)\**" />
+    </ComponentGroup>
+
+    <Component Id="AgentService" Directory="INSTALLFOLDER" Guid="A1B4F2C6-0E8D-4C71-9A3E-7D5B2F81C094">
+      <File Id="AgentExe" Source="$(AgentPublish)\enlist-agent.exe" KeyPath="yes" />
+
+      <ServiceInstall
+        Id="AgentServiceInstall"
+        Name="$(AgentServiceName)"
+        DisplayName="enList Agent"
+        Description="Reconciles this machine against the applications enList says should run on it, and supervises them."
+        Type="ownProcess"
+        Start="auto"
+        ErrorControl="normal"
+        Account="[AGENT_ACCOUNT]"
+        Password="[AGENT_PASSWORD]"
+        Arguments="[AGENT_SERVICE_ARGS]"
+        Vital="yes">
+
+        <!--
+          Restart on failure rather than leaving the machine unmanaged. The agent's own supervision
+          only covers the applications it started; nothing else covers the agent.
+        -->
+        <util:ServiceConfig
+          FirstFailureActionType="restart"
+          SecondFailureActionType="restart"
+          ThirdFailureActionType="restart"
+          RestartServiceDelayInSeconds="60"
+          ResetPeriodInDays="1" />
+      </ServiceInstall>
+
+      <!--
+        Deliberately not Start="install". At the moment this MSI runs, the agent may have no
+        credential: enrolling it is the bootstrapper's job, on either side of this. A service that
+        starts here, fails to authenticate and enters a restart loop is exactly the first-run
+        experience the TLS rehearsal found and warned about.
+      -->
+      <ServiceControl
+        Id="AgentServiceControl"
+        Name="$(AgentServiceName)"
+        Stop="both"
+        Remove="uninstall"
+        Wait="yes" />
+    </Component>
+
+    <!--
+      The data root, created empty and left alone forever after. NeverOverwrite and Permanent are
+      what make "the package cache and staged runners survive an upgrade" true rather than hoped for.
+      The registry value is the component's key path, so the folder itself is never a target.
+    -->
+    <Component Id="AgentDataFolder" Directory="AGENTDATA" Guid="C7E9A1D3-4B62-4F08-8E5A-16C4D9B7F320" NeverOverwrite="yes" Permanent="yes">
+      <CreateFolder />
+      <RegistryValue Root="HKLM" Key="SOFTWARE\enList\Agent" Name="DataDirectory" Type="string" Value="[AGENTDATA]" KeyPath="yes" />
+    </Component>
+
+  </Package>
+</Wix>
