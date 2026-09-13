@@ -131,9 +131,13 @@ task policy (`[TaskPolicy(MaxExecutionSeconds = 10)]`), execution shape
 (`EnvironmentBehaviorAttribute`).
 
 **Relevance to enList:** metadata carries values a scan can read without constructing anything. This
-is precisely the limitation documented in enList's `ManifestEnricher` — `IAppService.Name` is an
-instance property, so a metadata-only scan cannot learn it, which is why the enrichment pipeline
-exists at all. An attribute-based contract deletes that whole problem.
+was precisely the limitation documented in enList **v2**'s `ManifestEnricher` — `IAppService.Name`
+was an instance property, so a metadata-only scan could not learn it, which is why that enrichment
+pipeline existed at all. An attribute-based contract deletes the whole problem, **which is what v3
+did**: the enrichment subsystem was deleted rather than ported (`enList-v3-Design.md`), and discovery
+now reads attributes by NAME through `CustomAttributeData` without loading or instantiating anything.
+Past tense throughout, deliberately — neither `ManifestEnricher` nor `IAppService` exists in this
+repository.
 
 ---
 
@@ -291,9 +295,13 @@ Directly transferable:
    idea worth taking. It does not require C++ for the core benefit — a managed launcher with zero
    package references, creating an AppDomain whose `ApplicationBase` is the plugin folder, gets most
    of the way. The native host is what adds the failure-policy layer on top.
-2. **Attributes instead of a shared contract interface.** Removes the shared assembly, and removes
+2. **Attributes instead of a shared contract interface.** ~~Removes the shared assembly, and removes
    the need for enList's whole enrichment pipeline, because names and schedules become readable from
-   metadata.
+   metadata.~~ **Already adopted — this is v3's contract**, matched by attribute NAME rather than
+   type identity, which is exactly what lets a net472 and a net10.0 application share one contract
+   with no shared binary at all (`contracts/EnlistAttributes.cs`). Listed here as an idea worth
+   taking when it had already been taken; kept struck through rather than deleted, because "we
+   arrived at this independently" is the useful signal in a comparison document.
 3. **A shared contract that must exist can be strong-named into the GAC** rather than copied into
    every plugin folder. Available on .NET Framework, and it is how Aware kept its shim out of the
    application's probing path.
@@ -301,8 +309,12 @@ Directly transferable:
    than holding cross-domain object references.
 5. **Role-based gating** (`ServerRole`) — deploy everything everywhere, let the machine's role decide
    what starts. Relevant if enList grows past one server.
-6. **Filterable runtime tracing as a service behaviour** — closer to what enList now does with
-   OpenTelemetry, but the "switch it on for a subset in production" framing is the useful part.
+6. **Filterable runtime tracing as a service behaviour** — nearer to what enList already does with
+   its own log pipeline (per-application files on each agent, forwarded to the control plane,
+   rendered in the portal, swept on a retention timer) than to anything it lacks. **enList uses no
+   OpenTelemetry**, which an earlier version of this line claimed: there is no such reference
+   anywhere in the repository. The transferable part is the "switch it on for a subset in
+   production" framing, not the mechanism.
 
 Not transferable:
 

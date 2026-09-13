@@ -1,7 +1,7 @@
 # `.demo/` — local runtime state of the demo fleet
 
 **[`demo/start-demo.ps1`](../demo/start-demo.ps1) creates everything here.** It launches the two
-demo agents and the control plane, and this tree is their on-disk state: each agent's own working
+demo agents, the control plane and the portal, and this tree is their on-disk state: each agent's own working
 set plus the captured console output of every process. It is generated, not authored — nothing here
 is a source artifact, it is all recreated from scratch on the next run, and the whole tree is safe
 to delete when the demo is stopped.
@@ -48,6 +48,11 @@ two agents at once. Inside each:
   - `agent-<date>.log` — the agent's operational log (reconciliation, crash/restart, orphan reaping).
   - `<Application>/<date>.log` — each application's captured stdout/stderr.
   - `status.json` — the last status snapshot the agent posted.
+- **`credential`** — the agent's own bearer credential, DPAPI-protected at machine scope and ACL'd.
+  Present only when the agent enrolled against a control plane running `Required`; the demo runs
+  with authentication off on loopback, so normally there is none. **It matters for Resetting below:**
+  deleting an agent's directory destroys a credential the control plane still considers live, and the
+  name cannot be enrolled again until that credential is revoked (`revoke-agent`, or the Agents tab).
 
   A new file is opened per day; **previous days' files are never reopened** and are pure disposable
   history. They were cleared on 2026-09-10; clear them again with, from the repo root:
@@ -63,6 +68,8 @@ Created by `start-demo.ps1`, which redirects each process it launches here:
 - `control-plane.log` / `control-plane.err.log` — the control plane on `:5293`. When a start fails,
   this is where the reason is (a pending migration is the usual one, since the demo runs as
   Production and verifies the schema rather than applying it).
+- `portal.log` / `portal.err.log` — the portal on `:5231`. `start-demo.ps1` points here by name when
+  the portal does not answer in time.
 - `agent-01.log`, `agent-02.log` and their `.err.log` siblings — each agent's console. Sparse:
   the agent's substantive logging goes to `agent-0X/Logs/` above, not here.
 

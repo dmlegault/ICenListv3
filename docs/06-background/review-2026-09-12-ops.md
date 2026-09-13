@@ -88,7 +88,7 @@ Verified correct: the per-project totals at :19,:42,:69,:93,:99 (72 + 72 + 50 + 
 
 wrong | Deployment-IaC.md:232-243 and :249-275 | §4.1 `EXPOSE 8080` + `ENTRYPOINT ["dotnet", "Enlist.ControlPlane.dll"]`, §4.2 `ports: ["5293:8080"]` / `ControlPlane__BaseUrl: "http://controlplane:8080"` | Neither example can start today. The aspnet:10.0 image defaults `ASPNETCORE_URLS` to `http://+:8080` — not loopback and not HTTPS — and neither example sets `Authentication:Mode`, which means `Required`: §1.8:200 says plain `http://` off loopback refuses to start, and `Off` would refuse too because `+` is not loopback (:199). The portal service in §4.2 hits the identical pair of rules and additionally has no `ControlPlane:ApiKey`, so it could only talk to a control plane running `Off`. Add TLS (or an explicit loopback-plus-reverse-proxy note) and a key to both examples, or mark §4 as predating §1.8.
 
-wrong | Deployment-IaC.md:281 | "gate on all **121 tests** passing (see [`Test-Plan.md`](Test-Plan.md))" | The suite is 232 (Test-Plan.md:5). 121 is two rewrites old.
+wrong | Deployment-IaC.md:281 | "gate on all **121 tests** passing (see `Test-Plan.md`)" | The suite is 232 (Test-Plan.md:5). 121 is two rewrites old.
 
 stale | Deployment-IaC.md:176 | "A working container engine \| **Docker today.** The agent probes it (`docker version` against the **server**) on every heartbeat" | wslc is a shipped second engine, not a future one: `--container-engine docker|wslc` (src/Enlist.Agent/Program.cs:97,114-118), its own `WslContainerEngine` and `WslContainerEngineTests`, and it is what the demo defaults to (demo/start-demo.ps1:36). §1.3:47 in this very file already lists both. Say "Docker or wslc", and give the `wslc build` line beside :181's `docker build`.
 
@@ -120,7 +120,7 @@ wrong | Demo-Install-Design.md:30 | "The control plane's built-in default connec
 
 contradiction | Demo-Install-Design.md:108 vs demo/start-demo.ps1:121 | "Wait for `GET /health` → **200** — the endpoint added on 2026-09-11 for exactly this kind of caller" | The script the document calls its own specification (:188 "when the launcher and a script disagree, one of them has a bug") polls `GET /api/agents` instead, which is Viewer-policed and would answer 401 under `Required`. `/health` is the right probe; fix the script, and the two stop disagreeing.
 
-contradiction | Demo-Install-Design.md:172 vs Test-Plan.md:166,174 | "Ten minutes, and **every claim in it is backed by a test** in [`Test-Plan.md`](Test-Plan.md)" | Step 4 of the walkthrough (:165) is imperative Start/Stop of a service and a job, which Test-Plan lists twice as NOT automated ("Imperative Control (§3.6) \| Not currently covered by an automated test", and §5's second gap). Either soften the sentence or close the gap.
+contradiction | Demo-Install-Design.md:172 vs Test-Plan.md:166,174 | "Ten minutes, and **every claim in it is backed by a test** in `Test-Plan.md`" | Step 4 of the walkthrough (:165) is imperative Start/Stop of a service and a job, which Test-Plan lists twice as NOT automated ("Imperative Control (§3.6) \| Not currently covered by an automated test", and §5's second gap). Either soften the sentence or close the gap.
 
 contradiction | Demo-Install-Design.md:44 | "at **1.8 GB** it would triple the installer" | demo/sql-server/demo-db.ps1:299 tells the operator the same image is "about 1.5 GB". One of the two numbers is wrong; they are describing the same pull.
 

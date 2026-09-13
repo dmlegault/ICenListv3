@@ -27,8 +27,8 @@ A presenter, or a prospect evaluating on their own, brings up a **complete, live
 The observation underneath this: **a demo does not need services.** Today's demo already runs the whole fleet as user-session processes (`start-demo.ps1`), and that is exactly the right shape for a demo laptop:
 
 - **Double-click to start, close to stop, nothing left running.** No service accounts, no *Log on as a service*, nothing to clean up when the laptop goes back to being a laptop.
-- **No database administration.** The control plane's built-in default connection string is SQL Server Express **LocalDB** ([`Program.cs:40`](../../src/Enlist.ControlPlane/Program.cs)), and in the *Development* environment it creates the database and schema itself on first start (§1.4 of [`Deployment-IaC.md`](Deployment-IaC.md), the auto-migrate branch). LocalDB is per-user and does not work well under a service account — which is a second reason the services model is wrong for a demo and the session model is right.
-- **Nothing exposed.** Everything binds to `localhost`. enList has no authentication (review finding C2); a demo laptop on conference Wi-Fi must not put the control plane on the network, and a session launcher makes that the default rather than a configuration step. Under the C2 design this is precisely the one case authentication may be off - loopback only, a hard rule ([Authentication-Design.md](../03-architecture/Authentication-Design.md) section 8).
+- **No database administration.** The control plane's built-in default connection string is SQL Server Express **LocalDB** ([`appsettings.Development.json`](../../src/Enlist.ControlPlane/appsettings.Development.json) - Development only since 2026-09-13; outside Development the process refuses to start without an explicit connection string rather than falling back), and in the *Development* environment it creates the database and schema itself on first start (§1.4 of [`Deployment-IaC.md`](Deployment-IaC.md), the auto-migrate branch). LocalDB is per-user and does not work well under a service account — which is a second reason the services model is wrong for a demo and the session model is right.
+- **Nothing exposed.** Everything binds to `localhost`. Authentication is **off**, which is permitted **only** because everything is on loopback - the hard rule of [Authentication-Design.md](../03-architecture/Authentication-Design.md) section 8, enforced at startup. A demo laptop on conference Wi-Fi must not put the control plane on the network, and a session launcher makes that the default rather than a configuration step. Under the C2 design this is precisely the one case authentication may be off - loopback only, a hard rule ([Authentication-Design.md](../03-architecture/Authentication-Design.md) section 8).
 - **Reset is a first-class action.** Drop the database, clear the blobs and the agents' data, re-seed — a known state every time, which a service-based install makes awkward.
 
 **Why the same bundle and not a separate installer:** the demo installs the same three published payloads (control plane, portal, agent with both runners) as a Server install, plus one extra package. Reusing the MSIs and the prerequisite chain means one artifact to build, sign and publish. A demo-only bundle is a flag away if distribution ever needs it (§9).
@@ -41,7 +41,7 @@ The observation underneath this: **a demo does not need services.** Today's demo
 
 | Component | How it runs | Detail |
 |---|---|---|
-| **Database** | SQL Server Express **LocalDB**, chained as a bundle prerequisite (~55 MB, silent) | The control plane's default; the database is created on first start. **Optional:** when `wslc` is present, the launcher can instead run the SQL Server container `demo/sql-server/demo-db.ps1` manages today — SSMS-visible, "looks like production" — with the image pulled on demand. It is not bundled: at 1.8 GB it would triple the installer for something most demos never open |
+| **Database** | SQL Server Express **LocalDB**, chained as a bundle prerequisite (~55 MB, silent) | The control plane's default; the database is created on first start. **Optional:** when `wslc` is present, the launcher can instead run the SQL Server container `demo/sql-server/demo-db.ps1` manages today — SSMS-visible, "looks like production" — with the image pulled on demand. It is not bundled: at about 1.5 GB it would triple the installer for something most demos never open |
 | **Control plane** | Session process, `http://localhost:5293`, *Development* environment | Development so it creates the schema itself. `PackageStorage:Root` under the demo data directory (§8) |
 | **Portal** | Session process, `http://localhost:5231`, *Development* environment | Opened automatically when the fleet is up. Development so static web assets serve from the published output the same way they do in the repo demo |
 | **DEV-AGENT-01** | Session process, tags `env=demo`, `dev=test9` | Process isolation for everything it runs |
@@ -140,7 +140,7 @@ One seed, two homes. That is also why the seed's policy topology is expressed as
 | Data (per user) | `%LocalAppData%\enList\Demo\{ControlPlane\PackageBlobs, Agent-01, Agent-02, Logs}` |
 | Guide | `%ProgramFiles%\enList\Demo\Guide\index.html`, on the Start Menu |
 
-**Ports:** `5293` and `5231`, bound to **`localhost` only**. This system has no authentication; on a demo laptop on someone else's network that is the whole security model. A single checkbox in the status window, *Allow other devices on this network to open the portal*, rebinds the portal to all interfaces for the length of that session — with the warning spelled out — for the case of showing the portal from a tablet rather than the projector.
+**Ports:** `5293` and `5231`, bound to **`localhost` only**. The demo runs with authentication off, and the control plane will not start that way on any other address - so the binding is not merely a policy here, it is what makes the demo legal.  A single checkbox in the status window, *Allow other devices on this network to open the portal*, rebinds the portal to all interfaces for the length of that session — with the warning spelled out — for the case of showing the portal from a tablet rather than the projector.
 
 ---
 
@@ -169,7 +169,7 @@ The storyline the guide page tells, in the order the portal supports it. Everyth
 8. **Exclusion.** On the Agents tab, toggle DEV-AGENT-02's scheduling off: everything it runs stops. Toggle it back: everything returns. *"Maintenance mode is one switch."*
 9. **Reset** *(terminal, or the launcher's button)*. Back to the seeded state for the next audience.
 
-Ten minutes, and every claim in it is backed by a test in [`Test-Plan.md`](Test-Plan.md).
+Ten minutes. Almost every claim in it is backed by a test in [`Test-Plan.md`](Test-Plan.md) - the exception is step 4, imperative Start/Stop, which Test-Plan lists twice as not automated. Either close that gap or drop the claim; it should not be both.
 
 ---
 
@@ -195,7 +195,7 @@ The scripts are the specification of the launcher's behaviour and stay the refer
 2. **LocalDB or the SQL Server container by default?** **LocalDB.** It is the control plane's own default, needs no image, and a demo rarely opens SSMS. The container stays available for the audience that does.
 3. **Launcher v1 as the existing scripts, or build the tray app first?** **Scripts first** — they are proven; the tray app is polish.
 4. **Bundle the runner image (203 MB)?** **Yes.** A demo that pulls from a registry is a demo that fails on hotel Wi-Fi.
-5. **Bind to `localhost` only?** **Yes**, with the per-session opt-in in §8. Not negotiable while C2 is open.
+5. **Bind to `localhost` only?** **Yes**, with the per-session opt-in in §8. Not negotiable, and no longer merely a preference: authentication-off is only honoured on loopback, so the opt-in has to turn authentication ON as well as rebinding - which is the part §8 still has to design.
 6. **Seed content.** The current four samples, as they are. A purpose-built "storyline" application (one that visibly does something an audience recognises) is worth writing later; it is content, not installer work.
 7. **Product version.** **Done (2026-09-11):** `3.0.0`, set once in `Directory.Build.props` at the repository root, so every assembly, `/health` and the demo guide agree.
 

@@ -24,7 +24,7 @@ configuration. No environment variable you export for a demo can reach a test ru
   The installer puts it at `C:\Program Files\WSL\wslc.exe` and does not always put it on PATH; the
   script looks there when it is not. This is the same engine the agent's `--container-engine wslc`
   option uses, so a machine set up for containerized applications already has everything.
-- ~1.8 GB of disk for the image, ~500 MB for the volume once the demo has data in it.
+- ~1.5 GB of disk for the image (the figure `demo-db.ps1` reports while pulling it), ~500 MB for the volume once the demo has data in it.
 - Nothing else. In particular, not Docker.
 
 ## First run
@@ -159,9 +159,9 @@ Windows ones before `wslc` sees them (`/opt/mssql-tools18/bin/sqlcmd` arrives as
 | `up` from nothing — volume create, image pull, container create, wait for login | Ready in ~30s |
 | Version parity with LocalDB | `17.0.4025.3` RTM, Enterprise Developer Edition — an exact match |
 | Port binding | `127.0.0.1:14330->1433/tcp` only; the named volume `enlist-demo-sql-data` mounted at `/var/opt/mssql` |
-| Control plane against it (Development, throwaway instance on :5299) | `MigrateAsync` created `EnlistControlPlane`, all five tables and `__EFMigrationsHistory` with the three migrations; `/api/agents` returned `[]` |
+| Control plane against it (Development, throwaway instance on :5299) | `MigrateAsync` created `EnlistControlPlane`, its tables and `__EFMigrationsHistory`; `/api/agents` returned `[]` |
 | LocalDB isolation | Unchanged throughout — the running demo on LocalDB never noticed |
-| `down` then `up` | `down` shut the server down from the inside in 1s (`Server shut down by request from login sa`, `Exited (255)`); the schema and all three migrations survived the cycle; `up` took the start-existing path and was ready in 5s |
+| `down` then `up` | `down` shut the server down from the inside in 1s (`Server shut down by request from login sa`, `Exited (255)`); the schema and its migration history survived the cycle; `up` took the start-existing path and was ready in 5s |
 | `status`, `connstring` | Correct |
 | `reset -Force` | **Not run.** The confirmation path was verified (it names the container, the volume and both blob directories), but the destructive branch was not executed, because doing so would have deleted real package blobs from this working tree |
 
