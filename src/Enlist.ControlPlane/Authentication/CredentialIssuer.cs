@@ -117,6 +117,11 @@ public static class CredentialIssuer
     /// <summary>False when no live key has that name.</summary>
     public static async Task<bool> RevokeApiKeyAsync(ControlPlaneDbContext db, string name, CancellationToken ct = default)
     {
+        // Trimmed, because CreateApiKeyAsync trims before storing. Without it, revoking " ci-main"
+        // reported "no live API key named..." for a key that plainly exists - the one operation where
+        // being told nothing happened, when something needed to, is worst.
+        name = name?.Trim() ?? "";
+
         var key = await db.ApiKeys.SingleOrDefaultAsync(k => k.Name == name && k.RevokedAtUtc == null, ct).ConfigureAwait(false);
         if (key is null)
         {
@@ -195,7 +200,17 @@ public static class CredentialIssuer
                 throw new CredentialRequestException($"Expiry must be like 24h, 7d or never, got '{text}'.");
             }
 
-            var amount = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+            // TryParse with a bound, not Parse. The regex accepts any run of digits, so "99999999999h"
+            // matched it and then overflowed int.Parse - and an overflow is not a
+            // CredentialRequestException, so it escaped as a 500 for input the API documents as a 400.
+            // A hundred years is past any honest expiry and short of every overflow below.
+            const int maxUnits = 876_000;
+            if (!int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var amount) || amount > maxUnits)
+            {
+                throw new CredentialRequestException(
+                    $"Expiry '{text}' is too far in the future - use something under {maxUnits} hours or days, or 'never'.");
+            }
+
             return now + (match.Groups[2].Value.Equals("h", StringComparison.OrdinalIgnoreCase) ? TimeSpan.FromHours(amount) : TimeSpan.FromDays(amount));
         }
     }

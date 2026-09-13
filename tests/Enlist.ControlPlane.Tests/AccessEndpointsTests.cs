@@ -133,6 +133,40 @@ public sealed class AccessEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Bad_input_to_the_credential_endpoints_is_a_400_not_a_500()
+    {
+        // Every one of these is a caller mistake, and the API documents 400 for all of them. An
+        // absurd expiry was the exception: the regex accepted any run of digits and int.Parse then
+        // OVERFLOWED, which is not the exception type the endpoint catches, so it escaped as a 500 -
+        // telling an operator their control plane is broken when in fact they typed a silly number.
+        var absurd = await SendAsync(HttpMethod.Post, "/api/api-keys", _operatorKey, new CreateApiKeyRequest("huge", "Viewer", "99999999999h"));
+        Assert.Equal(HttpStatusCode.BadRequest, absurd.StatusCode);
+        Assert.Contains("too far in the future", await absurd.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(HttpMethod.Post, "/api/api-keys", _operatorKey, new CreateApiKeyRequest("odd", "Viewer", "next tuesday"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(HttpMethod.Post, "/api/join-tokens", _operatorKey, new CreateJoinTokenRequest("99999999999d"))).StatusCode);
+
+        // A plausible long expiry still works - the bound is there to stop an overflow, not to have
+        // an opinion about how long a key may live.
+        Assert.Equal(HttpStatusCode.Created, (await SendAsync(HttpMethod.Post, "/api/api-keys", _operatorKey, new CreateApiKeyRequest("decade", "Viewer", "3650d"))).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_key_name_with_stray_spaces_revokes_the_key_it_names()
+    {
+        // Create trims the name before storing it; revoke did not trim before matching, so revoking
+        // " ci-main" reported no such live key for one that plainly exists. Of everything that can go
+        // wrong here, being told that nothing happened - when something needed to - is the worst.
+        Assert.Equal(HttpStatusCode.Created, (await SendAsync(HttpMethod.Post, "/api/api-keys", _operatorKey, new CreateApiKeyRequest("  spaced-out  ", "Viewer"))).StatusCode);
+
+        var revoked = await SendAsync(HttpMethod.Delete, "/api/api-keys/%20spaced-out%20", _operatorKey);
+        Assert.Equal(HttpStatusCode.NoContent, revoked.StatusCode);
+
+        var listed = (await (await SendAsync(HttpMethod.Get, "/api/api-keys", _operatorKey)).Content.ReadFromJsonAsync<List<ApiKeyDto>>())!;
+        Assert.Equal(CredentialStatuses.Revoked, Assert.Single(listed, k => k.Name == "spaced-out").Status);
+    }
+
+    [Fact]
     public async Task A_write_that_throws_is_audited_too_and_says_it_faulted()
     {
         // The line an administrative write leaves when it FAILS is the one most worth having, and

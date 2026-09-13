@@ -21,7 +21,9 @@ public static class AccessEndpoints
             try
             {
                 var (entity, key) = await CredentialIssuer.CreateApiKeyAsync(db, request.Name, request.Role, request.ExpiresIn, AuditIdentity.Describe(http), http.RequestAborted);
-                return Results.Created($"/api/api-keys/{Uri.EscapeDataString(entity.Name)}", new CreateApiKeyResponse(entity.Id, entity.Name, entity.Role, entity.ExpiresAtUtc, key));
+                // No Location: there is no GET for one key by name. See the policy-rule create for why an
+                // honest absence beats a header that points at 405.
+                return Results.Created((string?)null, new CreateApiKeyResponse(entity.Id, entity.Name, entity.Role, entity.ExpiresAtUtc, key));
             }
             catch (CredentialRequestException ex)
             {
@@ -29,22 +31,22 @@ public static class AccessEndpoints
             }
         });
 
-        app.MapGet("/api/api-keys", async (ControlPlaneDbContext db) =>
+        app.MapGet("/api/api-keys", async (HttpContext http, ControlPlaneDbContext db) =>
         {
             var now = DateTimeOffset.UtcNow;
-            var keys = await db.ApiKeys.OrderBy(k => k.Name).ThenByDescending(k => k.CreatedAtUtc).ToListAsync();
+            var keys = await db.ApiKeys.AsNoTracking().OrderBy(k => k.Name).ThenByDescending(k => k.CreatedAtUtc).ToListAsync(http.RequestAborted);
             return Results.Ok(keys.Select(k => CredentialIssuer.ToDto(k, now)));
         });
 
-        app.MapDelete("/api/api-keys/{name}", async (string name, ControlPlaneDbContext db) =>
-            await CredentialIssuer.RevokeApiKeyAsync(db, name) ? Results.NoContent() : Results.NotFound($"No live API key named '{name}'."));
+        app.MapDelete("/api/api-keys/{name}", async (string name, HttpContext http, ControlPlaneDbContext db) =>
+            await CredentialIssuer.RevokeApiKeyAsync(db, name, http.RequestAborted) ? Results.NoContent() : Results.NotFound($"No live API key named '{name}'."));
 
         app.MapPost("/api/join-tokens", async (CreateJoinTokenRequest request, HttpContext http, ControlPlaneDbContext db) =>
         {
             try
             {
                 var (entity, token) = await CredentialIssuer.CreateJoinTokenAsync(db, request.ExpiresIn, request.Uses, AuditIdentity.Describe(http), http.RequestAborted);
-                return Results.Created($"/api/join-tokens/{entity.Id}", new CreateJoinTokenResponse(entity.Id, entity.ExpiresAtUtc, entity.UsesRemaining, token));
+                return Results.Created((string?)null, new CreateJoinTokenResponse(entity.Id, entity.ExpiresAtUtc, entity.UsesRemaining, token));
             }
             catch (CredentialRequestException ex)
             {
@@ -52,20 +54,20 @@ public static class AccessEndpoints
             }
         });
 
-        app.MapGet("/api/join-tokens", async (ControlPlaneDbContext db) =>
+        app.MapGet("/api/join-tokens", async (HttpContext http, ControlPlaneDbContext db) =>
         {
             var now = DateTimeOffset.UtcNow;
-            var tokens = await db.JoinTokens.OrderByDescending(t => t.CreatedAtUtc).ToListAsync();
+            var tokens = await db.JoinTokens.AsNoTracking().OrderByDescending(t => t.CreatedAtUtc).ToListAsync(http.RequestAborted);
             return Results.Ok(tokens.Select(t => CredentialIssuer.ToDto(t, now)));
         });
 
-        app.MapDelete("/api/join-tokens/{id:guid}", async (Guid id, ControlPlaneDbContext db) =>
-            await CredentialIssuer.RevokeJoinTokenAsync(db, id) ? Results.NoContent() : Results.NotFound("No live join token with that id."));
+        app.MapDelete("/api/join-tokens/{id:guid}", async (Guid id, HttpContext http, ControlPlaneDbContext db) =>
+            await CredentialIssuer.RevokeJoinTokenAsync(db, id, http.RequestAborted) ? Results.NoContent() : Results.NotFound("No live join token with that id."));
 
         // The Agents tab's "Revoke credential": the agent keeps running what it runs, its next call is
         // refused, and the name is free to enroll again. DELETE /api/agents/{name} does this too, as
         // part of deregistering; this is the version that keeps the registry row.
-        app.MapDelete("/api/agents/{name}/credential", async (string name, ControlPlaneDbContext db) =>
-            await CredentialIssuer.RevokeAgentCredentialAsync(db, name) ? Results.NoContent() : Results.NotFound($"Agent '{name}' holds no live credential."));
+        app.MapDelete("/api/agents/{name}/credential", async (string name, HttpContext http, ControlPlaneDbContext db) =>
+            await CredentialIssuer.RevokeAgentCredentialAsync(db, name, http.RequestAborted) ? Results.NoContent() : Results.NotFound($"Agent '{name}' holds no live credential."));
     }
 }

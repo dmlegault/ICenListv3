@@ -39,6 +39,32 @@ public sealed class DeployCliTests : IAsyncLifetime
         }
     }
 
+    [Fact]
+    public async Task A_mistyped_option_is_refused_rather_than_ignored()
+    {
+        // The consequence was specific: `--api_key` was silently dropped, the upload went out with no
+        // credential at all, and the 401 that came back blamed a missing key rather than the
+        // underscore that caused it. The person is then looking at their key, which is fine, instead
+        // of at the flag, which is not.
+        var mistyped = await RunDeployAsync("--control-plane", "http://localhost:1", "--app", "X", "--source", ".", "--api_key", "enlk_whatever");
+
+        Assert.NotEqual(0, mistyped.ExitCode);
+        Assert.Contains("--api_key", mistyped.Output);
+        Assert.Contains("--api-key", mistyped.Output);
+    }
+
+    [Fact]
+    public async Task An_option_with_no_value_is_refused_rather_than_ignored()
+    {
+        // The loop stopped one short of the end, so a flag in the LAST position was never read: this
+        // used to fail as "--source is required" for a command line that plainly has one.
+        var truncated = await RunDeployAsync("--control-plane", "http://localhost:1", "--app", "X", "--source");
+
+        Assert.NotEqual(0, truncated.ExitCode);
+        Assert.Contains("--source", truncated.Output);
+        Assert.Contains("needs a value", truncated.Output);
+    }
+
     private static Task<(int ExitCode, string Output)> RunDeployAsync(params string[] args) => RunDeployAsync(null, args);
 
     private static async Task<(int ExitCode, string Output)> RunDeployAsync(IReadOnlyDictionary<string, string>? environment, params string[] args)

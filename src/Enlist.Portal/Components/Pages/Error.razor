@@ -1,5 +1,10 @@
 @page "/Error"
 @using System.Diagnostics
+@attribute [AllowAnonymous]
+@* Not behind the Viewer policy the folder applies. A person who is signed in but in NEITHER group
+   would otherwise be shown "access denied" INSTEAD of the error or not-found page they were sent to -
+   replacing the one screen that was trying to tell them what went wrong with a different complaint
+   about a different thing. An error page that can itself be refused is not an error page. *@
 
 <PageTitle>Error</PageTitle>
 

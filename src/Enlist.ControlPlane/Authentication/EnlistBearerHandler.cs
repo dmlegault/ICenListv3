@@ -45,7 +45,7 @@ public sealed class EnlistBearerHandler : AuthenticationHandler<AuthenticationSc
 
         if (token.StartsWith(Tokens.AgentPrefix, StringComparison.Ordinal))
         {
-            var credential = await db.AgentCredentials.SingleOrDefaultAsync(c => c.TokenHash == hash);
+            var credential = await db.AgentCredentials.SingleOrDefaultAsync(c => c.TokenHash == hash, Context.RequestAborted);
             if (credential is null || credential.RevokedAtUtc is not null)
             {
                 return Fail("agent credential", credential is null ? "unknown" : "revoked");
@@ -57,12 +57,12 @@ public sealed class EnlistBearerHandler : AuthenticationHandler<AuthenticationSc
             if (Stale(credential.LastUsedAtUtc, now))
             {
                 credential.LastUsedAtUtc = now;
-                await db.SaveChangesAsync();
+                await db.SaveChangesAsync(Context.RequestAborted);
             }
         }
         else if (token.StartsWith(Tokens.ApiKeyPrefix, StringComparison.Ordinal))
         {
-            var key = await db.ApiKeys.SingleOrDefaultAsync(k => k.KeyHash == hash);
+            var key = await db.ApiKeys.SingleOrDefaultAsync(k => k.KeyHash == hash, Context.RequestAborted);
             if (key is null || key.RevokedAtUtc is not null || (key.ExpiresAtUtc is { } expires && expires <= now))
             {
                 return Fail("API key", key is null ? "unknown" : key.RevokedAtUtc is not null ? "revoked" : "expired");
@@ -74,12 +74,12 @@ public sealed class EnlistBearerHandler : AuthenticationHandler<AuthenticationSc
             if (Stale(key.LastUsedAtUtc, now))
             {
                 key.LastUsedAtUtc = now;
-                await db.SaveChangesAsync();
+                await db.SaveChangesAsync(Context.RequestAborted);
             }
         }
         else if (token.StartsWith(Tokens.JoinPrefix, StringComparison.Ordinal))
         {
-            var join = await db.JoinTokens.SingleOrDefaultAsync(j => j.TokenHash == hash);
+            var join = await db.JoinTokens.SingleOrDefaultAsync(j => j.TokenHash == hash, Context.RequestAborted);
             if (join is null || join.RevokedAtUtc is not null || join.ExpiresAtUtc <= now || join.UsesRemaining == 0)
             {
                 return Fail("join token", join is null ? "unknown" : join.RevokedAtUtc is not null ? "revoked" : join.UsesRemaining == 0 ? "no uses remaining" : "expired");

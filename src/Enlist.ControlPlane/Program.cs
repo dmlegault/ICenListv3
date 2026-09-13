@@ -619,7 +619,10 @@ app.MapPost("/api/application-policies", async (CreateApplicationPolicyRequest r
     await db.SaveChangesAsync();
 
     await NotifyPolicyAsync(hub, db, entity);
-    return Results.Created($"/api/application-policies/{entity.Id}", ToDto(entity));
+    // No Location header: there is no GET for a single policy rule, and a Location pointing at a
+    // route that answers 405 is worse than none - a client that follows it learns nothing and a
+    // reader of the API believes an endpoint exists. The collection GET is where a rule is read from.
+    return Results.Created((string?)null, ToDto(entity));
 });
 
 app.MapPut("/api/application-policies/{id:guid}", async (Guid id, UpdateApplicationPolicyRequest request, ControlPlaneDbContext db, IHubContext<ApplicationPolicyHub> hub) =>
@@ -1326,14 +1329,22 @@ static async Task<List<EndpointDto>> GetEndpointsAsync(ControlPlaneDbContext db,
 {
     var results = new List<EndpointDto>();
 
-    foreach (var agent in await db.Agents.ToListAsync())
-    {
-        var latest = await db.AgentReports
-            .Where(r => r.AgentName == agent.Name)
-            .OrderByDescending(r => r.ReportedAtUtc)
-            .FirstOrDefaultAsync();
+    var agents = await db.Agents.AsNoTracking().ToListAsync();
 
-        if (latest is null)
+    // ONE query for every agent's newest report, not one query per agent. This is the endpoint a
+    // reverse proxy polls continuously - Traefik's provider reads it on an interval forever - so an
+    // N+1 here is not a slow page load, it is a permanent load on the database proportional to fleet
+    // size. Grouped server-side and then joined in memory: the set is one row per agent, which is
+    // small by construction, and the alternative (a correlated subquery per agent) is what this was.
+    var newestPerAgent = await db.AgentReports
+        .AsNoTracking()
+        .GroupBy(r => r.AgentName)
+        .Select(g => g.OrderByDescending(r => r.ReportedAtUtc).First())
+        .ToDictionaryAsync(r => r.AgentName, StringComparer.OrdinalIgnoreCase);
+
+    foreach (var agent in agents)
+    {
+        if (!newestPerAgent.TryGetValue(agent.Name, out var latest))
         {
             continue;
         }
@@ -1346,7 +1357,7 @@ static async Task<List<EndpointDto>> GetEndpointsAsync(ControlPlaneDbContext db,
         ReportedSnapshot? snapshot;
         try
         {
-            snapshot = JsonSerializer.Deserialize<ReportedSnapshot>(latest.SnapshotJson, EndpointFeedJson());
+            snapshot = JsonSerializer.Deserialize<ReportedSnapshot>(latest.SnapshotJson, EndpointFeedJson.Options);
         }
         catch (JsonException)
         {
@@ -1374,7 +1385,7 @@ static async Task<List<EndpointDto>> GetEndpointsAsync(ControlPlaneDbContext db,
 }
 
 /// <summary>Case-insensitive because the agent writes this blob with its own serializer settings; this projection must not depend on matching them exactly, which is the point of reading the blob tolerantly.</summary>
-static JsonSerializerOptions EndpointFeedJson() => new() { PropertyNameCaseInsensitive = true };
+/// <summary>
 
 /// <summary>Traefik service names are referenced from an operator's own router config, so they must be stable and predictable — derived from the application name, with anything Traefik would not accept replaced.</summary>
 static string TraefikServiceName(string applicationName) =>
@@ -1517,3 +1528,16 @@ internal sealed record TraefikLoadBalancer(List<TraefikServer> Servers);
 internal sealed record TraefikServer(string Url);
 /// <summary>Exposed for WebApplicationFactory-based integration tests (Enlist.ControlPlane.Tests).</summary>
 public partial class Program;
+
+/// <summary>
+/// The options the endpoint feed deserializes agent snapshots with, as ONE instance.
+///
+/// System.Text.Json caches its reflection metadata per options INSTANCE, so a fresh object means a
+/// fresh cache. This used to be a method returning `new()`, called once per agent per request, on the
+/// one endpoint a reverse proxy polls forever - so the metadata for the snapshot type was rebuilt on
+/// every agent of every poll, for the life of the process.
+/// </summary>
+internal static class EndpointFeedJson
+{
+    public static readonly JsonSerializerOptions Options = new() { PropertyNameCaseInsensitive = true };
+}

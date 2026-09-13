@@ -121,14 +121,25 @@ internal static class Program
             string? sourceDir = null;
             string? apiKey = null;
 
-            for (var i = 0; i < args.Length - 1; i++)
+            // Unknown flags are refused, and a flag in the last position is not skipped. Both used to
+            // pass silently, and the consequence was specific and bad: a mistyped `--api_key` left the
+            // key unset, so the upload went out unauthenticated and the 401 that came back blamed a
+            // missing key rather than the typo that caused it.
+            for (var i = 0; i < args.Length; i++)
             {
-                switch (args[i])
+                var flag = args[i];
+                if (i + 1 >= args.Length)
+                {
+                    throw new ArgumentException($"'{flag}' needs a value.");
+                }
+
+                switch (flag)
                 {
                     case "--control-plane": controlPlane = args[++i]; break;
                     case "--app": appName = args[++i]; break;
                     case "--source": sourceDir = args[++i]; break;
                     case "--api-key": apiKey = args[++i]; break;
+                    default: throw new ArgumentException($"Unknown option '{flag}'. Valid options: --control-plane, --app, --source, --api-key.");
                 }
             }
 

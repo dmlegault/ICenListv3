@@ -1,4 +1,6 @@
 @page "/not-found"
+@attribute [AllowAnonymous]
+@* See Error.razor: the pages that EXPLAIN a problem must not be capable of being refused. *@
 @layout MainLayout
 
 <MudAlert Severity="Severity.Warning" Variant="Variant.Filled">

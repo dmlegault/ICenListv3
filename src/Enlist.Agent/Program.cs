@@ -57,9 +57,27 @@ internal static class Program
         string? containerEngineName = null;
         string? joinToken = null;
 
-        for (var i = 0; i < args.Length - 1; i++)
+        // `i < args.Length`, not `args.Length - 1`, so a flag in the LAST position is seen rather than
+        // skipped, and an unknown flag is refused rather than ignored. Both used to pass silently:
+        // `--data` with no value simply did nothing, and a typo like `--runnerbin` left the real
+        // setting unset, which surfaced pages later as a usage message naming a flag the operator
+        // believed they had passed.
+        for (var i = 0; i < args.Length; i++)
         {
-            switch (args[i])
+            var flag = args[i];
+            if (!flag.StartsWith("--", StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine($"enlist-agent: unexpected argument '{flag}'.");
+                return 2;
+            }
+
+            if (i + 1 >= args.Length)
+            {
+                Console.Error.WriteLine($"enlist-agent: '{flag}' needs a value.");
+                return 2;
+            }
+
+            switch (flag)
             {
                 case "--assignments":
                     assignmentsPath = args[i + 1];
@@ -88,7 +106,14 @@ internal static class Program
                 case "--container-engine":
                     containerEngineName = args[i + 1];
                     break;
+                default:
+                    Console.Error.WriteLine($"enlist-agent: unknown option '{flag}'.");
+                    return 2;
             }
+
+            // Every flag above consumes its value, so step past it - otherwise the value itself is
+            // read as the next flag and refused.
+            i++;
         }
 
         if (runnerBinDirectory is null)
