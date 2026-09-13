@@ -29,38 +29,41 @@
     UpgradeCode="D4E6A821-5C93-4F17-B0A8-6E2D9F30C574"
     Compressed="yes">
 
-    <BootstrapperApplication>
-      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl="" SuppressOptionsUI="yes" />
-    </BootstrapperApplication>
-
     <!--
-      THE MANAGED WIZARD IS NOT WIRED IN YET, deliberately, and this is what it takes:
+      THE WIZARD. Four payloads, and every one of them has to be here.
 
-          <BootstrapperApplication SourceFile="$(BaDir)\Enlist.Installer.Ba.exe">
-            <Payload SourceFile="$(BaDir)\mbanative.dll" />
-            <Payload SourceFile="$(BaDir)\Enlist.Installer.Detection.dll" />
-            <Payload SourceFile="$(BaDir)\WixToolset.BootstrapperApplicationApi.dll" />
-          </BootstrapperApplication>
+      Burn lays these out flat in a working directory and CreateProcessW's the primary payload, so
+      "beside the executable" is the only place a dependency can be found. Nothing resolves from the
+      GAC, from NuGet, or from where the project was built.
 
-      It builds, and it launches: three things about WiX 5's hosting contract were found the hard way
-      and are fixed in ba\, each of which fails in a way that names nothing useful.
+        - Enlist.Installer.Ba.exe is the primary payload. An EXECUTABLE, not a DLL: WiX 5 runs a
+          bootstrapper out of process, and pointing this at a DLL gives ERROR_BAD_EXE_FORMAT with
+          nothing logged about a bootstrapper at all.
+        - mbanative.dll is the native host, and ManagedBootstrapperApplication.Run is a plain
+          [DllImport("mbanative.dll")] into it. It must be x64 to match the process, and the project
+          copies it out of the NuGet package by hand because a net472 project ignores runtimes\.
+        - WixToolset.BootstrapperApplicationApi.dll is the managed half of the same API.
+        - Enlist.Installer.Detection.dll is every decision the wizard makes.
 
-        - The bootstrapper is an EXECUTABLE. Burn CreateProcessW's the primary payload, so pointing it
-          at a DLL gives ERROR_BAD_EXE_FORMAT with nothing logged about a bootstrapper at all.
-        - It must match the bundle's architecture. A net472 WPF project defaults to preferring 32-bit
-          and produced an x86 assembly under an x64 engine, which fails identically.
-        - Its entry point must NOT be [STAThread]. The host initialises COM on that thread first, so
-          marking it STA fails with RPC_E_CHANGED_MODE and the process exits before a window exists.
-          The wizard runs on its own STA thread instead.
+      The .exe.config goes too. It is generated rather than written, but it is where the framework
+      version and any binding redirects live, and a net472 process without its config file is not the
+      process that was tested.
 
-      What it does not yet do is show its window: the bundle now exits 0 without launching it, and
-      running that down needs the hosting contract confirmed against WiX's own documentation rather
-      than inferred. Until then this bundle uses the standard bootstrapper, which works, supports the
-      whole of section 10's silent surface, and is what every check in verify.ps1 runs against - so
-      the thing in out\ is always something that installs.
+      Switchable on purpose. -StandardBootstrapper on build.ps1 puts the stock WixStdBA back, which is
+      the fallback if the wizard ever regresses: the whole of section 10's silent surface works either
+      way, because a silent install never reaches a window under either bootstrapper.
     -->
-    <?ifdef UseManagedWizard ?>
-      <?error The managed wizard is not wired in yet. See the note above this line. ?>
+    <?ifdef StandardBootstrapper ?>
+      <BootstrapperApplication>
+        <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl="" SuppressOptionsUI="yes" />
+      </BootstrapperApplication>
+    <?else ?>
+      <BootstrapperApplication SourceFile="$(BaDir)\Enlist.Installer.Ba.exe">
+        <Payload SourceFile="$(BaDir)\mbanative.dll" />
+        <Payload SourceFile="$(BaDir)\WixToolset.BootstrapperApplicationApi.dll" />
+        <Payload SourceFile="$(BaDir)\Enlist.Installer.Detection.dll" />
+        <Payload SourceFile="$(BaDir)\Enlist.Installer.Ba.exe.config" />
+      </BootstrapperApplication>
     <?endif ?>
 
     <!--

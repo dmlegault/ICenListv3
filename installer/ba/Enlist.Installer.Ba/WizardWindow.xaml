@@ -57,17 +57,24 @@
                            Text="Nothing is changed until the Ready page, which lists exactly what will happen." />
             </StackPanel>
 
-            <!-- Everything after Welcome -->
-            <ContentControl Visibility="{Binding OnWelcome, Converter={StaticResource Visible}, ConverterParameter=invert}"
-                            Content="{Binding CurrentPage}">
-                <ContentControl.Resources>
+            <!--
+                NOTHING GOES HERE. There was a ContentControl bound to CurrentPage, carrying an
+                implicit DataTemplate for WizardPage whose body was another ContentControl bound to
+                the same value:
 
                     <DataTemplate DataType="{x:Type detection:WizardPage}">
                         <ContentControl Content="{Binding}" />
                     </DataTemplate>
 
-                </ContentControl.Resources>
-            </ContentControl>
+                An implicit template applies to anything of its DataType, including the content of
+                the control the template itself creates, so that is unbounded recursion by
+                construction. It cost a StackOverflowException inside WindowsBase, which .NET cannot
+                catch and no handler can log - the process simply vanished, and all Burn could report
+                was that the pipe had closed.
+
+                It was also dead: the Grid below is what switches pages, and it always was. The
+                leftover was from a template-based approach that the DataTriggers replaced.
+            -->
 
             <!--
                 The pages themselves. Chosen by a trigger on CurrentPage rather than a navigation
@@ -222,7 +229,15 @@
                 <StackPanel VerticalAlignment="Center">
                     <TextBlock Text="Installing" Style="{StaticResource Heading}" HorizontalAlignment="Center" />
                     <TextBlock Text="{Binding Status}" Style="{StaticResource Explain}" HorizontalAlignment="Center" />
-                    <ProgressBar Value="{Binding Progress}" Maximum="100" Height="18" Margin="40,8" />
+                    <!--
+                        Mode=OneWay is REQUIRED, not tidiness. ProgressBar inherits Value from
+                        RangeBase, where it is marked BindsTwoWayByDefault, so a plain binding tries
+                        to write progress back into the view model - and Progress has a private
+                        setter. WPF does not fail quietly: it throws InvalidOperationException out of
+                        Window.Show(), which on this thread ends the bootstrapper process and reaches
+                        the engine as nothing more informative than a closed pipe.
+                    -->
+                    <ProgressBar Value="{Binding Progress, Mode=OneWay}" Maximum="100" Height="18" Margin="40,8" />
                 </StackPanel>
             </Border>
 

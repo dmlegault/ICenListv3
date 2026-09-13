@@ -52,8 +52,36 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <!-- One version for the package reference and for the native payload path below. -->
+    <BootstrapperApiVersion>5.0.2</BootstrapperApiVersion>
+  </PropertyGroup>
+
   <ItemGroup>
-    <PackageReference Include="WixToolset.BootstrapperApplicationApi" Version="5.0.2" />
+    <PackageReference Include="WixToolset.BootstrapperApplicationApi" Version="$(BootstrapperApiVersion)" />
+  </ItemGroup>
+
+  <!--
+    mbanative.dll, COPIED BY HAND, and without this the bootstrapper cannot start at all.
+
+    ManagedBootstrapperApplication.Run is one P/Invoke: [DllImport("mbanative.dll")]. An unqualified
+    name like that is resolved by Windows from the directory the executable lives in, so the file has
+    to sit beside Enlist.Installer.Ba.exe - in the build output, and again as a bundle payload.
+
+    It ships in the package under runtimes\win-x64\native\, and a net472 project copies nothing out of
+    runtimes\ because that layout is resolved by RuntimeIdentifier, which a classic framework project
+    does not have. So NuGet restores the file, the build ignores it, and the first call into the
+    engine throws DllNotFoundException.
+
+    win-x64 specifically, to match the process: AnyCPU with Prefer32Bit off is a 64-bit process on
+    64-bit Windows, and mbanative has to agree with it. The arm64 and x86 copies in the package are
+    for bundles built for those architectures.
+  -->
+  <ItemGroup>
+    <None Include="$(NuGetPackageRoot)wixtoolset.bootstrapperapplicationapi\$(BootstrapperApiVersion)\runtimes\win-x64\native\mbanative.dll"
+          Link="mbanative.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
   </ItemGroup>
 
   <!-- Inbox on net472, but not referenced by default. The wizard calls a probe that takes one. -->

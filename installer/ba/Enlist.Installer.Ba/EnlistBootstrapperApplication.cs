@@ -19,9 +19,9 @@ namespace Enlist.Installer.Ba
     /// The wizard, and the conversation with the Burn engine underneath it.
     ///
     /// Burn calls this on ITS thread and expects to be answered promptly; WPF insists on owning its
-    /// own. So the run below starts a dispatcher on the BA thread and marshals between the two, which
-    /// is the one genuinely fiddly thing in this file and the reason everything else is kept out of
-    /// it.
+    /// own. The base class has already arranged for that, which is the thing to know before touching
+    /// Run(): its OnStartup creates an STA thread named "UIThread" and calls Run() on it. So Run() is
+    /// where the window belongs, and every engine callback marshals onto that thread's dispatcher.
     ///
     /// SILENT INSTALLS NEVER REACH THE WINDOW. When Burn is running quiet or passive, this plans and
     /// applies straight through, which is what makes the surface section 10 documents work identically
@@ -57,52 +57,91 @@ namespace Enlist.Installer.Ba
         private bool Interactive =>
             _command != null && (_command.Display == Display.Full || _command.Display == Display.Passive);
 
+        /// <summary>
+        /// THIS THREAD IS ALREADY THE UI THREAD. Do not start another one.
+        ///
+        /// The base class's OnStartup does this and then returns:
+        ///
+        ///     Thread uiThread = new Thread(this.Run);
+        ///     uiThread.SetApartmentState(ApartmentState.STA);
+        ///     uiThread.Start();
+        ///
+        /// so Run() arrives on a thread that is already STA and has nothing pumping it. Building the
+        /// window here and calling Dispatcher.Run() is the whole pattern.
+        ///
+        /// It used to start a second STA thread with its own WPF Application on it, on the theory
+        /// that this thread could not be made STA - true of Main, not of here. That version never
+        /// showed a window and never said why: the engine reported only 0x800700e8, "the pipe is
+        /// being closed", because an exception on a thread nobody catches for ends the process, and
+        /// the process dying is all the engine can see. Hence the catch at the bottom.
+        /// </summary>
         protected override void Run()
         {
-            if (!Interactive)
+            try
             {
-                // Quiet or embedded: detect, plan, apply, report. The bundle's variables were set on
-                // the command line and there is nobody to ask about them.
-                this.engine.Detect();
-                _finished.WaitOne();
-                this.engine.Quit(_result);
-                return;
-            }
-
-            // WPF needs a single-threaded apartment, and this thread is not one: the host has already
-            // initialised COM on it, so it cannot be made one (RPC_E_CHANGED_MODE). The wizard
-            // therefore gets a thread of its own, and every engine callback marshals onto it through
-            // the dispatcher captured here.
-            _wizard = new WizardViewModel(this.engine, _command!, this);
-
-            var ready = new ManualResetEvent(false);
-            var ui = new Thread(() =>
-            {
-                var application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-                var window = new WizardWindow { DataContext = _wizard };
-
-                _wizard.CloseRequested += (_, __) => application.Dispatcher.BeginInvoke(new Action(() =>
+                if (!Interactive)
                 {
-                    window.Close();
-                    application.Shutdown();
-                }));
+                    // Quiet or embedded: detect, plan, apply, report. The bundle's variables were set
+                    // on the command line and there is nobody to ask about them.
+                    Trace("silent, detecting");
+                    this.engine.Detect();
+                    _finished.WaitOne();
+                    Trace("silent, quitting " + _result);
+                    this.engine.Quit(_result);
+                    return;
+                }
 
-                _dispatcher = application.Dispatcher;
+                // Captured before anything can raise a callback, because every one of them marshals
+                // onto it and a callback that arrives first would otherwise find it null.
+                _dispatcher = Dispatcher.CurrentDispatcher;
+                _wizard = new WizardViewModel(this.engine, _command!, this);
+
+                var window = new WizardWindow { DataContext = _wizard };
+                _wizard.CloseRequested += (_, __) => window.Close();
+
+                // Closing the window ends the pump, which ends Run(), which quits the engine. One
+                // route out, whether the operator finished, cancelled or closed the window.
+                window.Closed += (_, __) =>
+                {
+                    Trace("window closed");
+                    Dispatcher.CurrentDispatcher.InvokeShutdown();
+                };
+
                 window.Show();
-                ready.Set();
-                application.Run();
-            });
+                Trace("window shown");
 
-            ui.SetApartmentState(ApartmentState.STA);
-            ui.IsBackground = false;
-            ui.Start();
+                // Detect only once the window exists, so its first results have somewhere to be shown.
+                this.engine.Detect();
 
-            // Detect only once the window exists, so its first results have somewhere to be shown.
-            ready.WaitOne();
-            this.engine.Detect();
+                Dispatcher.Run();
+                Trace("pump ended, quitting " + _result);
+                this.engine.Quit(_result);
+            }
+            catch (Exception ex)
+            {
+                Program.LogCrash(ex);
+                Trace("FAILED: " + ex);
 
-            ui.Join();
-            this.engine.Quit(_result);
+                // Quit rather than let the process die: a returned error code is something the engine
+                // can log and show. A broken pipe is not.
+                try { this.engine.Quit(unchecked((int)0x80004005)); } catch { }
+            }
+            finally
+            {
+                Trace("Run returning");
+            }
+        }
+
+        /// <summary>
+        /// A line in the ENGINE's log, which is the one an operator already has.
+        ///
+        /// Worth the noise. This bootstrapper is a separate process, so when it goes wrong the engine
+        /// can say only 0x800700e8 - the pipe closed - which is true of every possible cause. A
+        /// handful of milestones turns that into a position: shown, detected, pump ended, returning.
+        /// </summary>
+        private void Trace(string message)
+        {
+            try { this.engine?.Log(LogLevel.Standard, "enList BA: " + message); } catch { }
         }
 
         // ---- Engine callbacks -----------------------------------------------------------------
@@ -111,9 +150,22 @@ namespace Enlist.Installer.Ba
         // The base class's events are used rather than overridden methods so the wizard can subscribe
         // to what it needs without this class growing a method per phase.
 
+        protected override void OnShutdown(ShutdownEventArgs args)
+        {
+            base.OnShutdown(args);
+            Trace("OnShutdown, action " + args.Action);
+        }
+
+        protected override void OnDestroy(DestroyEventArgs args)
+        {
+            base.OnDestroy(args);
+            Trace("OnDestroy, reload " + args.Reload);
+        }
+
         protected override void OnDetectComplete(DetectCompleteEventArgs args)
         {
             base.OnDetectComplete(args);
+            Trace("OnDetectComplete, status " + args.Status);
 
             if (_wizard != null)
             {

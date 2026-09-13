@@ -13,17 +13,21 @@ namespace Enlist.Installer.Ba
     /// from CreateProcessW, with nothing in the log about a bootstrapper at all.
     ///
     /// ManagedBootstrapperApplication.Run does the whole handshake: it reads those arguments, connects
-    /// back to the engine, and drives the application it is given until the engine says to quit.
+    /// back to the engine over a pipe, and drives the application it is given until the engine quits.
+    /// It is one P/Invoke into mbanative.dll, which therefore has to sit beside this executable - see
+    /// the csproj, which copies it out of the NuGet package by hand.
     ///
     /// NO STAThread here, which is the opposite of what a WPF entry point usually wants. The host
     /// initialises COM on this thread itself, and marking it STA makes that fail with
-    /// RPC_E_CHANGED_MODE, "cannot change thread mode after it is set" - the bootstrapper exits before
-    /// a window can exist. The wizard gets its own STA thread instead, inside the application.
+    /// RPC_E_CHANGED_MODE, "cannot change thread mode after it is set". The wizard does not need it:
+    /// the base class hands Run() an STA thread of its own. See EnlistBootstrapperApplication.Run.
     /// </summary>
     public static class Program
     {
         public static int Main()
         {
+            AppDomain.CurrentDomain.UnhandledException += (_, e) => LogCrash(e.ExceptionObject as Exception);
+
             try
             {
                 ManagedBootstrapperApplication.Run(new EnlistBootstrapperApplication());
@@ -31,24 +35,43 @@ namespace Enlist.Installer.Ba
             }
             catch (Exception ex)
             {
-                // Nothing above this catches, and a bootstrapper that dies silently leaves an operator
-                // with a setup window that never appeared and a log that says only that the process
-                // exited. The engine's own log picks this up through the non-zero exit code; the text
-                // goes where a person can actually find it.
-                try
-                {
-                    var path = System.IO.Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                        "Temp",
-                        "enlist-bootstrapper-crash.log");
-                    System.IO.File.AppendAllText(path, DateTime.Now.ToString("O") + Environment.NewLine + ex + Environment.NewLine + Environment.NewLine);
-                }
-                catch
-                {
-                    // If even that fails there is nothing further to try.
-                }
-
+                LogCrash(ex);
                 return 1;
+            }
+        }
+
+        /// <summary>
+        /// Where a failure goes when there is nowhere else for it to go.
+        ///
+        /// THIS IS NOT BELT AND BRACES. A bootstrapper that dies takes its pipe with it, and all the
+        /// engine can say is 0x800700e8, "the pipe is being closed" - which names the symptom and
+        /// nothing else. Worse, the catch in Main only covers Main's thread: the wizard runs on the
+        /// thread the base class starts for Run(), so an exception there ends the process without
+        /// passing through anything above. That is exactly how this failed for a week, with a bundle
+        /// that exited 0 and a window that never appeared.
+        ///
+        /// So every thread that can throw logs through here, and Run() catches for itself.
+        /// </summary>
+        internal static void LogCrash(Exception? exception)
+        {
+            if (exception is null)
+            {
+                return;
+            }
+
+            try
+            {
+                var path = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Temp",
+                    "enlist-bootstrapper-crash.log");
+                System.IO.File.AppendAllText(
+                    path,
+                    DateTime.Now.ToString("O") + Environment.NewLine + exception + Environment.NewLine + Environment.NewLine);
+            }
+            catch
+            {
+                // If even that fails there is nothing further to try.
             }
         }
     }

@@ -48,7 +48,11 @@ param(
     [string] $Version = '',
 
     # Build somewhere other than out\, so a test build does not replace the real one.
-    [string] $OutputDirectory = ''
+    [string] $OutputDirectory = '',
+
+    # Chain the stock WixStdBA instead of the wizard in ba\. The fallback if the wizard regresses:
+    # the silent surface is identical either way, because a silent install never reaches a window.
+    [switch] $StandardBootstrapper
 )
 
 $ErrorActionPreference = 'Stop'
@@ -130,6 +134,26 @@ foreach ($c in $components | Where-Object { $_.ServiceExe }) {
     Remove-Item $exe -Force
 }
 
+# The bootstrapper application, unless the stock one was asked for. Built here rather than published:
+# a net472 WPF executable has no publish step worth the name, and the bundle needs exactly the four
+# files beside it that a build produces.
+$baDir = Join-Path $installerRoot 'ba\Enlist.Installer.Ba\bin\Release\net472'
+if (-not $StandardBootstrapper) {
+    Write-Host "  building the wizard" -ForegroundColor DarkGray
+    & dotnet build (Join-Path $installerRoot 'ba\Enlist.Installer.Ba\Enlist.Installer.Ba.csproj') -c Release --nologo -v q
+    if ($LASTEXITCODE -ne 0) { throw 'build failed for the bootstrapper application' }
+
+    # mbanative.dll is the one file that is copied rather than compiled, so it is the one that can be
+    # silently absent - and its absence is a DllNotFoundException on the first call into the engine,
+    # long after the bundle looks like it built correctly.
+    foreach ($required in @('Enlist.Installer.Ba.exe', 'Enlist.Installer.Ba.exe.config', 'mbanative.dll',
+                            'WixToolset.BootstrapperApplicationApi.dll', 'Enlist.Installer.Detection.dll')) {
+        if (-not (Test-Path (Join-Path $baDir $required))) {
+            throw "The bootstrapper build produced no $required in $baDir."
+        }
+    }
+}
+
 New-Item -ItemType Directory -Force -Path $outRoot | Out-Null
 
 # Harvest paths are resolved relative to the .wxs file, so every path handed to wix is absolute.
@@ -169,7 +193,9 @@ try {
         '-ext', 'WixToolset.Util.wixext', '-ext', 'WixToolset.BootstrapperApplications.wixext', '-I', 'src',
         '-d', "ProductVersion=$version", '-d', "DotnetRuntimeVersion=$DotnetRuntimeVersion",
         '-d', "DotnetRuntimeMinimum=$DotnetRuntimeMinimum", '-d', "OutDir=$outRoot",
+        '-d', "BaDir=$baDir",
         '-o', $setup, 'src\Bundle.wxs', 'src\Prerequisites.wxs')
+    if ($StandardBootstrapper) { $args += @('-d', 'StandardBootstrapper=1') }
     & dotnet @args
     if ($LASTEXITCODE -ne 0) { throw 'wix build failed for the bundle' }
 }
