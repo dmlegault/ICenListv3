@@ -34,5 +34,18 @@ public sealed class PortalAuthenticationOptions
 
         /// <summary>Members are Viewers: every page, no write controls. Empty means nobody is a Viewer.</summary>
         public string? ViewersGroup { get; set; }
+
+        /// <summary>
+        /// A group name as a screen should show it. One definition, because two screens show these
+        /// and they disagreed: the Access page said "not configured" and the access-denied page said
+        /// "(not configured - nobody)" for the same empty setting, which reads as two different
+        /// states to anyone who sees both.
+        ///
+        /// The longer wording wins. On the page that tells someone they were refused, the reason
+        /// they were refused is the whole message, and "not configured" alone does not say that
+        /// nobody at all can get in.
+        /// </summary>
+        public static string Describe(string? group) =>
+            string.IsNullOrWhiteSpace(group) ? "not configured - nobody" : group;
     }
 }

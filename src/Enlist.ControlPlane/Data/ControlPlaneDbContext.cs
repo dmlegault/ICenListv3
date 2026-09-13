@@ -53,7 +53,7 @@ public sealed class ControlPlaneDbContext : DbContext
         // "colliding" isn't a fixed (agent, application) key collision anymore — it's two selectors
         // that HAPPEN to both currently match the same agent for the same application, which can
         // change any time a tag changes on either side. That's a runtime resolution question, not a
-        // schema constraint — see ResolveEffectivePoliciesAsync's conflict detection in Program.cs.
+        // schema constraint — see ResolveEffectivePoliciesForAgentAsync's conflict detection in Program.cs.
 
         modelBuilder.Entity<AgentReportEntity>(entity =>
         {

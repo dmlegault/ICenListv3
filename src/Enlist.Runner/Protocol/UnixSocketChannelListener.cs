@@ -6,9 +6,14 @@ namespace Enlist.Runner.Protocol;
 /// A Unix domain socket the runner connects to, carrying the identical newline-delimited JSON a named
 /// pipe carries. System.Net.Sockets is BCL, so this too stays within the zero-PackageReference rule.
 ///
-/// Chosen over loopback TCP for the container case (docs/03-architecture/Container-Story.md §15, decision 1): a socket
-/// file can simply be bind-mounted into a container, needs no port, and cannot be reached by anything
-/// else on the host's network. AF_UNIX is supported on Windows (10 1803+) as well as Linux, which is
+/// Chosen over loopback TCP when containers were first being designed for (Container-Story.md §15,
+/// decision 1), on the reasoning that a socket file bind-mounts in, needs no port, and is unreachable
+/// from the host network.
+///
+/// That is NOT how containers ended up working. A Unix socket cannot cross a Windows-host to
+/// Linux-container boundary, so the container backend dials in over TCP through the engine's port
+/// proxy instead (`--listen`, Container-Story.md §12.3). This transport is still real and still
+/// tested — host to host, on either platform — it simply is not what containers use. AF_UNIX is supported on Windows (10 1803+) as well as Linux, which is
 /// what makes this transport testable on a Windows dev box rather than only inside a container.
 ///
 /// Note the socket PATH is the endpoint here, where the pipe transport uses a bare NAME — hence

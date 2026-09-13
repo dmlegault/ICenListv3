@@ -82,7 +82,7 @@ else
                             @if (app.ConflictsByAgent.Count > 0)
                             {
                                 var conflictAgents = app.ConflictsByAgent.Keys.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
-                                <MudTooltip Text="@($"Two or more enabled rules disagree for {string.Join(", ", conflictAgents)} - {(conflictAgents.Count == 1 ? "that agent" : "those agents")} will report Failed instead of resolving cleanly.")">
+                                <MudTooltip Text="@($"Two or more rules disagree for {string.Join(", ", conflictAgents)} - {(conflictAgents.Count == 1 ? "that agent" : "those agents")} will report Failed instead of resolving cleanly.")">
                                     <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Error">conflict</MudChip>
                                 </MudTooltip>
                             }

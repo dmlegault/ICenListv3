@@ -129,7 +129,7 @@ public sealed class WslContainerEngineTests : IAsyncLifetime
             runnerBackends: new Dictionary<string, IRunnerBackend> { [IsolationModes.Container] = CreateBackend(NewAgentName("wslc-crash")) });
 
         await _host.StartAsync();
-        Assert.True(await WaitForAsync(() => _host.Instances.ContainsKey(appName), TimeSpan.FromSeconds(90)), "the application never started in a WSL container.");
+        Assert.True(await Poll.TryUntilAsync(() => _host.Instances.ContainsKey(appName), TimeSpan.FromSeconds(90)), "the application never started in a WSL container.");
 
         var original = _host.Instances[appName].RuntimeId;
         Assert.False(string.IsNullOrWhiteSpace(original));
@@ -139,7 +139,7 @@ public sealed class WslContainerEngineTests : IAsyncLifetime
         await WslcAsync("kill", original!);
 
         Assert.True(
-            await WaitForAsync(() => _host.Instances.TryGetValue(appName, out var current) && current.RuntimeId != original, TimeSpan.FromSeconds(120)),
+            await Poll.TryUntilAsync(() => _host.Instances.TryGetValue(appName, out var current) && current.RuntimeId != original, TimeSpan.FromSeconds(120)),
             "the application was never restarted after its WSL container was killed.");
     }
 
@@ -272,21 +272,5 @@ public sealed class WslContainerEngineTests : IAsyncLifetime
         {
             listener.Stop();
         }
-    }
-
-    private static async Task<bool> WaitForAsync(Func<bool> condition, TimeSpan timeout)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            if (condition())
-            {
-                return true;
-            }
-
-            await Task.Delay(250);
-        }
-
-        return condition();
     }
 }

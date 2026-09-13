@@ -98,9 +98,5 @@ public sealed class LoadFailureWarningTests : IAsyncLifetime
         Assert.Empty(ready.Warnings);
     }
 
-    private static async Task<T> Receive<T>(StubAgent agent) where T : RunnerMessage
-    {
-        using var cts = new CancellationTokenSource(Step);
-        return Assert.IsType<T>(await agent.Channel.ReceiveAsync(cts.Token));
-    }
+    private static Task<T> Receive<T>(StubAgent agent) where T : RunnerMessage => agent.NextAsync<T>(Step);
 }

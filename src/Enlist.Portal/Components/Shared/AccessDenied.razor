@@ -22,5 +22,5 @@
 </MudAlert>
 
 @code {
-    private static string Group(string? name) => string.IsNullOrWhiteSpace(name) ? "(not configured - nobody)" : name;
+    private static string Group(string? name) => PortalAuthenticationOptions.WindowsGroups.Describe(name);
 }

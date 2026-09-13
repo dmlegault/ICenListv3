@@ -18,7 +18,7 @@ public sealed class ApplicationPolicyEntity
 
     public required string ApplicationName { get; set; }
 
-    /// <summary>Alternative to PackageDigest, not both — a pre-existing local folder on that specific agent (the original step-3 shape). Nullable now that package distribution exists.</summary>
+    /// <summary>Alternative to PackageDigest, not both — a pre-existing local folder on that specific agent (the path-based form, which predates package distribution). Nullable now that package distribution exists.</summary>
     public string? Path { get; set; }
 
     /// <summary>Alternative to Path — a content-addressed package (see PackageEntity) the agent downloads and extracts itself. Exactly one of Path/PackageDigest is expected to be set; enforced at the API layer, not the database (a CHECK constraint would need per-provider syntax EF Core's fluent API doesn't cover portably, and this is a single "if" at the one place rows are written).</summary>

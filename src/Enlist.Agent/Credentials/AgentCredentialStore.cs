@@ -91,6 +91,16 @@ public sealed class AgentCredentialStore
         stream.Write(protectedBytes);
     }
 
+    /// <summary>
+    /// Removes the stored credential. Nothing in the agent calls this, and that is deliberate rather
+    /// than an oversight: every failure path above tells the OPERATOR to delete the file, because
+    /// each one means the credential does not belong to this machine or this agent, and quietly
+    /// deleting a credential the agent cannot read is how you turn a diagnosable problem into a
+    /// silent re-enrollment loop.
+    ///
+    /// Kept because the installer will need it - an uninstall that leaves a live credential behind is
+    /// the same trap .demo/README.md now warns about for the demo's own data directories.
+    /// </summary>
     public void Delete()
     {
         if (File.Exists(Path))

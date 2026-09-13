@@ -69,24 +69,9 @@ public abstract class CliContainerEngineBase
             //
             // Killing a CLI is always safe: it is a client. The container it was asking about is
             // unaffected, which is what makes this the right thing to do on every abandoned wait.
-            KillQuietly(process);
+            ProcessKill.Quietly(process);
         }
 
         return (process.ExitCode, await stdout.ConfigureAwait(false), await stderr.ConfigureAwait(false));
-    }
-
-    private static void KillQuietly(Process process)
-    {
-        try
-        {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-            }
-        }
-        catch
-        {
-            // Already gone, or not ours to kill — either way the timeout is the report that matters.
-        }
     }
 }

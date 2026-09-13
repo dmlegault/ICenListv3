@@ -4,15 +4,15 @@ using System.Text.Json;
 namespace Enlist.Runner.Legacy.Protocol;
 
 /// <summary>
-/// Newline-delimited JSON over a Stream (in practice a NamedPipeClientStream/NamedPipeServerStream —
-/// System.IO.Pipes is BCL on both net10.0 and net472). One JSON object per line: System.Text.Json
-/// escapes embedded newlines within string values, so a multi-line log message still serializes to
-/// exactly one line on the wire.
+/// Newline-delimited JSON over a Stream — in this build always a named pipe, since the legacy runner
+/// deliberately carries no socket transports (see Program.cs). System.IO.Pipes is BCL on both net10.0
+/// and net472. One JSON object per line: System.Text.Json escapes embedded newlines within string
+/// values, so a multi-line log message still serializes to exactly one line on the wire.
 ///
 /// TOut/TIn are the polymorphic base types (RunnerMessage/AgentCommand) — generic so the SAME class
 /// serves both ends of the pipe: this runner is a MessageChannel&lt;RunnerMessage, AgentCommand&gt;,
-/// and Enlist.Agent is the mirror image, MessageChannel&lt;AgentCommand, RunnerMessage&gt;, without
-/// either side referencing the other's project. Wire-identical to the modern Enlist.Runner's own
+/// and Enlist.Agent is the mirror image, MessageChannel&lt;AgentCommand, RunnerMessage&gt;.
+/// Wire-identical to the modern Enlist.Runner's own
 /// MessageChannel, duplicated here as source for the same zero-shared-assembly reason.
 ///
 /// Reading is bounded and tolerant. A line longer than <see cref="MaxLineChars"/> is dropped rather
@@ -29,7 +29,6 @@ public sealed class MessageChannel<TOut, TIn> : IDisposable
 
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
-    private readonly Stream _stream;
     private readonly StreamWriter _writer;
     private readonly StreamReader _reader;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
@@ -44,7 +43,6 @@ public sealed class MessageChannel<TOut, TIn> : IDisposable
 
     public MessageChannel(Stream stream)
     {
-        _stream = stream;
         _writer = new StreamWriter(stream, Utf8NoBom, bufferSize: 4096, leaveOpen: true) { AutoFlush = false, NewLine = "\n" };
         _reader = new StreamReader(stream, Utf8NoBom, detectEncodingFromByteOrderMarks: false, bufferSize: 4096, leaveOpen: true);
     }

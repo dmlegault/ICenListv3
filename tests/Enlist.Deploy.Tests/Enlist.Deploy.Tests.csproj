@@ -19,11 +19,11 @@
   </ItemGroup>
 
   <!--
-    Enlist.Agent is referenced directly because one test proves the full pipeline (enlist-deploy
-    uploads and assigns -> a real AgentHost picks it up and runs it), not just the CLI's own API
-    calls — that's still testing enlist-deploy's correctness (a tool that uploaded garbage or created
-    a broken assignment would fail this), just verified by running what it enables.
-    Enlist.ControlPlane.Contracts comes along transitively via Enlist.Agent's own reference.
+    Contracts is referenced for the DTOs the tests assert on. Enlist.Agent used to be referenced here
+    too, on the strength of a comment describing "one test that proves the full pipeline: enlist-deploy
+    uploads and assigns, a real AgentHost picks it up and runs it". No such test exists, and no test
+    in this project mentions AgentHost at all — the CLI creates no placement, so there was nothing for
+    an agent to pick up. The reference and its justification were both removed on 2026-09-13.
 
     Deliberately NOT a ProjectReference to Enlist.Deploy or Enlist.ControlPlane themselves (both need
     to be spawned as real external processes anyway, and Enlist.ControlPlane's Sdk.Web framework
@@ -33,7 +33,7 @@
   -->
   <ItemGroup>
     <ProjectReference Include="..\Enlist.TestSupport\Enlist.TestSupport.csproj" />
-    <ProjectReference Include="..\..\src\Enlist.Agent\Enlist.Agent.csproj" />
+    <ProjectReference Include="..\..\src\Enlist.ControlPlane.Contracts\Enlist.ControlPlane.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

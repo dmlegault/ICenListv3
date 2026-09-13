@@ -290,8 +290,7 @@ public sealed class RunnerHost
             // leaves the service parked at Starting.
             var args = ParameterBinder.Bind(service.StartMethod, cts.Token, LoadSettings(service.Type, service.Name), line => Log(service.Name, LogLevel.Information, line));
 
-            state.StartTask = InvocationHelper.InvokeAsync(service.StartMethod, instance, args);
-            await state.StartTask.ConfigureAwait(false);
+            await InvocationHelper.InvokeAsync(service.StartMethod, instance, args).ConfigureAwait(false);
             Send(new StateChangedMessage(service.Name, RunnerTargetKind.Service, RunnerState.Running));
         }
         catch (Exception ex)

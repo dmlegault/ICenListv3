@@ -116,7 +116,10 @@ public sealed class AgentCrashRestartTests : IAsyncLifetime
         var lastPid = host.Instances[_appName].Pid;
         Process.GetProcessById(lastPid).Kill();
 
-        await WaitForAsync(() => !host.Instances.ContainsKey(_appName), TimeSpan.FromSeconds(5));
+        await Poll.UntilAsync(
+            () => !host.Instances.ContainsKey(_appName),
+            TimeSpan.FromSeconds(5),
+            "the application was still running after the crash that should have exhausted its retries.");
 
         // Give it a window comfortably longer than the backoff would have taken, then confirm it
         // really did give up rather than just being slow.
@@ -139,21 +142,5 @@ public sealed class AgentCrashRestartTests : IAsyncLifetime
         }
 
         throw new TimeoutException($"No new instance appeared within {timeout.TotalSeconds:0}s (still pid {previousPid} or gone).");
-    }
-
-    private static async Task WaitForAsync(Func<bool> condition, TimeSpan timeout)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            if (condition())
-            {
-                return;
-            }
-
-            await Task.Delay(100).ConfigureAwait(false);
-        }
-
-        throw new TimeoutException($"Condition not met within {timeout.TotalSeconds:0}s.");
     }
 }

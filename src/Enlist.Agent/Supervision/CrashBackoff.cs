@@ -20,12 +20,6 @@ public sealed class CrashBackoff
         _settledDuration = settledDuration;
     }
 
-    public static CrashBackoff Default => new(
-        maxAttempts: 5,
-        baseDelay: TimeSpan.FromSeconds(2),
-        maxDelay: TimeSpan.FromSeconds(60),
-        settledDuration: TimeSpan.FromMinutes(2));
-
     /// <summary>2s, 4s, 8s, 16s, 32s, capped — attempt is 1-based (the first retry after a crash).</summary>
     public TimeSpan DelayFor(int attempt)
     {

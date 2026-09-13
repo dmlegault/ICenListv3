@@ -19,7 +19,7 @@ namespace Enlist.ControlPlane.Contracts;
 /// PackageCache). Exactly one of the two is expected to be set; "neither" or "both" is invalid.
 ///
 /// ConflictReason is resolution OUTPUT, never stored input — see the control plane's
-/// ResolveEffectivePoliciesAsync. Non-null means two or more enabled rules matched this agent for this
+/// ResolveEffectivePoliciesForAgentAsync. Non-null means two or more rules matched this agent for this
 /// application and disagreed on DesiredState/Path/PackageDigest/CronOverrides; Path/PackageDigest on
 /// this same record are then meaningless (there was no single winner to read them from) and the agent
 /// goes straight to Failed with this text rather than guessing which rule should win — the same
@@ -54,7 +54,7 @@ public sealed record CreateApplicationPolicyRequest(
     string? RuntimeFlavor = null,
     IsolationSpec? Isolation = null);
 
-/// <summary>Targeting (TagSelector) is set at creation and not revisited here — changing WHICH agents qualify is a recreate, not an update, in this first cut. RuntimeFlavor is different: unlike targeting, a redeploy legitimately can migrate an application off a legacy runtime (or onto one), so it follows the same idempotent create-or-update path as Path/PackageDigest rather than being create-only.</summary>
+/// <summary>Targeting (TagSelector) is set at creation and not revisited here — changing WHICH agents qualify is a recreate, not an update. RuntimeFlavor is different: unlike targeting, a redeploy legitimately can migrate an application off a legacy runtime (or onto one), so it follows the same idempotent create-or-update path as Path/PackageDigest rather than being create-only.</summary>
 public sealed record UpdateApplicationPolicyRequest(
     string? Path,
     string? DesiredState,

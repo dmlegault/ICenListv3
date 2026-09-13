@@ -86,8 +86,7 @@ public sealed class ProcessRunnerBackendTransportTests : IAsyncLifetime
 
         var appName = "TransportTest" + Guid.NewGuid().ToString("N")[..8];
 
-        // jobObject: null — this test is about the transport, and a Job Object is orthogonal to it
-        // (it is also why JobObjectAssigned is deliberately not on IRunnerInstance).
+        // jobObject: null - this test is about the transport, and a Job Object is orthogonal to it.
         var backend = new ProcessRunnerBackend(
             jobObject: null,
             connectTimeout: TimeSpan.FromSeconds(20),

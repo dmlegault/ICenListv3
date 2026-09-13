@@ -9,9 +9,9 @@ using Enlist.Runner.Legacy.Protocol;
 namespace Enlist.Runner.Legacy;
 
 /// <summary>
-/// enlist-runner-legacy --pipe &lt;pipeName&gt; --app &lt;appDirectory&gt;
-/// enlist-runner-legacy --dev --app &lt;appDirectory&gt;      (no agent — see Dev/DevHost.cs)
-/// enlist-runner-legacy --check --app &lt;appDirectory&gt;    (discovery only — see Dev/CheckReport.cs)
+/// enlist-runner --pipe &lt;pipeName&gt; --app &lt;appDirectory&gt;
+/// enlist-runner --dev --app &lt;appDirectory&gt;      (no agent — see Dev/DevHost.cs)
+/// enlist-runner --check --app &lt;appDirectory&gt;    (discovery only — see Dev/CheckReport.cs)
 ///
 /// The net472 counterpart to Enlist.Runner — same CLI shape,
 /// same wire protocol, same attribute-based discovery, same one-process-per-running-application
@@ -68,9 +68,9 @@ internal static class Program
         if (appPath is null || (!dev && !check && pipeName is null))
         {
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  enlist-runner-legacy --pipe <pipeName> --app <appDirectory>");
-            Console.Error.WriteLine("  enlist-runner-legacy --dev [--log-window] --app <appDirectory>   run standalone with no agent; --log-window puts log output in its own window");
-            Console.Error.WriteLine("  enlist-runner-legacy --check --app <appDirectory>   print what enList would discover, then exit");
+            Console.Error.WriteLine("  enlist-runner --pipe <pipeName> --app <appDirectory>");
+            Console.Error.WriteLine("  enlist-runner --dev [--log-window] --app <appDirectory>   run standalone with no agent; --log-window puts log output in its own window");
+            Console.Error.WriteLine("  enlist-runner --check --app <appDirectory>   print what enList would discover, then exit");
             return 2;
         }
 

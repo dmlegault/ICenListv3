@@ -19,7 +19,7 @@ namespace Enlist.Agent.Tests;
 /// </summary>
 public sealed class ContainerOrphanReapTests : IAsyncLifetime
 {
-    private const string Image = "enlist/runner:dev";
+    private const string Image = Docker.RunnerImage;
 
     private readonly string _dataRoot = Path.Combine(Path.GetTempPath(), "enlist-reap-tests-" + Guid.NewGuid().ToString("N"));
 
@@ -41,7 +41,7 @@ public sealed class ContainerOrphanReapTests : IAsyncLifetime
     [SkippableFact]
     public async Task A_container_left_by_a_previous_run_is_removed_at_startup()
     {
-        Skip.IfNot(await ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
+        Skip.IfNot(await Docker.ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
 
         var agentName = "reap-" + Guid.NewGuid().ToString("N")[..8];
         var backend = CreateBackend(agentName);
@@ -52,18 +52,18 @@ public sealed class ContainerOrphanReapTests : IAsyncLifetime
             RepoPaths.UniqueAppName(), "", RepoPaths.SampleServiceDir(), IsolationSpec.ProcessDefault, (_, _) => Task.CompletedTask));
         var abandonedId = instance.RuntimeId;
 
-        Assert.True(await ContainerExistsAsync(abandonedId), "the container under test was never created.");
+        Assert.True(await Docker.ContainerExistsAsync(abandonedId), "the container under test was never created.");
 
         // A fresh backend with the SAME agent name — i.e. the same agent starting up again.
         await CreateBackend(agentName).ReapOrphansAsync();
 
-        Assert.False(await ContainerExistsAsync(abandonedId), "the orphaned container survived the startup reap.");
+        Assert.False(await Docker.ContainerExistsAsync(abandonedId), "the orphaned container survived the startup reap.");
     }
 
     [SkippableFact]
     public async Task Reaping_one_agent_does_not_touch_another_agents_containers()
     {
-        Skip.IfNot(await ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
+        Skip.IfNot(await Docker.ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
 
         // The property that makes reaping safe at all. Several agents routinely share one container
         // engine — two do on this project's own dev box — so a sweep based on the "enlist-" name prefix
@@ -81,7 +81,7 @@ public sealed class ContainerOrphanReapTests : IAsyncLifetime
             // A DIFFERENT agent starts up and reaps. It must leave the container above completely alone.
             await CreateBackend("reap-self-" + Guid.NewGuid().ToString("N")[..8]).ReapOrphansAsync();
 
-            Assert.True(await ContainerExistsAsync(liveId), "another agent's reap destroyed a live container that did not belong to it.");
+            Assert.True(await Docker.ContainerExistsAsync(liveId), "another agent's reap destroyed a live container that did not belong to it.");
         }
     }
 
@@ -96,42 +96,5 @@ public sealed class ContainerOrphanReapTests : IAsyncLifetime
             TimeSpan.FromSeconds(45),
             new AgentFileLogSink(logRoot, null),
             agentName);
-    }
-
-    private static async Task<bool> ContainerExistsAsync(string containerId) =>
-        await RunDockerAsync(["inspect", "--format", "{{.Id}}", containerId]);
-
-    private static async Task<bool> ImageAvailableAsync() => await RunDockerAsync(["image", "inspect", Image]);
-
-    private static async Task<bool> RunDockerAsync(string[] args)
-    {
-        try
-        {
-            var psi = new ProcessStartInfo("docker")
-            {
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
-
-            foreach (var arg in args)
-            {
-                psi.ArgumentList.Add(arg);
-            }
-
-            using var process = Process.Start(psi);
-            if (process is null)
-            {
-                return false;
-            }
-
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            await process.WaitForExitAsync(cts.Token);
-            return process.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
-        }
     }
 }

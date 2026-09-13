@@ -25,7 +25,7 @@
         {
             <MudAlert Severity="Severity.Warning" Class="mb-3">Shown once. Copy it now; the control plane keeps only a hash and cannot show it again.</MudAlert>
             <MudTextField T="string" Value="@_created.Token" Label="Join token" ReadOnly="true" Variant="Variant.Outlined" Class="mb-3" />
-            <MudText Typo="Typo.body2" Class="mb-1">On the new machine, once (or the installer's Agent page):</MudText>
+            <MudText Typo="Typo.body2" Class="mb-1">On the new machine, once (the installer will do this once it exists):</MudText>
             <MudTextField T="string" Value="@Command" ReadOnly="true" Variant="Variant.Outlined" Lines="3" Class="mb-2" />
             <MudText Typo="Typo.caption">
                 Expires @_created.ExpiresAtUtc.ToLocalTime().ToString("g"); enrollments: @(_created.UsesRemaining?.ToString() ?? "unlimited until then").

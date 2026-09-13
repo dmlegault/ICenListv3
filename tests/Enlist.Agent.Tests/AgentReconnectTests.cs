@@ -140,29 +140,27 @@ public sealed class AgentReconnectTests : IAsyncLifetime
         return agents!.Single(a => a.Name == _agentName);
     }
 
+    /// <summary>
+    /// Poll.UntilAsync, with one thing added that only this file needs: the control plane is
+    /// deliberately stopped and restarted under the agent here, so a condition that queries it is
+    /// EXPECTED to throw while it is down. That is the state being waited out, not a failure.
+    /// </summary>
     private static Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout, string failure) =>
-        WaitUntilAsync(() => Task.FromResult(condition()), timeout, failure);
+        Poll.UntilAsync(condition, timeout, failure);
 
-    private static async Task WaitUntilAsync(Func<Task<bool>> condition, TimeSpan timeout, string failure)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            try
+    private static Task WaitUntilAsync(Func<Task<bool>> condition, TimeSpan timeout, string failure) =>
+        Poll.UntilAsync(
+            async () =>
             {
-                if (await condition())
+                try
                 {
-                    return;
+                    return await condition();
                 }
-            }
-            catch (HttpRequestException)
-            {
-                // The control plane is allowed to be mid-restart while a condition is polled.
-            }
-
-            await Task.Delay(250);
-        }
-
-        Assert.Fail(failure);
-    }
+                catch (HttpRequestException)
+                {
+                    return false;
+                }
+            },
+            timeout,
+            failure);
 }

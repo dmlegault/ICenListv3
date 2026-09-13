@@ -5,18 +5,15 @@ namespace Enlist.Agent.Supervision;
 
 /// <summary>
 /// One live runner hosting one application, as <see cref="AgentHost"/> sees it. Created by an
-/// <see cref="IRunnerBackend"/>; today the only implementation is <see cref="ProcessRunnerInstance"/>
-/// (an enlist-runner.exe child process on the far end of a named pipe).
+/// <see cref="IRunnerBackend"/>. Two implementations: <see cref="ProcessRunnerInstance"/>
+/// (an enlist-runner child process on the far end of a named pipe) and <see cref="ContainerRunnerInstance"/>
+/// (a container the agent dials in to).
 ///
-/// This interface is deliberately exactly the surface AgentHost actually consumes today — nothing
-/// was added in anticipation of a second implementation (see docs/03-architecture/Container-Story.md §6.2, whose
-/// class diagram shows the eventual post-container shape, not this one). Two consequences worth
-/// knowing:
-///
-/// - <see cref="ProcessRunnerInstance.JobObjectAssigned"/> is deliberately NOT here. It reports a
-///   Windows-process-specific weakened guarantee; a container is its own containment boundary and
-///   has nothing to report. Process-only concerns belong on the implementation, not the seam.
-/// - WaitForExitAsync is likewise absent: AgentHost never calls it, only StopAsync does, internally.
+/// The interface is deliberately exactly the surface AgentHost consumes, and nothing more. Nothing
+/// was added in anticipation of the second implementation before it existed - RuntimeId and Endpoints
+/// were added WITH it (docs/03-architecture/Container-Story.md §6.2), not for it. The same
+/// discipline applies from the other direction: WaitForExitAsync exists on ProcessRunnerInstance but
+/// is absent here, because AgentHost never calls it - only StopAsync does, internally.
 ///
 /// The invariant that makes this seam worth having: AgentHost must never branch on which
 /// implementation it holds. See docs/03-architecture/Container-Story.md §6.4.

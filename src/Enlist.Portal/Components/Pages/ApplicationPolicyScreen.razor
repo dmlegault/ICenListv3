@@ -124,7 +124,7 @@ else
 
     /// <summary>Null unless selector is EXACTLY the self-tag shape {"agent": name} — "target this one agent" collapsed down to its most specific possible tag selector (see ApplicationPolicyDto.TagSelector). Used purely to decide how to display the Target column; there's no separate targeting mode on the wire.</summary>
     private static string? OnlyAgentValue(IReadOnlyDictionary<string, string> selector) =>
-        selector.Count == 1 && selector.TryGetValue("agent", out var value) ? value : null;
+        selector.Count == 1 && selector.TryGetValue(AgentTags.SelfKey, out var value) ? value : null;
 
     /// <summary>Every currently-registered agent where this rule is one of two-or-more disagreeing rules
     /// (see PolicyConflictDetector) — empty for a rule that's fine on its own or that only ever matches

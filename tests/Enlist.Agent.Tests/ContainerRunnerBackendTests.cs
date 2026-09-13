@@ -25,7 +25,7 @@ namespace Enlist.Agent.Tests;
 /// </summary>
 public sealed class ContainerRunnerBackendTests : IAsyncLifetime
 {
-    private const string Image = "enlist/runner:dev";
+    private const string Image = Docker.RunnerImage;
 
     private readonly string _dataRoot = Path.Combine(Path.GetTempPath(), "enlist-container-tests-" + Guid.NewGuid().ToString("N"));
     private static readonly TimeSpan Step = TimeSpan.FromSeconds(60);
@@ -48,7 +48,7 @@ public sealed class ContainerRunnerBackendTests : IAsyncLifetime
     [SkippableFact]
     public async Task An_unmodified_package_runs_in_a_container_and_completes_discovery()
     {
-        Skip.IfNot(await ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
+        Skip.IfNot(await Docker.ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
 
         await using var instance = await StartAsync();
 
@@ -70,7 +70,7 @@ public sealed class ContainerRunnerBackendTests : IAsyncLifetime
     [SkippableFact]
     public async Task A_container_instance_identifies_itself_by_container_id_not_by_pid()
     {
-        Skip.IfNot(await ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
+        Skip.IfNot(await Docker.ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
 
         await using var instance = await StartAsync();
         await instance.WhenReady.WaitAsync(Step);
@@ -88,7 +88,7 @@ public sealed class ContainerRunnerBackendTests : IAsyncLifetime
     [SkippableFact]
     public async Task Commands_reach_a_service_inside_the_container()
     {
-        Skip.IfNot(await ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
+        Skip.IfNot(await Docker.ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
 
         var states = new List<StateChangedMessage>();
         await using var instance = await StartAsync((_, message) =>
@@ -129,7 +129,7 @@ public sealed class ContainerRunnerBackendTests : IAsyncLifetime
     [SkippableFact]
     public async Task Stopping_a_container_instance_shuts_it_down_gracefully()
     {
-        Skip.IfNot(await ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
+        Skip.IfNot(await Docker.ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
 
         await using var instance = await StartAsync();
         await instance.WhenReady.WaitAsync(Step);
@@ -164,36 +164,5 @@ public sealed class ContainerRunnerBackendTests : IAsyncLifetime
             RepoPaths.SampleServiceDir(),
             IsolationSpec.ProcessDefault,
             onMessage ?? ((_, _) => Task.CompletedTask)));
-    }
-
-    /// <summary>Checks the engine is reachable AND the image exists, in one call — either being absent means the same thing to these tests.</summary>
-    private static async Task<bool> ImageAvailableAsync()
-    {
-        try
-        {
-            var psi = new ProcessStartInfo("docker")
-            {
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
-            psi.ArgumentList.Add("image");
-            psi.ArgumentList.Add("inspect");
-            psi.ArgumentList.Add(Image);
-
-            using var process = Process.Start(psi);
-            if (process is null)
-            {
-                return false;
-            }
-
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            await process.WaitForExitAsync(cts.Token);
-            return process.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
-        }
     }
 }

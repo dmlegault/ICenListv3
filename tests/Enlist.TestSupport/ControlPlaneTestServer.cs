@@ -73,7 +73,7 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
         // BEFORE the child is spawned, and it has to be. LocalDB is started by whichever process
         // connects to it first, as a CHILD of that process — so if a spawned control plane gets
         // there first, sqlservr.exe joins that child's process tree and the Kill(entireProcessTree)
-        // in KillQuietly below takes the database server down with it, wrecking every other test
+        // in ProcessKill.Quietly takes the database server down with it, wrecking every other test
         // running in parallel. Pinning it to the test host first makes that impossible. See LocalDb.
         await LocalDb.EnsureStartedAsync().ConfigureAwait(false);
 
@@ -160,7 +160,7 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
     /// <summary>Kills the control plane and waits until the process is actually gone. The database and blob store stay, so <see cref="StartAgainAsync"/> brings the SAME control plane back.</summary>
     public async Task StopAsync()
     {
-        KillQuietly(_process);
+        ProcessKill.Quietly(_process);
         await WaitForExitQuietlyAsync(_process).ConfigureAwait(false);
         _process.Dispose();
     }
@@ -172,7 +172,7 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
 
         if (baseUri != BaseUri)
         {
-            KillQuietly(process);
+            ProcessKill.Quietly(process);
             throw new InvalidOperationException($"Enlist.ControlPlane came back on {baseUri} rather than {BaseUri}; a relaunch has to keep the address an agent already holds.");
         }
 
@@ -309,7 +309,7 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
             await Task.Delay(200).ConfigureAwait(false);
         }
 
-        KillQuietly(process);
+        ProcessKill.Quietly(process);
         throw new TimeoutException(
             $"Enlist.ControlPlane did not become ready within {readyTimeout.TotalSeconds:0}s " +
             $"(database {databaseName}, address {baseUri?.ToString() ?? "never announced"}).{Environment.NewLine}" +
@@ -318,7 +318,7 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        KillQuietly(_process);
+        ProcessKill.Quietly(_process);
 
         // WAIT for it to actually be gone before deleting its blob directory. Kill() only ASKS; the OS
         // releases the process's file handles asynchronously, so deleting immediately races them and
@@ -413,20 +413,6 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
             {
                 return;
             }
-        }
-    }
-
-    private static void KillQuietly(Process process)
-    {
-        try
-        {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-            }
-        }
-        catch
-        {
         }
     }
 }

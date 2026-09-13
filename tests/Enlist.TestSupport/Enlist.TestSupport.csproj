@@ -8,10 +8,11 @@
   </PropertyGroup>
 
   <!--
-    Not a test project itself — shared infrastructure (spawning real enlist-runner/enlist-agent/
-    Enlist.ControlPlane processes, locating build output, zipping test packages) referenced by both
-    Enlist.ControlPlane.Tests and Enlist.Agent.Tests, so the process-spawning test harnesses aren't
-    duplicated between them.
+    Not a test project itself, and it references no test framework: it is what the four test projects
+    (ControlPlane, Agent, Deploy, Portal) share. Spawning real Enlist.ControlPlane and Enlist.Portal
+    processes, starting and pinning LocalDB, locating build output, zipping test packages, waiting for
+    a condition, killing a spawned process. Anything a second test project needs belongs here rather
+    than copied - which is exactly how it started, with one harness duplicated between two projects.
   -->
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />

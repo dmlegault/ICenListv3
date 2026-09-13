@@ -1,3 +1,5 @@
+using System.Runtime.Versioning;
+
 using Enlist.Agent.Configuration;
 using Enlist.Agent.Hosting;
 using Enlist.TestSupport;
@@ -56,6 +58,7 @@ public sealed class AgentDisposalTests : IAsyncLifetime
     }
 
     [SkippableFact]
+    [SupportedOSPlatform("windows")] // Skip.IfNot below is the runtime guard; this is the one the analyzer reads.
     public void A_job_object_closes_its_handle_once_however_many_times_it_is_disposed()
     {
         Skip.IfNot(OperatingSystem.IsWindows(), "Job Objects are a Windows facility.");

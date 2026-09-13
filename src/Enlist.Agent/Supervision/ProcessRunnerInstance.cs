@@ -11,8 +11,8 @@ namespace Enlist.Agent.Supervision;
 /// The endpoint is a named pipe by default and can be a Unix domain socket instead; this
 /// class holds it only as a Stream and is indifferent to which (see IChannelListener).
 ///
-/// The <see cref="IRunnerInstance"/> implementation for locally-spawned processes — the only one that
-/// exists today. Constructed exclusively by <see cref="ProcessRunnerBackend"/>, which owns the start
+/// The <see cref="IRunnerInstance"/> implementation for locally-spawned processes; ContainerRunnerInstance
+/// is the other. Constructed exclusively by <see cref="ProcessRunnerBackend"/>, which owns the start
 /// sequence (transport, process, Job Object, connect-with-timeout) that lives in the backend as a
 /// factory. See docs/03-architecture/Container-Story.md §6.2 for why the static had to go.
 /// </summary>
@@ -49,17 +49,6 @@ public sealed class ProcessRunnerInstance : IRunnerInstance
     /// <inheritdoc />
     public string RuntimeId => Pid.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-    /// <summary>
-    /// False either because no JobObject was supplied (non-Windows, or one couldn't be created — see
-    /// ProcessRunnerBackend) or because AssignProcessToJobObject itself failed. The backend logs a
-    /// warning on false, since it silently weakens the "agent death kills its runners" guarantee
-    /// without stopping anything from working.
-    ///
-    /// Deliberately NOT on <see cref="IRunnerInstance"/>: it reports a process-topology-specific
-    /// guarantee that has no meaning for a backend where the isolation boundary is the unit itself.
-    /// </summary>
-    public bool JobObjectAssigned { get; }
-
     public bool HasExited => _process.HasExited;
 
     public int? ExitCode => _process.HasExited ? _process.ExitCode : null;
@@ -70,12 +59,10 @@ public sealed class ProcessRunnerInstance : IRunnerInstance
         Stream transport,
         MessageChannel<AgentCommand, RunnerMessage> channel,
         Func<IRunnerInstance, RunnerMessage, Task> onMessage,
-        Func<string, Task> writeAgentLog,
-        bool jobObjectAssigned)
+        Func<string, Task> writeAgentLog)
     {
         ApplicationName = applicationName;
         Pid = process.Id;
-        JobObjectAssigned = jobObjectAssigned;
         _process = process;
         _transport = transport;
         _channel = channel;
@@ -190,7 +177,7 @@ public sealed class ProcessRunnerInstance : IRunnerInstance
         var exitedOnItsOwn = await WaitForExitAsync(gracePeriod).ConfigureAwait(false);
         if (!exitedOnItsOwn)
         {
-            KillQuietly(_process);
+            ProcessKill.Quietly(_process);
         }
 
         return exitedOnItsOwn;
@@ -235,7 +222,7 @@ public sealed class ProcessRunnerInstance : IRunnerInstance
         // just not talking) and its protocol-mismatch path (the runner is perfectly healthy, it just
         // speaks the wrong version). Killing first makes the far end close, which is what lets the loop
         // observe EOF and finish — disposing a HEALTHY runner would otherwise hang forever.
-        KillQuietly(_process);
+        ProcessKill.Quietly(_process);
 
         if (_receiveLoop is not null)
         {
@@ -251,20 +238,5 @@ public sealed class ProcessRunnerInstance : IRunnerInstance
         await _channel.DisposeAsync().ConfigureAwait(false);
         _transport.Dispose();
         _process.Dispose();
-    }
-
-    /// <summary>Internal rather than private: the backend's own start-failure path kills a process it started but never handed to an instance.</summary>
-    internal static void KillQuietly(Process process)
-    {
-        try
-        {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-            }
-        }
-        catch
-        {
-        }
     }
 }

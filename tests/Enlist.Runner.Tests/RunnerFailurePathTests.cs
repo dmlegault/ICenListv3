@@ -132,18 +132,5 @@ public sealed class RunnerFailurePathTests
     private static Task<T> ReceiveAsync<T>(StubAgent agent) where T : RunnerMessage =>
         ReceiveUntilAsync<T>(agent, _ => true);
 
-    private static async Task<T> ReceiveUntilAsync<T>(StubAgent agent, Func<T, bool> predicate) where T : RunnerMessage
-    {
-        using var cts = new CancellationTokenSource(Step);
-        while (true)
-        {
-            var message = await agent.Channel.ReceiveAsync(cts.Token)
-                ?? throw new InvalidOperationException($"the channel closed before a matching {typeof(T).Name} arrived.");
-
-            if (message is T match && predicate(match))
-            {
-                return match;
-            }
-        }
-    }
+    private static Task<T> ReceiveUntilAsync<T>(StubAgent agent, Func<T, bool> predicate) where T : RunnerMessage => agent.NextMatchingAsync(Step, predicate);
 }

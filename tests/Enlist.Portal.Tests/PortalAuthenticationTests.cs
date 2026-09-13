@@ -25,7 +25,7 @@ public sealed class PortalAuthenticationTests : IAsyncLifetime
     private const string Everyone = @"NT AUTHORITY\Authenticated Users";
     private const string Nobody = @"BUILTIN\Guests";
 
-    private static readonly IReadOnlyDictionary<string, string> Required = new Dictionary<string, string> { ["Authentication__Mode"] = "Required" };
+    private static readonly IReadOnlyDictionary<string, string> Required = AuthenticationMode.Required;
 
     private ControlPlaneTestServer? _controlPlane;
     private string _portalKey = "";

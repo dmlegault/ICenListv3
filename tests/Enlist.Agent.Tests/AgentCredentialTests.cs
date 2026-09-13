@@ -21,7 +21,7 @@ namespace Enlist.Agent.Tests;
 /// </summary>
 public sealed class AgentCredentialTests : IAsyncLifetime
 {
-    private static readonly IReadOnlyDictionary<string, string> Required = new Dictionary<string, string> { ["Authentication__Mode"] = "Required" };
+    private static readonly IReadOnlyDictionary<string, string> Required = AuthenticationMode.Required;
 
     private readonly string _dataRoot = Path.Combine(Path.GetTempPath(), "enlist-credential-tests-" + Guid.NewGuid().ToString("N"));
     private readonly string _agentName = "cred-agent-" + Guid.NewGuid().ToString("N")[..8];
@@ -102,17 +102,17 @@ public sealed class AgentCredentialTests : IAsyncLifetime
         var host = await StartHostAsync(credential, refetchInterval: TimeSpan.FromHours(1));
         var appName = RepoPaths.UniqueAppName();
         var rule = await CreatePolicyAsync(appName);
-        await WaitUntilAsync(() => host.Instances.ContainsKey(appName), TimeSpan.FromSeconds(30),
+        await Poll.UntilAsync(() => host.Instances.ContainsKey(appName), TimeSpan.FromSeconds(30),
             "the agent never started the application: the push did not reach it, or the policy fetch was refused.");
 
         // Its status reports and capability reports were accepted as itself.
-        await WaitUntilAsync(async () => (await GetAgentAsync()).Capabilities?.PushChannel == PushChannelStates.Connected, TimeSpan.FromSeconds(30),
+        await Poll.UntilAsync(async () => (await GetAgentAsync()).Capabilities?.PushChannel == PushChannelStates.Connected, TimeSpan.FromSeconds(30),
             "the control plane never accepted this agent's capability report.");
         Assert.True((await _operator!.GetAsync($"/api/agents/{_agentName}/report/latest")).IsSuccessStatusCode, "no status report from this agent reached the control plane.");
 
         var stop = await _operator.PutAsJsonAsync($"/api/application-policies/{rule.Id}", new UpdateApplicationPolicyRequest(null, "Stopped", null));
         stop.EnsureSuccessStatusCode();
-        await WaitUntilAsync(() => !host.Instances.ContainsKey(appName), TimeSpan.FromSeconds(30), "the second push never reached the agent.");
+        await Poll.UntilAsync(() => !host.Instances.ContainsKey(appName), TimeSpan.FromSeconds(30), "the second push never reached the agent.");
     }
 
     [Fact]
@@ -161,17 +161,17 @@ public sealed class AgentCredentialTests : IAsyncLifetime
         var host = await StartHostAsync(credential, refetchInterval: TimeSpan.FromSeconds(2));
         var appName = RepoPaths.UniqueAppName();
         await CreatePolicyAsync(appName);
-        await WaitUntilAsync(() => host.Instances.ContainsKey(appName), TimeSpan.FromSeconds(30), "the application never started.");
+        await Poll.UntilAsync(() => host.Instances.ContainsKey(appName), TimeSpan.FromSeconds(30), "the application never started.");
 
         await _server.RunCliAsync("revoke-agent", "--name", _agentName);
 
         // From the next fetch on, every call is refused. The application is untouched, and the agent
         // log says why - once, with the remedy, not once per refused call.
-        await WaitUntilAsync(() => AgentLog().Contains("Authentication to the control plane failed"), TimeSpan.FromSeconds(30),
+        await Poll.UntilAsync(() => AgentLog().Contains("Authentication to the control plane failed"), TimeSpan.FromSeconds(30),
             "the agent never said its credential was rejected.");
         await Task.Delay(TimeSpan.FromSeconds(6));
         Assert.True(host.Instances.ContainsKey(appName), "a rejected credential stopped a running application.");
-        Assert.Equal(1, Regex.Matches(AgentLog(), "Authentication to the control plane failed").Count);
+        Assert.Single(Regex.Matches(AgentLog(), "Authentication to the control plane failed"));
         Assert.Contains("--join-token", AgentLog());
 
         // A restart with nothing but the stored credential cannot proceed, and says what to do.
@@ -245,24 +245,5 @@ public sealed class AgentCredentialTests : IAsyncLifetime
         return Directory.Exists(logs)
             ? string.Join(Environment.NewLine, Directory.GetFiles(logs, "agent-*.log").Select(File.ReadAllText))
             : "";
-    }
-
-    private static Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout, string failure) =>
-        WaitUntilAsync(() => Task.FromResult(condition()), timeout, failure);
-
-    private static async Task WaitUntilAsync(Func<Task<bool>> condition, TimeSpan timeout, string failure)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            if (await condition())
-            {
-                return;
-            }
-
-            await Task.Delay(250);
-        }
-
-        Assert.Fail(failure);
     }
 }

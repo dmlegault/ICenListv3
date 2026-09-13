@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text.RegularExpressions;
 
 using Enlist.ControlPlane.Contracts;
 using Enlist.TestSupport;
@@ -23,7 +22,7 @@ namespace Enlist.ControlPlane.Tests;
 public sealed class AuthenticationTests : IAsyncLifetime
 {
     private static readonly TimeSpan Ready = TimeSpan.FromSeconds(30);
-    private static readonly IReadOnlyDictionary<string, string> Required = new Dictionary<string, string> { ["Authentication__Mode"] = "Required" };
+    private static readonly IReadOnlyDictionary<string, string> Required = AuthenticationMode.Required;
 
     private ControlPlaneTestServer? _server;
     private HttpClient _client = null!;
@@ -65,7 +64,7 @@ public sealed class AuthenticationTests : IAsyncLifetime
     [Fact]
     public async Task A_join_token_enrolls_an_agent_once_and_the_credential_is_bound_to_that_name()
     {
-        var joinToken = Secret(await _server!.RunCliAsync("create-join-token", "--uses", "1"), "token");
+        var joinToken = await _server!.CreateJoinTokenAsync("--uses", "1");
 
         var enrolled = await EnrollAsync(joinToken, "WEB-07");
         Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
@@ -96,7 +95,7 @@ public sealed class AuthenticationTests : IAsyncLifetime
     [Fact]
     public async Task A_name_that_already_holds_a_credential_cannot_be_enrolled_again_until_it_is_revoked()
     {
-        var joinToken = Secret(await _server!.RunCliAsync("create-join-token", "--uses", "3"), "token");
+        var joinToken = await _server!.CreateJoinTokenAsync("--uses", "3");
 
         var first = await EnrollAsync(joinToken, "WEB-09");
         Assert.Equal(HttpStatusCode.Created, first.StatusCode);
@@ -121,8 +120,8 @@ public sealed class AuthenticationTests : IAsyncLifetime
     [Fact]
     public async Task API_keys_carry_a_role_and_deleting_an_agent_revokes_its_credential()
     {
-        var viewer = Secret(await _server!.RunCliAsync("create-api-key", "--name", "dashboard", "--role", "Viewer"), "key");
-        var operatorKey = Secret(await _server.RunCliAsync("create-api-key", "--name", "ops", "--role", "Operator", "--expires", "never"), "key");
+        var viewer = await _server!.CreateApiKeyAsync("dashboard", "Viewer");
+        var operatorKey = await _server.CreateApiKeyAsync("ops", "Operator", "--expires", "never");
 
         // Viewer: reads yes, writes no.
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Get, "/api/agents", viewer)).StatusCode);
@@ -133,7 +132,7 @@ public sealed class AuthenticationTests : IAsyncLifetime
 
         // Enroll WEB-10, then delete it as an Operator: the credential goes with the agent (cascade),
         // so DELETE is a revocation with no second step.
-        var joinToken = Secret(await _server.RunCliAsync("create-join-token"), "token");
+        var joinToken = await _server.CreateJoinTokenAsync();
         var agentToken = (await (await EnrollAsync(joinToken, "WEB-10")).Content.ReadFromJsonAsync<EnrollAgentResponse>())!.AgentToken;
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Get, "/api/agents/WEB-10/policies", agentToken)).StatusCode);
 
@@ -149,7 +148,7 @@ public sealed class AuthenticationTests : IAsyncLifetime
     [Fact]
     public async Task The_hub_admits_an_agent_to_its_own_group_only_and_nobody_without_a_credential()
     {
-        var joinToken = Secret(await _server!.RunCliAsync("create-join-token"), "token");
+        var joinToken = await _server!.CreateJoinTokenAsync();
         var agentToken = (await (await EnrollAsync(joinToken, "WEB-11")).Content.ReadFromJsonAsync<EnrollAgentResponse>())!.AgentToken;
         var hubUrl = new Uri(_server.BaseUri, ApplicationPolicyHubContract.HubPath.TrimStart('/'));
 
@@ -173,8 +172,8 @@ public sealed class AuthenticationTests : IAsyncLifetime
     [Fact]
     public async Task Authentication_cannot_be_turned_off_on_an_address_that_is_not_loopback()
     {
-        var off = new Dictionary<string, string> { ["Authentication__Mode"] = "Off" };
-        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => ControlPlaneTestServer.StartAsync(Ready, off, listenUrls: "http://0.0.0.0:0"));
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => ControlPlaneTestServer.StartAsync(Ready, AuthenticationMode.Off, listenUrls: "http://0.0.0.0:0"));
         Assert.Contains("off loopback", refused.Message);
         Assert.Contains("no override", refused.Message);
     }
@@ -236,13 +235,5 @@ public sealed class AuthenticationTests : IAsyncLifetime
         var request = new HttpRequestMessage(method, path);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
         return request;
-    }
-
-    /// <summary>The secret a verb prints once, on its "  key: …" / "  token: …" line.</summary>
-    private static string Secret(string cliOutput, string label)
-    {
-        var match = Regex.Match(cliOutput, $@"^\s*{label}:\s*(\S+)\s*$", RegexOptions.Multiline);
-        Assert.True(match.Success, $"no '{label}:' line in:{Environment.NewLine}{cliOutput}");
-        return match.Groups[1].Value;
     }
 }

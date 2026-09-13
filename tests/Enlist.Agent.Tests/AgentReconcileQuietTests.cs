@@ -122,18 +122,18 @@ public sealed class AgentReconcileQuietTests : IAsyncLifetime
             Applications = { new ApplicationAssignment { Name = app.Name, Path = app.Path, DesiredState = DesiredState.Stopped, RuntimeFlavor = "dotnet-on-a-toaster" } },
         });
 
-        await WaitUntilAsync(() => Occurrences(AgentLog(), "desired state is Stopped - not starting") == 2);
+        await SettleAsync(() => Occurrences(AgentLog(), "desired state is Stopped - not starting") == 2);
         Assert.Equal(2, Occurrences(AgentLog(), "desired state is Stopped - not starting"));
     }
 
-    private static async Task WaitUntilAsync(Func<bool> condition, int timeoutSeconds = 10)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(timeoutSeconds);
-        while (DateTime.UtcNow < deadline && !condition())
-        {
-            await Task.Delay(100);
-        }
-    }
+    /// <summary>
+    /// Give the agent up to ten seconds to do the thing, then let the assertion that follows report
+    /// what it actually found. The timeout is not itself a failure here: every caller is asserting on
+    /// a COUNT of log lines, so "it never reached two" and "it reached three" both want the count in
+    /// the message, which only the assertion can give.
+    /// </summary>
+    private static Task SettleAsync(Func<bool> condition) =>
+        Poll.TryUntilAsync(condition, TimeSpan.FromSeconds(10), TimeSpan.FromMilliseconds(100));
 
     [Fact]
     public async Task A_terminal_configuration_failure_is_said_once_not_once_per_refetch()
@@ -164,7 +164,7 @@ public sealed class AgentReconcileQuietTests : IAsyncLifetime
             Applications = { new ApplicationAssignment { Name = app.Name, Path = app.Path, RuntimeFlavor = "dotnet-on-a-bicycle" } },
         });
 
-        await WaitUntilAsync(() => AgentLog().Contains("dotnet-on-a-bicycle", StringComparison.Ordinal));
+        await SettleAsync(() => AgentLog().Contains("dotnet-on-a-bicycle", StringComparison.Ordinal));
         Assert.Contains("requires runtime flavor 'dotnet-on-a-bicycle'", AgentLog());
         Assert.Equal(1, Occurrences(AgentLog(), "requires runtime flavor 'dotnet-on-a-toaster'"));
     }

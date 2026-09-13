@@ -18,6 +18,4 @@ public sealed class AuthenticationOptions
     public bool IsOff => AuthenticationModes.IsOff(Mode);
 
     public bool IsRequired => !IsOff;
-
-    public bool IsKnownMode => AuthenticationModes.IsKnown(Mode);
 }

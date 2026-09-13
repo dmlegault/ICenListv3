@@ -37,7 +37,7 @@ public sealed record ServiceInfo(string Name, string? Description, string TypeNa
 /// <summary>
 /// Whether isolation actually engaged for this application. Unlike the modern runner's
 /// PluginLoadContext (AssemblyLoadContext-based, per-application dependency resolution),
-/// LegacyPluginLoadContext provides no real isolation in this first cut — see its own doc comment.
+/// LegacyPluginLoadContext provides no real isolation - see its own doc comment.
 /// This runner always reports DepsFilesFound=0/ResolverCount=0/PrivateResolutionCount=0/no orphans,
 /// honestly, rather than fabricating isolation metrics that don't apply to how it actually loads
 /// plugins. AgentHost's existing "isolation did not engage" log line will therefore always fire for a

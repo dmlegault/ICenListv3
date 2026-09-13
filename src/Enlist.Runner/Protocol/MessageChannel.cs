@@ -4,15 +4,17 @@ using System.Text.Json;
 namespace Enlist.Runner.Protocol;
 
 /// <summary>
-/// Newline-delimited JSON over a Stream (in practice a NamedPipeClientStream/NamedPipeServerStream —
-/// System.IO.Pipes is BCL, so this stays within the zero-PackageReference rule). One JSON object per
-/// line: System.Text.Json escapes embedded newlines within string values, so a multi-line log message
-/// still serializes to exactly one line on the wire.
+/// Newline-delimited JSON over any Stream — a named pipe by default, a Unix domain socket, or a TCP
+/// connection dialled in through a container engine's port proxy. All three are BCL, so this stays
+/// within the zero-PackageReference rule. One JSON object per line: System.Text.Json escapes embedded
+/// newlines within string values, so a multi-line log message still serializes to exactly one line on
+/// the wire.
 ///
 /// TOut/TIn are the polymorphic base types (RunnerMessage/AgentCommand) — generic so the SAME class
 /// serves both ends of the pipe: the runner is a MessageChannel&lt;RunnerMessage, AgentCommand&gt;,
-/// and a test harness or the future agent is the mirror image, MessageChannel&lt;AgentCommand,
-/// RunnerMessage&gt;, all without either side referencing the other's project.
+/// and the agent (or a test harness) is the mirror image, MessageChannel&lt;AgentCommand,
+/// RunnerMessage&gt;. The "without either side referencing the other's project" this used to claim was
+/// true only while the agent did not exist: Enlist.Agent references this project directly.
 ///
 /// Reading is bounded and tolerant. A line longer than <see cref="MaxLineChars"/> is dropped rather
 /// than allocated (the only thing that size is a runaway log line), and a line that is not a message
@@ -28,7 +30,6 @@ public sealed class MessageChannel<TOut, TIn> : IAsyncDisposable
 
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
-    private readonly Stream _stream;
     private readonly StreamWriter _writer;
     private readonly StreamReader _reader;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
@@ -43,7 +44,6 @@ public sealed class MessageChannel<TOut, TIn> : IAsyncDisposable
 
     public MessageChannel(Stream stream)
     {
-        _stream = stream;
         _writer = new StreamWriter(stream, Utf8NoBom, bufferSize: 4096, leaveOpen: true) { AutoFlush = false, NewLine = "\n" };
         _reader = new StreamReader(stream, Utf8NoBom, detectEncodingFromByteOrderMarks: false, bufferSize: 4096, leaveOpen: true);
     }

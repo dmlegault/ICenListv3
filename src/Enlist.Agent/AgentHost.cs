@@ -4,7 +4,6 @@ using Enlist.Agent.Configuration;
 using Enlist.Agent.Hosting;
 using Enlist.Agent.Logging;
 using Enlist.Agent.Scheduling;
-using Enlist.Agent.Staging;
 using Enlist.Agent.Status;
 using Enlist.Agent.Supervision;
 using Enlist.ControlPlane.Contracts;
@@ -397,10 +396,21 @@ public sealed class AgentHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// Serializes the lifecycle operations of ONE application — start, stop, restart, crash cleanup —
+    /// Serializes the lifecycle operations of ONE application - start, stop, restart, crash cleanup -
     /// against each other, without serializing applications against one another. Callers of
     /// StartApplicationAsync, StopApplicationAsync and the crash-exit cleanup hold this; nothing else
     /// needs it (see the concurrency model on the registries above).
+    ///
+    /// An application's gate is never removed, not even when the application is unassigned, and that
+    /// is deliberate. Removing it is the racy operation: a caller that has already taken the gate can
+    /// still be inside its action when the entry is dropped, and the next caller would then GetOrAdd a
+    /// FRESH semaphore and run that application's lifecycle concurrently with the first - losing
+    /// exactly the guarantee this method exists to provide. Doing it safely means reference counting,
+    /// which is a lot of machinery to reclaim a SemaphoreSlim. The dictionary is bounded by the number
+    /// of DISTINCT application names ever assigned to this agent (names recur across redeployments;
+    /// they are not per-deployment), so it settles rather than grows with time. Nothing disposes these
+    /// either: SemaphoreSlim only holds an unmanaged handle once AvailableWaitHandle is read, and
+    /// nothing here reads it.
     /// </summary>
     private async Task WithLifecycleGateAsync(string applicationName, Func<Task> action)
     {
@@ -1306,10 +1316,10 @@ public sealed class AgentHost : IAsyncDisposable
     /// Every other WriteStatusSnapshotAsync call site fires because something actually changed (a
     /// service/job state transition, a reconciliation pass). None of that happens while everything is
     /// simply running fine with nothing new to say — so without this loop, a healthy, quiet agent would
-    /// go silent indefinitely, and anything watching report age (see AppInstancePanel's Stale
-    /// indicator) would eventually — and wrongly — read that silence as the agent being gone. This
-    /// sends the SAME snapshot shape on a timer regardless, purely so "last report" keeps advancing
-    /// during otherwise-uneventful stretches.
+    /// go silent indefinitely, and anything watching report age (see the portal's staleness handling
+    /// in RunningInstancesTable) would eventually — and wrongly — read that silence as the agent
+    /// being gone. This sends the SAME snapshot shape on a timer regardless, purely so "last
+    /// report" keeps advancing during otherwise-uneventful stretches.
     /// </summary>
     private async Task RunHeartbeatLoopAsync(CancellationToken ct)
     {

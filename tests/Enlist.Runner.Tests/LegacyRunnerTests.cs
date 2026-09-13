@@ -124,47 +124,10 @@ public sealed class LegacyRunnerTests
         Assert.True(await agent.WaitForExitAsync(Step));
     }
 
-    private static async Task<T> Receive<T>(StubAgent agent) where T : RunnerMessage
-    {
-        using var cts = new CancellationTokenSource(Step);
-        var message = await agent.Channel.ReceiveAsync(cts.Token);
-        return Assert.IsType<T>(message);
-    }
+    private static Task<T> Receive<T>(StubAgent agent) where T : RunnerMessage => agent.NextAsync<T>(Step);
 
-    private static async Task<T> ReceiveUntil<T>(StubAgent agent, Func<T, bool> predicate) where T : RunnerMessage
-    {
-        using var cts = new CancellationTokenSource(Step);
-        while (true)
-        {
-            var message = await agent.Channel.ReceiveAsync(cts.Token)
-                ?? throw new InvalidOperationException($"Pipe closed while waiting for a {typeof(T).Name} matching the predicate.");
-
-            if (message is T typed && predicate(typed))
-            {
-                return typed;
-            }
-        }
-    }
+    private static Task<T> ReceiveUntil<T>(StubAgent agent, Func<T, bool> predicate) where T : RunnerMessage => agent.NextMatchingAsync(Step, predicate);
 
     /// <summary>Waits for exit while still reading — a Windows named-pipe flush does not complete until the peer has consumed it, so a test that stops reading can park the runner's outbound pump on its way out. Same lesson as JobCancellationTests.</summary>
-    private static async Task<bool> DrainUntilExitAsync(StubAgent agent)
-    {
-        var drain = Task.Run(async () =>
-        {
-            try
-            {
-                while (await agent.Channel.ReceiveAsync(CancellationToken.None).ConfigureAwait(false) is not null)
-                {
-                }
-            }
-            catch
-            {
-                // The pipe going away as the runner exits is the expected end of this loop.
-            }
-        });
-
-        var exited = await agent.WaitForExitAsync(Step).ConfigureAwait(false);
-        await Task.WhenAny(drain, Task.Delay(TimeSpan.FromSeconds(2))).ConfigureAwait(false);
-        return exited;
-    }
+    private static Task<bool> DrainUntilExitAsync(StubAgent agent) => agent.DrainUntilExitAsync(Step);
 }

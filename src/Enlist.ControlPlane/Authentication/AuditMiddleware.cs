@@ -1,8 +1,6 @@
 using System.Security.Claims;
 using System.Text;
 
-using Enlist.ControlPlane.Contracts;
-
 namespace Enlist.ControlPlane.Authentication;
 
 /// <summary>

@@ -3,10 +3,15 @@ using Enlist.ControlPlane.Contracts;
 namespace Enlist.Agent.Configuration;
 
 /// <summary>
-/// The step-2 stand-in for the control plane's eventual Assignments table (design doc section 5) —
-/// "reads assignments from a local file" per section 11's sequencing plan. Deliberately shaped like
-/// that future table already (ApplicationId/DesiredState/etc. by another name) so the control plane swaps the
-/// SOURCE of assignments without changing what an assignment IS.
+/// What one agent has been told to run, resolved: one entry per application, with the winning path or
+/// package already chosen. This is the agent's OWN vocabulary and the one place the word "assignment"
+/// survives on purpose — the control plane calls its rows application policy RULES, several of which
+/// can target one agent and have to be resolved into at most one outcome per application before the
+/// agent can act on them.
+///
+/// It reaches the agent from either of two sources, and the shape is identical from both
+/// (IAssignmentSource): the control plane, or a local JSON file via --assignments. The file mode
+/// came first and is still how the agent runs with no control plane at all.
 /// </summary>
 public sealed class AgentAssignments
 {
@@ -37,7 +42,7 @@ public sealed class ApplicationAssignment
     /// <summary>HOW this runs on this agent — in-process or in a container. Comes straight from the resolved policy rule (ApplicationPolicyDto.Isolation); never null here, because a rule with no opinion resolves to IsolationSpec.ProcessDefault, which is exactly what every rule meant before the concept existed. AgentHost picks a runner backend from Mode the same way it picks a runner-bin from RuntimeFlavor.</summary>
     public IsolationSpec Isolation { get; set; } = IsolationSpec.ProcessDefault;
 
-    /// <summary>Non-null when the control plane found two or more enabled policy rules matching this agent for this application that disagree on what should run (see ApplicationPolicyDto.ConflictReason) — Path/PackageDigest are meaningless in this case (there was no single winner to resolve them from). AgentHost.StartApplicationAsync checks this before anything else and goes straight to Failed, the same "configuration problem, not transient" posture as a missing runtime flavor.</summary>
+    /// <summary>Non-null when the control plane found two or more policy rules matching this agent for this application that disagree on what should run (see ApplicationPolicyDto.ConflictReason) — Path/PackageDigest are meaningless in this case (there was no single winner to resolve them from). AgentHost.StartApplicationAsync checks this before anything else and goes straight to Failed, the same "configuration problem, not transient" posture as a missing runtime flavor.</summary>
     public string? ConflictReason { get; set; }
 }
 

@@ -6,8 +6,10 @@ namespace Enlist.Runner.Protocol;
 /// The original transport, unchanged in behaviour: a one-instance named pipe server the runner dials
 /// into as a client. System.IO.Pipes is BCL, so this stays within the zero-PackageReference rule.
 ///
-/// Remains the default everywhere. Sockets exist for the case a named pipe cannot cross — a container
-/// boundary — not because anything was wrong with pipes.
+/// Remains the default everywhere, and is what every process-isolated application uses. The socket
+/// transport is an alternative for host-to-host use rather than a container mechanism — see
+/// UnixSocketChannelListener, whose original container rationale did not survive contact with a
+/// Windows host and a Linux container. Containers use `--listen` and TCP.
 /// </summary>
 public sealed class NamedPipeChannelListener : IChannelListener
 {

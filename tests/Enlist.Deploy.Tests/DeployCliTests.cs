@@ -18,7 +18,7 @@ namespace Enlist.Deploy.Tests;
 /// </summary>
 public sealed class DeployCliTests : IAsyncLifetime
 {
-    private static readonly IReadOnlyDictionary<string, string> Required = new Dictionary<string, string> { ["Authentication__Mode"] = "Required" };
+    private static readonly IReadOnlyDictionary<string, string> Required = AuthenticationMode.Required;
 
     private ControlPlaneTestServer? _server;
     private HttpClient _client = null!;

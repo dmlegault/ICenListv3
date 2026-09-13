@@ -118,7 +118,7 @@ else
         }
     }
 
-    private static string Group(string? name) => string.IsNullOrWhiteSpace(name) ? "not configured" : name;
+    private static string Group(string? name) => PortalAuthenticationOptions.WindowsGroups.Describe(name);
 
     /// <summary>The page's explanation, behind the help icon rather than above the tables: read once, not on every visit.</summary>
     private Task ShowHelpAsync() => DialogService.ShowMessageBox(

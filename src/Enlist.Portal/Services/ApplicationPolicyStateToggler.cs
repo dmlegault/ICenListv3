@@ -5,11 +5,15 @@ using MudBlazor;
 namespace Enlist.Portal.Services;
 
 /// <summary>
-/// Shared enable/disable-policy flow used by both the (Phase 1) ApplicationPolicies page and the agent
-/// detail panel — extracted rather than duplicated because the two call sites need identical,
-/// non-trivial logic: an explicit-agent rule can just be flipped, but a tag-selector rule fans out to
-/// every agent matching those tags (present AND future — see the confirmation text below), so it needs
-/// to resolve and show who's actually affected before applying anything.
+/// The enable/disable flow for one policy rule, used by the policy screen. It is a class of its own
+/// rather than a method on that page because the logic is not trivial and is worth stating once: a
+/// rule naming a single agent can simply be flipped, but a tag-selector rule fans out to every agent
+/// carrying those tags — present AND future, see the confirmation text below — so it has to resolve
+/// and show who is actually affected before applying anything.
+///
+/// It once served two call sites, which is why it was extracted. The other was a standalone
+/// ApplicationPolicies page that has since been folded into the Applications tab; the agent detail
+/// panel that replaced it is read-only.
 /// </summary>
 public sealed class ApplicationPolicyStateToggler
 {

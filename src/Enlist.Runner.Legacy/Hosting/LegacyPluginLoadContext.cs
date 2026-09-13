@@ -30,9 +30,9 @@ namespace Enlist.Runner.Legacy.Hosting;
 /// </summary>
 public sealed class LegacyPluginLoadContext
 {
-    private readonly string _appPath;
 
-    public LegacyPluginLoadContext(string appPath) => _appPath = appPath;
+    /// <summary>Takes the application path for symmetry with the modern PluginLoadContext, which probes it. This one does not: LoadFrom resolves from the assembly's own directory, so there is nothing to probe.</summary>
+    public LegacyPluginLoadContext(string appPath) { }
 
     /// <summary>
     /// Assembly.LoadFrom (not LoadFile) deliberately — LoadFrom participates in the CLR's normal probing

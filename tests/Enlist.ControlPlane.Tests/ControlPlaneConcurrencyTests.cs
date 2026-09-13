@@ -32,7 +32,7 @@ namespace Enlist.ControlPlane.Tests;
 public sealed class ControlPlaneConcurrencyTests : IAsyncLifetime
 {
     private const int Racers = 8;
-    private static readonly IReadOnlyDictionary<string, string> Required = new Dictionary<string, string> { ["Authentication__Mode"] = "Required" };
+    private static readonly IReadOnlyDictionary<string, string> Required = AuthenticationMode.Required;
 
     private ControlPlaneTestServer? _server;
     private HttpClient _http = null!;

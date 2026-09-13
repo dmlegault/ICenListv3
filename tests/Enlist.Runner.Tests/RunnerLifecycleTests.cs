@@ -166,25 +166,7 @@ public sealed class RunnerLifecycleTests
         }
     }
 
-    private static async Task<T> Receive<T>(StubAgent agent) where T : RunnerMessage
-    {
-        using var cts = new CancellationTokenSource(Step);
-        var message = await agent.Channel.ReceiveAsync(cts.Token);
-        return Assert.IsType<T>(message);
-    }
+    private static Task<T> Receive<T>(StubAgent agent) where T : RunnerMessage => agent.NextAsync<T>(Step);
 
-    private static async Task<T> ReceiveUntil<T>(StubAgent agent, Func<T, bool> predicate) where T : RunnerMessage
-    {
-        using var cts = new CancellationTokenSource(Step);
-        while (true)
-        {
-            var message = await agent.Channel.ReceiveAsync(cts.Token)
-                ?? throw new InvalidOperationException($"Pipe closed while waiting for a {typeof(T).Name} matching the predicate.");
-
-            if (message is T typed && predicate(typed))
-            {
-                return typed;
-            }
-        }
-    }
+    private static Task<T> ReceiveUntil<T>(StubAgent agent, Func<T, bool> predicate) where T : RunnerMessage => agent.NextMatchingAsync(Step, predicate);
 }

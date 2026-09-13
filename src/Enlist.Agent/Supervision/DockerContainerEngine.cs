@@ -1,4 +1,3 @@
-using Enlist.ControlPlane.Contracts;
 using System.Globalization;
 
 namespace Enlist.Agent.Supervision;

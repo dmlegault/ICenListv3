@@ -150,7 +150,7 @@ public sealed class PortalTestServer : IAsyncDisposable
             await Task.Delay(200).ConfigureAwait(false);
         }
 
-        KillQuietly(process);
+        ProcessKill.Quietly(process);
         throw new TimeoutException(
             $"Enlist.Portal did not become ready within {readyTimeout.TotalSeconds:0}s (address {baseUri?.ToString() ?? "never announced"}).{Environment.NewLine}" +
             $"--- portal output ---{Environment.NewLine}{CapturedOutput()}");
@@ -165,7 +165,7 @@ public sealed class PortalTestServer : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        KillQuietly(_process);
+        ProcessKill.Quietly(_process);
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -179,18 +179,4 @@ public sealed class PortalTestServer : IAsyncDisposable
     }
 
     private static readonly Regex ListeningOn = new(@"Now listening on:\s*(?<scheme>https?)://(?<host>\[[^\]]+\]|[^:/\s]+):(?<port>\d+)", RegexOptions.Compiled);
-
-    private static void KillQuietly(Process process)
-    {
-        try
-        {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-            }
-        }
-        catch
-        {
-        }
-    }
 }

@@ -8,9 +8,15 @@ namespace Enlist.Agent.Supervision;
 /// so there are two interfaces — how a unit is created (this), and how a live unit behaves (that).
 /// See docs/03-architecture/Container-Story.md §6.2.
 ///
-/// AgentHost owns RuntimeFlavor→runner-bin resolution and <see cref="Staging.RunnerStaging"/> rather
-/// than a backend, deliberately: a staging or flavor-lookup failure must go straight to Failed and
-/// never be retried, whereas a failure inside a backend lands in the crash-backoff path instead.
+/// AgentHost owns RuntimeFlavor→runner-bin resolution, deliberately: a flavor with no configured
+/// runner-bin is a configuration problem that goes straight to Failed and is never retried, because
+/// retrying will not make a runner-bin appear.
+///
+/// Staging is NOT in that group, though this said so until 2026-09-13. It moved into
+/// <see cref="ProcessRunnerBackend"/> when containers arrived - a containerised application stages
+/// nothing, its runner lives in the image - and a staging failure therefore lands in the
+/// crash-backoff path like any other backend failure, which is right: a locked file or a half-copied
+/// directory is exactly the kind of thing a retry fixes.
 /// </summary>
 public interface IRunnerBackend
 {

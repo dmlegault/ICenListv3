@@ -10,10 +10,14 @@
   </PropertyGroup>
 
   <!--
-    The one-command answer to "log into each machine individually and copy files by hand": zip a
-    build, upload it to the control plane, and create-or-update an assignment for the target
-    machine(s) or label selector — everything Enlist.ControlPlane's REST API already does, wrapped so
-    a person doesn't have to hand-type curl calls per machine to use it.
+    Half the answer to "log into each machine individually and copy files by hand": zip a build and
+    upload it to the control plane as a package, content-addressed by digest. That is all it does.
+
+    It creates no placement. WHERE a package runs is a policy rule, declared once in the portal or
+    over the API and resolved per agent by tag - deliberately not a property of the upload, so the
+    same digest can run in-process on one agent and in a container on another without being
+    re-uploaded. This comment used to say the CLI created "an assignment for the target machine(s) or
+    label selector", which was three retired terms and a behaviour it has never had since.
   -->
   <ItemGroup>
     <ProjectReference Include="..\Enlist.ControlPlane.Contracts\Enlist.ControlPlane.Contracts.csproj" />

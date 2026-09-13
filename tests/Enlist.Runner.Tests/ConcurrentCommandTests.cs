@@ -130,38 +130,7 @@ public sealed class ConcurrentCommandTests
         Assert.True(await DrainUntilExitAsync(agent));
     }
 
-    private static async Task<bool> DrainUntilExitAsync(StubAgent agent)
-    {
-        var drain = Task.Run(async () =>
-        {
-            try
-            {
-                while (await agent.Channel.ReceiveAsync(CancellationToken.None).ConfigureAwait(false) is not null)
-                {
-                }
-            }
-            catch
-            {
-                // The pipe going away as the runner exits is the expected end of this loop.
-            }
-        });
+    private static Task<bool> DrainUntilExitAsync(StubAgent agent) => agent.DrainUntilExitAsync(Step);
 
-        var exited = await agent.WaitForExitAsync(Step).ConfigureAwait(false);
-        await Task.WhenAny(drain, Task.Delay(TimeSpan.FromSeconds(2))).ConfigureAwait(false);
-        return exited;
-    }
-
-    private static async Task<T> Receive<T>(StubAgent agent) where T : RunnerMessage
-    {
-        using var cts = new CancellationTokenSource(Step);
-        while (true)
-        {
-            var message = await agent.Channel.ReceiveAsync(cts.Token)
-                ?? throw new InvalidOperationException($"channel closed while waiting for {typeof(T).Name}");
-            if (message is T typed)
-            {
-                return typed;
-            }
-        }
-    }
+    private static Task<T> Receive<T>(StubAgent agent) where T : RunnerMessage => agent.NextOfTypeAsync<T>(Step);
 }

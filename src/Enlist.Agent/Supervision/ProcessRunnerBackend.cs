@@ -98,7 +98,7 @@ public sealed class ProcessRunnerBackend : IRunnerBackend
         catch
         {
             listener.Dispose();
-            ProcessRunnerInstance.KillQuietly(process);
+            ProcessKill.Quietly(process);
             process.Dispose();
             throw;
         }
@@ -122,7 +122,7 @@ public sealed class ProcessRunnerBackend : IRunnerBackend
 
         var channel = new MessageChannel<AgentCommand, RunnerMessage>(transport);
         channel.MessageSkipped += line => _ = _logSink.WriteAgentLogAsync($"{applicationName}: {line}");
-        var instance = new ProcessRunnerInstance(applicationName, process, transport, channel, onMessage, _logSink.WriteAgentLogAsync, jobObjectAssigned);
+        var instance = new ProcessRunnerInstance(applicationName, process, transport, channel, onMessage, _logSink.WriteAgentLogAsync);
         instance.StartReceiving();
         return instance;
     }

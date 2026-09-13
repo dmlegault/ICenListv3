@@ -7,8 +7,8 @@ namespace Enlist.Runner.Protocol;
 /// a stub test harness in isolation (see docs/03-architecture/enList-v3-Design.md section 11: "testable standalone
 /// with a stub driver on the other end of the pipe"). This type and everything under it belongs only
 /// to the runner<->agent boundary, never to the plugin contract, so — unlike EnlistAttributes.cs —
-/// there is no objection to it being a normal compiled type a future Enlist.Agent project references
-/// directly, or a stub harness reproduces from this same source file.
+/// there is no objection to it being a normal compiled type Enlist.Agent references directly — which
+/// is exactly what it does — or a stub harness reproduces from this same source file.
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(typeof(ReadyMessage), "ready")]

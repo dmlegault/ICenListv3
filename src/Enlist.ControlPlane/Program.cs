@@ -156,7 +156,8 @@ app.MapHub<ApplicationPolicyHub>(ApplicationPolicyHubContract.HubPath);
 app.MapAccessEndpoints();
 
 // Liveness for load balancers, the installer's "verify this control plane URL", and anyone wondering
-// which build is answering. Unauthenticated like everything else here (review finding C2), and it
+// which build is answering. The ONE anonymous endpoint (see EndpointPolicies - everything else needs a
+// credential), and it
 // deliberately says nothing secret: a version and whether the database answers, never the connection
 // string. 200 when the database is reachable, 503 when it is not — the one degradation this process
 // can detect about itself, and the one a probe should act on. It can only ever report Unhealthy after
@@ -947,7 +948,6 @@ app.MapGet("/api/endpoints/traefik", async (ControlPlaneDbContext db) =>
 app.Run();
 return 0;
 
-/// <summary>Highest VersionNumber ever assigned under this name, plus one — including packages already garbage-collected, since VersionNumber is never reused. Not called concurrently for the same name in practice (uploads are one-at-a-time operator actions), so no extra locking beyond the DbContext's own.</summary>
 /// <summary>
 /// Numbers the package (highest existing + 1 for its application) and saves. Two uploads for one
 /// application at the same instant compute the same next number; the unique index on
@@ -974,6 +974,16 @@ static async Task SaveWithNextVersionAsync(ControlPlaneDbContext db, PackageEnti
     }
 }
 
+/// <summary>
+/// Highest VersionNumber ever assigned under this name, plus one - including packages already
+/// garbage-collected, since VersionNumber is never reused.
+///
+/// Racy on purpose, and safe because of it: two uploads can read the same maximum, and the unique
+/// index plus SaveWithNextVersionAsync's retry loop is what resolves that. This comment used to sit
+/// above SaveWithNextVersionAsync describing this method, and claimed no locking was needed because
+/// uploads are "one-at-a-time operator actions" - which the retry loop directly beneath it existed to
+/// disprove.
+/// </summary>
 static async Task<int> NextVersionNumberAsync(ControlPlaneDbContext db, string applicationName)
 {
     var highest = await db.Packages
@@ -984,14 +994,6 @@ static async Task<int> NextVersionNumberAsync(ControlPlaneDbContext db, string a
     return (highest ?? 0) + 1;
 }
 
-/// <summary>
-/// A net10.0 (SDK-style) build always emits a "&lt;AssemblyName&gt;.deps.json" alongside its DLL — a
-/// pure .NET-Core-and-later convention net472 doesn't have at all (confirmed against this repo's own
-/// two runner builds: only the modern Enlist.Runner produces one, Enlist.Runner.Legacy's net472 output
-/// never does). That single, reliable signal is all detection needs — no manifest, no user-declared
-/// flag. Reads the just-saved blob back from disk rather than the original request stream, which
-/// SaveAsync has already fully consumed by this point.
-/// </summary>
 /// <summary>Extracts the blob to a throwaway temp directory and reflects over it — MetadataLoadContext needs real file paths to resolve each DLL's dependencies against its siblings. Throws when the package cannot be scanned.</summary>
 static PackageManifestDto ScanManifest(PackageBlobStore store, string digest)
 {
@@ -1035,6 +1037,16 @@ static string? TryScanManifestJson(PackageBlobStore store, string digest, ILogge
     }
 }
 
+/// <summary>
+/// A net10.0 (SDK-style) build always emits a "&lt;AssemblyName&gt;.deps.json" alongside its DLL - a
+/// pure .NET-Core-and-later convention net472 does not have at all (confirmed against this repo's own
+/// two runner builds: only the modern Enlist.Runner produces one, Enlist.Runner.Legacy's net472 output
+/// never does). That single, reliable signal is all detection needs - no manifest, no user-declared
+/// flag. Reads the just-saved blob back from disk rather than the original request stream, which
+/// SaveAsync has already fully consumed by this point.
+///
+/// (This sat above ScanManifest, which has its own summary and does something else.)
+/// </summary>
 static string DetectRuntimeFlavor(PackageBlobStore store, string digest)
 {
     using var zipStream = store.OpenRead(digest);
@@ -1398,11 +1410,10 @@ static string TraefikServiceName(string applicationName) =>
 /// determined by inspecting the actual uploaded bytes (see DetectRuntimeFlavor), whereas anything the
 /// caller supplies is a claim about them. Were they independent, a policy would default to net10.0 no
 /// matter what the package actually is, making upload-time detection
-/// decorative and a net472 package would be routed to the modern runner. Every LegacySample rule on
-/// this project's own demo was in exactly that state.
+/// decorative and a net472 package would be routed to the modern runner.
 ///
 /// A rule pointing at a local PATH has no package to inspect, so the caller's value (or the default)
-/// stands — that is the original step-3 shape and is unaffected.
+/// stands - a path-based rule is unaffected.
 /// </summary>
 static async Task<(string? Flavor, string? Error)> ResolveRuntimeFlavorAsync(
     ControlPlaneDbContext db, string? packageDigest, string? requested)

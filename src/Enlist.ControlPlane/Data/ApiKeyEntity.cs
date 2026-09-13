@@ -1,5 +1,3 @@
-using Enlist.ControlPlane.Contracts;
-
 namespace Enlist.ControlPlane.Data;
 
 /// <summary>

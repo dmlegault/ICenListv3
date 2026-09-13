@@ -21,7 +21,7 @@ namespace Enlist.Agent.Tests;
 /// </summary>
 public sealed class ContainerCrashRestartTests : IAsyncLifetime
 {
-    private const string Image = "enlist/runner:dev";
+    private const string Image = Docker.RunnerImage;
 
     private readonly string _dataRoot = Path.Combine(Path.GetTempPath(), "enlist-container-crash-" + Guid.NewGuid().ToString("N"));
     private readonly string _appName = RepoPaths.UniqueAppName();
@@ -48,7 +48,7 @@ public sealed class ContainerCrashRestartTests : IAsyncLifetime
     [SkippableFact]
     public async Task A_killed_container_is_restarted_by_the_same_crash_path_a_process_uses()
     {
-        Skip.IfNot(await ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
+        Skip.IfNot(await Docker.ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
 
         // Declares CONTAINER isolation on the assignment, exactly as a policy rule would. This
         // is what actually selects the backend, so this also covers the selection path rather than
@@ -88,7 +88,7 @@ public sealed class ContainerCrashRestartTests : IAsyncLifetime
         await _host.StartAsync();
 
         Assert.True(
-            await WaitForAsync(() => _host.Instances.ContainsKey(_appName), TimeSpan.FromSeconds(90)),
+            await Poll.TryUntilAsync(() => _host.Instances.ContainsKey(_appName), TimeSpan.FromSeconds(90)),
             "the application never started in a container.");
 
         var original = _host.Instances[_appName].RuntimeId;
@@ -97,66 +97,14 @@ public sealed class ContainerCrashRestartTests : IAsyncLifetime
         // `docker kill` is the container equivalent of terminating a process without warning: no
         // ShutdownCommand, no cooperative anything. AgentHost must see this as a crash — NOT as a
         // requested stop — and bring the application back on its own.
-        await KillContainerAsync(original);
+        await Docker.KillAsync(original);
 
         Assert.True(
-            await WaitForAsync(
+            await Poll.TryUntilAsync(
                 () => _host.Instances.TryGetValue(_appName, out var current) && current.RuntimeId != original,
                 TimeSpan.FromSeconds(120)),
             "the application was never restarted after its container was killed.");
 
         Assert.NotEqual(original, _host.Instances[_appName].RuntimeId);
-    }
-
-    private static async Task<bool> WaitForAsync(Func<bool> condition, TimeSpan timeout)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            if (condition())
-            {
-                return true;
-            }
-
-            await Task.Delay(250);
-        }
-
-        return false;
-    }
-
-    private static Task KillContainerAsync(string containerId) => RunDockerAsync(["kill", containerId]);
-
-    private static async Task<bool> ImageAvailableAsync() => await RunDockerAsync(["image", "inspect", Image]);
-
-    private static async Task<bool> RunDockerAsync(string[] args)
-    {
-        try
-        {
-            var psi = new ProcessStartInfo("docker")
-            {
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
-
-            foreach (var arg in args)
-            {
-                psi.ArgumentList.Add(arg);
-            }
-
-            using var process = Process.Start(psi);
-            if (process is null)
-            {
-                return false;
-            }
-
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            await process.WaitForExitAsync(cts.Token);
-            return process.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
-        }
     }
 }

@@ -3,8 +3,6 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 
-using Enlist.ControlPlane.Contracts;
-
 namespace Enlist.Agent.Supervision;
 
 /// <summary>

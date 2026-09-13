@@ -21,7 +21,7 @@ namespace Enlist.Agent.Tests;
 /// </summary>
 public sealed class ContainerPortPublishingTests : IAsyncLifetime
 {
-    private const string Image = "enlist/runner:dev";
+    private const string Image = Docker.RunnerImage;
 
     private readonly string _dataRoot = Path.Combine(Path.GetTempPath(), "enlist-port-tests-" + Guid.NewGuid().ToString("N"));
 
@@ -43,7 +43,7 @@ public sealed class ContainerPortPublishingTests : IAsyncLifetime
     [SkippableFact]
     public async Task A_dynamic_port_is_allocated_by_the_engine_and_reported_back()
     {
-        Skip.IfNot(await ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
+        Skip.IfNot(await Docker.ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
 
         // HostPort null = "allocate one". This is what makes a tag-selector rule work across many
         // agents: a single hard-coded port could not serve them all.
@@ -66,7 +66,7 @@ public sealed class ContainerPortPublishingTests : IAsyncLifetime
     [SkippableFact]
     public async Task A_static_port_is_published_on_exactly_the_port_that_was_asked_for()
     {
-        Skip.IfNot(await ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
+        Skip.IfNot(await Docker.ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
 
         // A free port is picked here rather than hard-coded, so the test does not fail on a developer
         // machine that happens to be using whatever number was chosen.
@@ -87,7 +87,7 @@ public sealed class ContainerPortPublishingTests : IAsyncLifetime
     [SkippableFact]
     public async Task Environment_variables_declared_on_the_policy_reach_the_container()
     {
-        Skip.IfNot(await ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
+        Skip.IfNot(await Docker.ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
 
         // Env was accepted, stored and round-tripped by the API while ContainerRunnerBackend read it and
         // did nothing — a field that looked supported and was not. Asserting the container actually
@@ -99,32 +99,32 @@ public sealed class ContainerPortPublishingTests : IAsyncLifetime
         await using var instance = await StartAsync(isolation);
         await instance.WhenReady.WaitAsync(TimeSpan.FromSeconds(60));
 
-        var env = await RunDockerCaptureAsync(["inspect", "--format", "{{json .Config.Env}}", instance.RuntimeId]);
+        var env = await Docker.CaptureAsync("inspect", "--format", "{{json .Config.Env}}", instance.RuntimeId);
         Assert.Contains("ENLIST_REGRESSION_MARKER=present", env);
     }
 
     [SkippableFact]
     public async Task An_image_override_on_the_policy_beats_the_agents_default()
     {
-        Skip.IfNot(await ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
+        Skip.IfNot(await Docker.ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
 
         // Same class of bug: IsolationSpec.Image existed, was documented, and was ignored in favour of
         // the agent-wide image. Its point is pinning ONE application to a specific enList release during
         // a migration without reconfiguring the agent.
         var tagged = "enlist/runner:regression-alias";
-        await RunDockerCaptureAsync(["tag", Image, tagged]);
+        await Docker.CaptureAsync("tag", Image, tagged);
 
         await using var instance = await StartAsync(new IsolationSpec(IsolationModes.Container, Image: tagged));
         await instance.WhenReady.WaitAsync(TimeSpan.FromSeconds(60));
 
-        var image = await RunDockerCaptureAsync(["inspect", "--format", "{{.Config.Image}}", instance.RuntimeId]);
+        var image = await Docker.CaptureAsync("inspect", "--format", "{{.Config.Image}}", instance.RuntimeId);
         Assert.Contains("regression-alias", image);
     }
 
     [SkippableFact]
     public async Task An_application_declaring_no_ports_reports_no_endpoints()
     {
-        Skip.IfNot(await ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
+        Skip.IfNot(await Docker.ImageAvailableAsync(), $"Docker or the {Image} image is unavailable.");
 
         await using var instance = await StartAsync(new IsolationSpec(IsolationModes.Container));
         await instance.WhenReady.WaitAsync(TimeSpan.FromSeconds(60));
@@ -157,50 +157,5 @@ public sealed class ContainerPortPublishingTests : IAsyncLifetime
         var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
         listener.Stop();
         return port;
-    }
-
-    /// <summary>Runs a docker command and returns its stdout — for asserting on what the engine actually did, rather than on what the agent believes it asked for.</summary>
-    private static async Task<string> RunDockerCaptureAsync(string[] args)
-    {
-        var psi = new ProcessStartInfo("docker") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var arg in args)
-        {
-            psi.ArgumentList.Add(arg);
-        }
-
-        using var process = Process.Start(psi)!;
-        var stdout = await process.StandardOutput.ReadToEndAsync();
-        await process.WaitForExitAsync();
-        return stdout;
-    }
-
-    private static async Task<bool> ImageAvailableAsync()
-    {
-        try
-        {
-            var psi = new ProcessStartInfo("docker")
-            {
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
-            psi.ArgumentList.Add("image");
-            psi.ArgumentList.Add("inspect");
-            psi.ArgumentList.Add(Image);
-
-            using var process = Process.Start(psi);
-            if (process is null)
-            {
-                return false;
-            }
-
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            await process.WaitForExitAsync(cts.Token);
-            return process.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
-        }
     }
 }
