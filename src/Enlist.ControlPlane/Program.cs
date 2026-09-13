@@ -838,7 +838,17 @@ app.MapGet("/api/packages/{digest}", (string digest, PackageBlobStore store) =>
     }
 
     digest = PackageDigests.Normalize(digest);
-    return store.Exists(digest) ? Results.Stream(store.OpenRead(digest), "application/zip") : Results.NotFound();
+
+    // Opened inside a try rather than after an Exists check alone: the retention sweep can delete the
+    // blob between the two calls, and a package that has just been swept is a 404, not a 500.
+    try
+    {
+        return store.Exists(digest) ? Results.Stream(store.OpenRead(digest), "application/zip") : Results.NotFound();
+    }
+    catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+    {
+        return Results.NotFound();
+    }
 });
 
 // The static "what does this package contain" view — a metadata-only scan (see PackageManifestScanner),
@@ -908,7 +918,18 @@ app.MapDelete("/api/packages/{digest}", async (string digest, PackageBlobStore s
             $"'{digest}' is still referenced by {referencedBy.Count} policy rule(s) ({string.Join(", ", referencedBy)}) - repoint or delete those first.");
     }
 
-    store.TryDelete(digest);
+    // The row goes whether or not the blob did - a package the operator asked to delete must not
+    // come back on the next page load. But a blob that survives its row is an orphan NOTHING will
+    // retry: the retention sweep only ever looks at rows. Since 2026-09-13 the blob is opened with
+    // FileShare.Delete, so the common cause of this (a download in flight) no longer applies and a
+    // failure here means something an operator needs told about - a permission, a filesystem.
+    if (!store.TryDelete(digest))
+    {
+        app.Logger.LogWarning(
+            "Deleted the package row for {Digest} but could not delete its blob; the file is now orphaned and no sweep will retry it.",
+            digest);
+    }
+
     db.Packages.Remove(package);
     await db.SaveChangesAsync();
 

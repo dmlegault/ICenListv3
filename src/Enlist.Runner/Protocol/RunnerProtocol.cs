@@ -4,13 +4,12 @@ namespace Enlist.Runner.Protocol;
 /// The version of the agent↔runner wire contract — the message shapes in RunnerMessage.cs and
 /// AgentCommand.cs, and the newline-delimited JSON framing MessageChannel applies to them.
 ///
-/// This exists for a situation that cannot arise yet. Today the runner binary is staged from a
-/// directory the agent itself was deployed with, so the two literally cannot disagree. It matters the
-/// moment a runner is distributed separately from the agent — a container image being the case this
-/// was added for (docs/03-architecture/Container-Story.md §6.6) — because then an agent can be handed a runner built
-/// against a different contract, and the failure without a version check is obscure and late: a
-/// missing field deserializes to null or a default, and the application misbehaves somewhere far from
-/// the actual cause.
+/// This exists for a situation that CAN now arise. A runner staged from the directory the agent was
+/// deployed with cannot disagree with it - the two ship as one thing. A runner that arrives as a
+/// container image can: the image on a host is whatever was last pulled or built there, and an agent
+/// can be handed one built against a different contract (docs/03-architecture/Container-Story.md
+/// section 6.6). Without a version check that failure is obscure and late - a missing field
+/// deserializes to null or a default, and the application misbehaves somewhere far from the cause.
 ///
 /// Bump <see cref="Version"/> whenever a change would make an older peer misinterpret a message:
 /// removing or renaming a field, changing a field's meaning or type, or adding a field the receiver
@@ -20,18 +19,24 @@ namespace Enlist.Runner.Protocol;
 public static class RunnerProtocol
 {
     /// <summary>
-    /// Version 1 is the contract as it shipped before versioning existed — this constant names what
-    /// was already there rather than introducing a new wire format, so no behaviour changes on the day
-    /// it is added.
+    /// Version 2. Version 1 was the contract as it shipped before versioning existed; this is the
+    /// first bump, and it went in on 2026-09-13 for a change that had already happened without one.
     ///
-    /// Deliberately still 1 after <c>JobResultMessage.Success</c> (a bool) became <c>Outcome</c> (a
-    /// <see cref="JobOutcome"/>): every peer in this repository — both runners, the agent, and the
-    /// container image — is rebuilt together, so no v1-shaped peer survives the change. Bump this the
-    /// moment that stops being true, because the failure is silent: enums travel as numbers and a
+    /// <c>JobResultMessage.Success</c> (a bool) became <c>Outcome</c> (a <see cref="JobOutcome"/>),
+    /// and the version stayed at 1 on the reasoning that every peer in this repository is rebuilt
+    /// together so no v1-shaped peer could survive it. That reasoning expired when the runner started
+    /// shipping as a container image: an `enlist/runner` image built before the change is a v1-shaped
+    /// peer, still on a host, and it reports version 1 while claiming to be current.
+    ///
+    /// What that costs is worth spelling out, because it is silent. Enums travel as numbers and a
     /// missing property deserializes to its default, so an old runner's <c>"success": false</c> reads
-    /// as <c>Outcome = Succeeded</c> — a failed run reported as a clean one.
+    /// as <c>Outcome = Succeeded</c>: a failed job reported as a clean one, with nothing anywhere
+    /// saying otherwise. The bump turns that into a refusal at startup naming both versions.
+    ///
+    /// A container image built before this bump will now be refused. That is the intended effect and
+    /// the remedy is to rebuild it - see docs/02-building-applications/Container-Developer-Guide.md.
     /// </summary>
-    public const int Version = 1;
+    public const int Version = 2;
 
     /// <summary>
     /// What <see cref="ReadyMessage.ProtocolVersion"/> holds when the runner never sent one: the field

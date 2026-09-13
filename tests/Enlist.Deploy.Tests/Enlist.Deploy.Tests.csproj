@@ -19,6 +19,18 @@
   </ItemGroup>
 
   <!--
+    The same parallelism cap Enlist.ControlPlane.Tests carries, and for the same reason: every test
+    here spawns real processes, and xunit defaults maxParallelThreads to the processor count. On a
+    32-core machine that starts 32 of them at once, which the control plane assembly was found to
+    survive only up to its 92nd test - see that project for the whole story. Capping costs no wall
+    time (the bottleneck is process startup, not CPU) and stops the assembly from having a size limit
+    that depends on the hardware.
+  -->
+  <ItemGroup>
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!--
     Contracts is referenced for the DTOs the tests assert on. Enlist.Agent used to be referenced here
     too, on the strength of a comment describing "one test that proves the full pipeline: enlist-deploy
     uploads and assigns, a real AgentHost picks it up and runs it". No such test exists, and no test

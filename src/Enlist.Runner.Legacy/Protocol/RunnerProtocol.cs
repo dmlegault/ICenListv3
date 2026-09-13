@@ -17,7 +17,7 @@ namespace Enlist.Runner.Legacy.Protocol;
 public static class RunnerProtocol
 {
     /// <summary>Must equal Enlist.Runner's RunnerProtocol.Version — see that copy for when to bump, and note that leaving this one behind is the exact failure this file's header describes.</summary>
-    public const int Version = 1;
+    public const int Version = 2;
 
     /// <summary>What ReadyMessage.ProtocolVersion holds when a runner never sent one — see the modern copy for the full reasoning about why this is NOT defaulted to Version.</summary>
     public const int Unreported = 0;

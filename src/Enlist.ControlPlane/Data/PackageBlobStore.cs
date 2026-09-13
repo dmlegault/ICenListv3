@@ -87,7 +87,26 @@ public sealed class PackageBlobStore
 
     public bool Exists(string digest) => File.Exists(PathFor(digest));
 
-    public Stream OpenRead(string digest) => File.OpenRead(PathFor(digest));
+    /// <summary>
+    /// FileShare.Delete alongside FileShare.Read, which File.OpenRead does NOT give and which this
+    /// used until 2026-09-13. Without it a package being downloaded cannot be deleted on Windows: the
+    /// retention sweep's File.Delete throws a sharing violation for as long as the read is in flight,
+    /// TryDelete reports false, and the package survives to be retried on the next sweep.
+    ///
+    /// That was found as an intermittent test failure - a 1-second retention with a 300ms sweep that
+    /// sometimes did not delete a package inside TEN seconds, because the test polled the same
+    /// endpoint every 200ms and kept colliding with it. In production the collision is rarer (a
+    /// six-hour sweep against an agent downloading a package) and it self-heals on the next sweep, so
+    /// nothing was ever wrong for long; it is still a delete that fails for a reason nobody would
+    /// guess from the warning it logs.
+    ///
+    /// With FileShare.Delete the delete succeeds immediately and the in-flight reader finishes
+    /// normally: Windows unlinks the name and frees the bytes when the last handle closes. Packages
+    /// are immutable and content-addressed, so a reader finishing a file that has already been
+    /// unlinked reads exactly what it asked for.
+    /// </summary>
+    public Stream OpenRead(string digest) =>
+        new FileStream(PathFor(digest), FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
 
     /// <summary>Best-effort — called only by PackageRetentionSweepService after it's already decided a digest is safely past its grace period; a delete failing (file locked, permissions) just means it's retried on the next sweep, never a reason to fail the sweep itself.</summary>
     public bool TryDelete(string digest)

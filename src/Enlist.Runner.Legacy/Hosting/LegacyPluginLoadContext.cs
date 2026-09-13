@@ -18,19 +18,27 @@ namespace Enlist.Runner.Legacy.Hosting;
 /// before this runner could be trusted with anything. See docs/03-architecture/SAD.md §9 and docs/05-operations/Runbook.md.
 ///
 /// What this means in practice: plugin assemblies load directly into THIS process's one AppDomain via
-/// plain Assembly.LoadFrom. The zero-PackageReference rule (contracts/EnlistAttributes.cs) is still
-/// fully honored — that rule is about this project never carrying a dependency closure a plugin could
-/// collide against, and Assembly.LoadFrom needs no package to do that. What's NOT provided is
-/// isolation BETWEEN two plugins hosted by two different instances of this runner (each is still its
-/// own OS process, so that boundary holds) — the gap is narrower than it sounds, and specifically
-/// affects only a single legacy plugin whose own private dependencies collide with something already
-/// loaded into this process (there is nothing else deliberately loaded here to collide with).
+/// plain Assembly.LoadFrom, and there is no load context to separate them from what is already there.
+///
+/// That is NOT the same as "nothing is there". This comment claimed until 2026-09-13 that there was
+/// "nothing else deliberately loaded here to collide with", and that was wrong: the runner's own
+/// wire protocol needs System.Text.Json and System.Threading.Channels on net472 (see this project's
+/// csproj, which carries the same correction), and both are loaded into this same AppDomain before
+/// any plugin is. A net472 plugin shipping its own System.Text.Json at a different version collides
+/// with the runner's copy, and no binding redirects are generated for this executable.
+///
+/// What DOES hold is the process boundary. Every application gets its own runner process, so the
+/// collision surface is one plugin against those two assemblies - never one plugin against another.
+/// The zero-PackageReference rule (contracts/EnlistAttributes.cs) is honored in the sense that
+/// matters most, that the runner carries no dependency closure of its own beyond those two, but it is
+/// honored less completely here than on net10.0, where the modern runner needs neither package and
+/// AssemblyLoadContext separates what remains.
+///
 /// PluginDiscovery's own IsolationInfo is reported honestly as "did not engage" for every application
 /// this runner hosts, rather than fabricating metrics that don't apply.
 /// </summary>
 public sealed class LegacyPluginLoadContext
 {
-
     /// <summary>Takes the application path for symmetry with the modern PluginLoadContext, which probes it. This one does not: LoadFrom resolves from the assembly's own directory, so there is nothing to probe.</summary>
     public LegacyPluginLoadContext(string appPath) { }
 

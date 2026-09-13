@@ -6,12 +6,25 @@
     isolation between co-hosted legacy plugins — see Hosting/LegacyPluginLoadContext.cs).
 
     The two PackageReferences below (System.Text.Json, System.Threading.Channels) are a deliberate,
-    narrow exception to the runner's own zero-PackageReference rule — that rule exists so a PLUGIN
-    never has anything of the runner's to version-collide against (contracts/EnlistAttributes.cs's own
-    header comment). Neither package here is visible to, or loaded into the same resolution scope as,
-    any plugin assembly: both are used exclusively by this project's own runner<->agent wire protocol
-    (Protocol/), which plugin code never touches. On net10.0 both are already part of the BCL, which is
-    why the modern Enlist.Runner needs neither reference at all — net472 simply doesn't ship them.
+    narrow exception to the runner's own zero-PackageReference rule - the rule that exists so a PLUGIN
+    has nothing of the runner's to version-collide against (contracts/EnlistAttributes.cs's own header
+    comment). On net10.0 both are already part of the BCL, which is why the modern Enlist.Runner needs
+    neither reference at all; net472 simply does not ship them, and this project's runner<->agent wire
+    protocol (Protocol/) needs both.
+
+    This comment used to say the two were "not visible to, or loaded into the same resolution scope
+    as, any plugin assembly". That is not true on net472 and was corrected on 2026-09-13. There is no
+    AssemblyLoadContext here: Hosting/LegacyPluginLoadContext loads plugins with Assembly.LoadFrom
+    into this process's ONE AppDomain, where the runner's own System.Text.Json is already loaded. A
+    net472 plugin that carries its own copy at a different version is in a genuine collision with it,
+    and no binding redirects are generated for this executable, so the CLR resolves it by whichever
+    identity satisfies the reference rather than by who asked.
+
+    What limits the damage is the process boundary, not the load context: every application gets its
+    own runner process, so the surface is one plugin against these two assemblies - never plugin
+    against plugin. It is still a real gap for a net472 plugin that ships System.Text.Json, which is
+    not an exotic thing for one to do. See Hosting/LegacyPluginLoadContext.cs and
+    docs/03-architecture/SAD.md section 9.
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>

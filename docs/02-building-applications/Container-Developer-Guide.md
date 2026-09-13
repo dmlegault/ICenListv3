@@ -375,11 +375,13 @@ So the `--socket` transport built in C1, though genuinely working host-to-host, 
 
 ## 7. Protocol version
 
-`ReadyMessage.protocolVersion` (currently `1`) is checked by the agent before it acts on anything else in the message. A mismatch fails the application immediately with a clear reason and **is not retried** — a differently-versioned binary will still be differently-versioned next time.
+`ReadyMessage.protocolVersion` (currently `2`) is checked by the agent before it acts on anything else in the message. A mismatch fails the application immediately with a clear reason and **is not retried** — a differently-versioned binary will still be differently-versioned next time.
 
 This matters far more for containers than for processes: outside a container the runner is staged from a directory deployed alongside the agent, so the two literally cannot disagree. A separately-built **image** can. If you rebuild the image from a different branch than the agent, this check is what turns an obscure downstream failure into one clear log line.
 
 An old runner that predates versioning reports `0` and is diagnosed distinctly ("did not report a protocol version") from a genuine mismatch.
+
+**Version 2 went in on 2026-09-13, and any image built before that date will now be refused.** Version 1 was the pre-versioning contract. It stayed at 1 through the change that turned `JobResultMessage.success` (a bool) into `outcome` (an enum), on the reasoning that every peer is rebuilt together - which stopped being true the moment the runner shipped as an image you build separately. An image from before the change reports version 1 and its `"success": false` deserializes as `Outcome = Succeeded`, so a failed job is reported as a clean one and nothing says otherwise. The refusal replaces that silence. Rebuild the image (section 3) and it goes away.
 
 ---
 

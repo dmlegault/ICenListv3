@@ -23,6 +23,19 @@
   </ItemGroup>
 
   <!--
+    Every test in this project spawns a REAL Enlist.ControlPlane process with its own LocalDB
+    database. xunit defaults maxParallelThreads to the processor count, which on a 32-core machine
+    meant up to 32 of those starting at the same instant against one LocalDB instance - and the
+    assembly sat right on the edge of what that survives. At 92 tests it passed; the 93rd, whatever it
+    was, made fifteen unrelated classes fail together with "address never announced within 30s". A
+    capacity wall that presents as fifteen mystery failures is worse than a slow suite, so the cap is
+    explicit here rather than inherited from whatever hardware happens to run it.
+  -->
+  <ItemGroup>
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!--
     Deliberately NOT a ProjectReference to Enlist.ControlPlane itself (an ASP.NET Core / Sdk.Web
     project) — see Enlist.Agent.Tests' own note on this: mixing a Sdk.Web project's framework-supplied
     dependencies into a project that also needs privately-copied ones from elsewhere silently drops

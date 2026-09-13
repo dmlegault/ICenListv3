@@ -21,6 +21,18 @@
   </ItemGroup>
 
   <!--
+    The same parallelism cap Enlist.ControlPlane.Tests carries, and for the same reason: every test
+    here spawns real processes, and xunit defaults maxParallelThreads to the processor count. On a
+    32-core machine that starts 32 of them at once, which the control plane assembly was found to
+    survive only up to its 92nd test - see that project for the whole story. Capping costs no wall
+    time (the bottleneck is process startup, not CPU) and stops the assembly from having a size limit
+    that depends on the hardware.
+  -->
+  <ItemGroup>
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!--
     References Enlist.Portal directly: what is tested here (Services/TagSelectorMatcher,
     Services/PolicyConflictDetector) are pure functions over contract DTOs compiled into the portal
     assembly - the copies the portal keeps of decisions the control plane makes, which is exactly why
