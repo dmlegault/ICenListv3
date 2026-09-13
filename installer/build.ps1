@@ -113,6 +113,40 @@ try {
 }
 finally { Pop-Location }
 
+<#
+  -SkipPublish is for "only the WiX changed", and it will happily ship a MONTH-old binary otherwise.
+
+  That is not hypothetical. A change to ManagementCli.cs was built with -SkipPublish, packaged an
+  Enlist.ControlPlane.exe that predated it by an hour and three quarters, and the installer then
+  failed on a verb the source plainly supported - which reads as a bug in the new code rather than as
+  a stale artifact, and cost a full install-and-uninstall cycle to work out.
+
+  So the flag now refuses rather than warns. Its documented purpose still works: a pure WiX change
+  leaves every source file older than its published output.
+#>
+if ($SkipPublish) {
+    foreach ($c in $components) {
+        $published = Join-Path $publishRoot $c.Name
+        if (-not (Test-Path $published)) {
+            throw "-SkipPublish was given but $published does not exist. Run without it at least once."
+        }
+
+        $builtAt = (Get-ChildItem $published -Filter *.dll -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1).LastWriteTime
+
+        $projectDir = Split-Path (Join-Path $repoRoot $c.Project) -Parent
+        $newest = Get-ChildItem $projectDir -Recurse -File -Include *.cs, *.csproj, *.razor, *.json -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' } |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+        if ($newest -and $builtAt -and $newest.LastWriteTime -gt $builtAt) {
+            throw ("-SkipPublish would package a stale $($c.Name): $($newest.Name) changed at " +
+                "$($newest.LastWriteTime.ToString('HH:mm:ss')) but publish\ was written at $($builtAt.ToString('HH:mm:ss')). " +
+                "Run build.ps1 without -SkipPublish.")
+        }
+    }
+}
+
 if (-not $SkipPublish) {
     foreach ($c in $components) {
         $target = Join-Path $publishRoot $c.Name

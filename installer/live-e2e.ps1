@@ -20,7 +20,21 @@
 param(
     [Parameter(Mandatory = $true)] [string] $Thumbprint,
     [Parameter(Mandatory = $true)] [string] $Transcript,
-    [string] $OutDir = (Join-Path $PSScriptRoot 'out')
+    [string] $OutDir = (Join-Path $PSScriptRoot 'out'),
+
+    # NOT LocalDB, and that is the whole point of running this rather than reading it.
+    #
+    # The installer's own default is (localdb)\MSSQLLocalDB, and a LocalDB instance is PER USER. The
+    # schema is applied by the installer, running as the elevated operator; the service then runs as a
+    # service account and looks for an instance belonging to somebody else. It finds nothing, and the
+    # control plane refuses to start with "Cannot connect to the control plane database" - which is
+    # exactly what happened the first time this was run for real.
+    [string] $DatabaseServer = '.\SQLEXPRESS',
+
+    # LocalSystem rather than the NETWORK SERVICE default, because SYSTEM is the service account that
+    # has a login on a default SQL Server Express install. Named here rather than assumed, because the
+    # database grant below has to name the same account.
+    [string] $ServiceAccount = 'LocalSystem'
 )
 
 $ErrorActionPreference = 'Continue'
@@ -31,7 +45,8 @@ $script:step = 0
 # rather than that it started and said nothing. The first attempt at this produced a console window
 # that opened and closed with no output at all, which is indistinguishable from UAC being dismissed.
 "started $(Get-Date -Format s) as $env:USERNAME, elevated=$(([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)), pid=$PID" |
-    Out-File -FilePath $Transcript -Encoding utf8 -Append
+    Out-File -FilePath $Transcript -Encoding utf8   # no -Append: a fresh run starts a fresh transcript,
+                                                    # because two runs in one file read as one confusing run
 
 trap {
     "TRAP: $($_.Exception.Message)" | Out-File -FilePath $Transcript -Encoding utf8 -Append
@@ -108,6 +123,40 @@ function Service-Of([string] $name) {
 }
 
 <#
+  Starts a service WITHOUT waiting for it to settle, which is the opposite of what Start-Service does
+  and the reason this script would not stop.
+
+  Every enList service is configured to restart on failure (util:ServiceConfig), so a service that
+  cannot start does not fail - it crashes, waits sixty seconds, and crashes again, for ever.
+  Start-Service sits in that loop. The control plane refusing to start because it cannot reach its
+  database is precisely that case, and it turned a clear failure into a script nobody could get out
+  of except by killing it.
+
+  sc.exe returns as soon as the SCM accepts the request. Whether the thing actually came up is then
+  answered by asking it over HTTP, which is the question worth asking anyway.
+#>
+function Request-ServiceStart([string] $name) {
+    & sc.exe start $name *>$null
+}
+
+<#
+  Stops a service and its restart-on-failure loop. `sc stop` alone races the recovery action, so the
+  recovery is disarmed first - otherwise the uninstall meets a service that keeps coming back.
+#>
+function Request-ServiceStop([string] $name) {
+    if (-not (Service-Of $name)) { return }
+    & sc.exe failure $name reset= 0 actions= "" *>$null
+    & sc.exe stop $name *>$null
+
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $deadline) {
+        $state = (Service-Of $name).State
+        if (-not $state -or $state -eq 'Stopped') { return }
+        Start-Sleep -Milliseconds 500
+    }
+}
+
+<#
   Runs the bundle and waits for THE BUNDLE, which is not what Start-Process -Wait does.
 
   -Wait waits for the process TREE, and an MSI install leaves msiexec.exe alive for about ten
@@ -143,9 +192,7 @@ try {
     # nothing at all.
     if (@(Get-Package -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^enList' }).Count -gt 0) {
         Say "    enList is already installed; removing it first"
-        foreach ($name in 'enlist-agent', 'enlist-portal', 'enlist-controlplane') {
-            Stop-Service $name -Force -ErrorAction SilentlyContinue
-        }
+        foreach ($name in "enlist-agent", "enlist-portal", "enlist-controlplane") { Request-ServiceStop $name }
 
         $exit = Invoke-Bundle @('/uninstall', '/quiet', '/norestart')
         Check ($exit -eq 0) "the previous install was removed" "exit $exit"
@@ -166,7 +213,10 @@ try {
         'INSTALLTYPE=Server',
         "CP_CERT=$Thumbprint",
         "PORTAL_CERT=$Thumbprint",
-        "PORTAL_CPURL=$cpUrl"
+        "PORTAL_CPURL=$cpUrl",
+        "DB_SERVER=$DatabaseServer",
+        "CP_ACCOUNT=$ServiceAccount",
+        "PORTAL_ACCOUNT=$ServiceAccount"
     )
     Say "    $setup $($arguments -join ' ')"
     $exit = Invoke-Bundle $arguments
@@ -180,7 +230,12 @@ try {
     if ($cp) {
         Check ($cp.State -eq 'Stopped') "it is created STOPPED, as designed" $cp.State
         Check ($cp.StartMode -eq 'Auto') "start type is Auto" $cp.StartMode
-        Check ($cp.PathName -match [regex]::Escape("--Certificate:Thumbprint=$Thumbprint")) "the certificate reached the service command line"
+        # Quotes optional: MSI writes the value quoted, and asserting the bare form reported a FAIL
+        # for a certificate that had arrived perfectly.
+        # The quote is optional in this pattern because MSI writes the value quoted. Asserting the
+        # bare form reported FAIL for a certificate that had arrived perfectly correctly.
+        # Single-quoted: PowerShell does not escape with a backslash, so "\"" ends the string.
+        Check ($cp.PathName -match ('--Certificate:Thumbprint="?' + [regex]::Escape($Thumbprint))) "the certificate reached the service command line"
         Check ($cp.PathName -notmatch 'JOINTOKEN|enlj_|Password') "no secret is on the command line"
     }
 
@@ -197,7 +252,10 @@ try {
 
         $acl = Get-Acl $settings
         Check ($acl.AreAccessRulesProtected) "its ACL is closed (inheritance off)"
-        Check (@($acl.Access | Where-Object { $_.IdentityReference -like '*NETWORK SERVICE*' }).Count -gt 0) "the portal's service account can read it"
+        # Whichever account the services were told to run as - the grant is made for that one, so the
+        # assertion has to look for that one rather than for the default.
+        $expectedReader = if ($ServiceAccount -match 'LocalSystem|SYSTEM') { '*SYSTEM*' } else { '*' + ($ServiceAccount -split '\\')[-1] + '*' }
+        Check (@($acl.Access | Where-Object { $_.IdentityReference -like $expectedReader }).Count -gt 0) "the portal's service account can read it"
     }
 
     # The schema: the control plane refuses to start without it, so this is proved by the start below
@@ -205,7 +263,7 @@ try {
     # outside and this separates them.
     $dbOk = $false
     try {
-        $connection = New-Object System.Data.SqlClient.SqlConnection "Server=(localdb)\MSSQLLocalDB;Database=EnlistControlPlane;Trusted_Connection=True;TrustServerCertificate=True;Connect Timeout=15"
+        $connection = New-Object System.Data.SqlClient.SqlConnection "Server=$DatabaseServer;Database=EnlistControlPlane;Trusted_Connection=True;TrustServerCertificate=True;Connect Timeout=15"
         $connection.Open()
         $command = $connection.CreateCommand()
         $command.CommandText = "SELECT COUNT(*) FROM sys.tables"
@@ -216,9 +274,42 @@ try {
     Check $dbOk "apply-schema created and migrated the database"
 
     # ---------------------------------------------------------------------------------------------
+    Phase "Give the service account rights on the database it will use"
+
+    <#
+      THE INSTALLER DOES NOT DO THIS, AND SHOULD NOT. apply-schema runs as the elevated operator,
+      who has DDL rights; the service then connects as its own account, which has none. Granting
+      database rights is a DBA's decision about a server the installer may not own - Deployment-IaC
+      1.4 splits the work across three identities precisely so an installer never holds them all.
+
+      So this is the step an operator performs, performed here, to prove the rest works once it has
+      been. It is the one part of this script that is setup rather than verification.
+    #>
+    $login = if ($ServiceAccount -match '^LocalSystem$') { 'NT AUTHORITY\SYSTEM' } else { $ServiceAccount }
+    $granted = $false
+    try {
+        $connection = New-Object System.Data.SqlClient.SqlConnection "Server=$DatabaseServer;Database=EnlistControlPlane;Trusted_Connection=True;TrustServerCertificate=True;Connect Timeout=20"
+        $connection.Open()
+        $command = $connection.CreateCommand()
+        $command.CommandText = @"
+IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'$login')
+    CREATE LOGIN [$login] FROM WINDOWS;
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'$login')
+    CREATE USER [$login] FOR LOGIN [$login];
+ALTER ROLE db_owner ADD MEMBER [$login];
+"@
+        $command.ExecuteNonQuery() | Out-Null
+        $connection.Close()
+        $granted = $true
+    }
+    catch { Say "    (grant failed: $($_.Exception.Message.Split([Environment]::NewLine)[0]))" }
+
+    Check $granted "$login can use the control plane database"
+
+    # ---------------------------------------------------------------------------------------------
     Phase "Start the control plane and talk to it over TLS"
 
-    Start-Service enlist-controlplane -ErrorAction SilentlyContinue
+    Request-ServiceStart "enlist-controlplane"
     $health = Wait-Http "$cpUrl/health"
     Check ($null -ne $health) "it answers on $cpUrl"
     if ($health) {
@@ -241,7 +332,7 @@ try {
     # ---------------------------------------------------------------------------------------------
     Phase "Start the portal and talk to it over TLS"
 
-    Start-Service enlist-portal -ErrorAction SilentlyContinue
+    Request-ServiceStart "enlist-portal"
     $portalResponse = Wait-Http 'https://localhost:5231/' 60
     Check ($null -ne $portalResponse) "the portal answers on https://localhost:5231"
     if ($portalResponse) { Say "    portal status: $([int]$portalResponse.StatusCode)" }
@@ -250,7 +341,7 @@ try {
     # ---------------------------------------------------------------------------------------------
     Phase "Mint a join token and enroll an agent against the running control plane"
 
-    $env:ConnectionStrings__ControlPlane = "Server=(localdb)\MSSQLLocalDB;Database=EnlistControlPlane;Trusted_Connection=True;TrustServerCertificate=True;"
+    $env:ConnectionStrings__ControlPlane = "Server=$DatabaseServer;Database=EnlistControlPlane;Trusted_Connection=True;TrustServerCertificate=True;"
     $tokenOutput = & (Join-Path $cpDir 'Enlist.ControlPlane.exe') create-join-token --uses 1 2>&1 | Out-String
     $joinToken = ([regex]::Match($tokenOutput, 'enlj_\S+')).Value
     Check ($joinToken.Length -gt 5) "create-join-token produced a token"
@@ -263,7 +354,13 @@ try {
             "/log", (Join-Path $env:TEMP 'enlist-e2e-agent.log'),
             'INSTALLTYPE=Server', 'InstallAgent=1',
             "CP_CERT=$Thumbprint", "PORTAL_CERT=$Thumbprint", "PORTAL_CPURL=$cpUrl",
+            # The SAME settings as the first call, not just the new ones. A bundle variable not given
+            # again falls back to its declared default, and the post-install steps are recomputed from
+            # the whole plan - so omitting these re-granted the certificate to NETWORK SERVICE on a
+            # machine where the services run as LocalSystem.
+            "DB_SERVER=$DatabaseServer", "CP_ACCOUNT=$ServiceAccount", "PORTAL_ACCOUNT=$ServiceAccount",
             "AGENT_CPURL=$cpUrl",
+            "AGENT_ACCOUNT=$ServiceAccount",
             "AGENT_JOINTOKEN=$joinToken"
         )
         $exit = Invoke-Bundle $arguments
@@ -299,7 +396,7 @@ try {
         }
 
         # And the agent actually runs against it.
-        Start-Service enlist-agent -ErrorAction SilentlyContinue
+        Request-ServiceStart "enlist-agent"
         Start-Sleep -Seconds 12
         $agent = Service-Of 'enlist-agent'
         Check ($agent.State -eq 'Running') "the agent service is Running" $agent.State
@@ -320,9 +417,7 @@ finally {
     # ---------------------------------------------------------------------------------------------
     Phase "Uninstall, and leave the machine as it was found"
 
-    foreach ($name in 'enlist-agent', 'enlist-portal', 'enlist-controlplane') {
-        Stop-Service $name -Force -ErrorAction SilentlyContinue
-    }
+    foreach ($name in "enlist-agent", "enlist-portal", "enlist-controlplane") { Request-ServiceStop $name }
 
     # Only if there is something to remove. This runs in a finally, so it runs even when the install
     # never happened - and uninstalling nothing exits 1, which reported a failure for the one thing
