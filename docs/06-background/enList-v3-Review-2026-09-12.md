@@ -173,7 +173,7 @@ The finding below is kept as it was written.
 
 Separately, **razor markup** carries ~25 more em dashes. That is user-visible text the rule has so far tolerated. **Decide once**: extend the rule to markup, or write the exemption down.
 
-## 6. Documentation
+## 6. Documentation — COMPLETE (`f1b14b5`)
 
 **Wrong against the code** (highest value — these actively mislead):
 
@@ -190,7 +190,7 @@ Separately, **razor markup** carries ~25 more em dashes. That is user-visible te
 
 **Self-contradictions:** `Authentication-Design.md:4` says C2 is closed then says it stays open **[V]**; `BRD.md:60` lists RBAC as out of scope then describes it; `Container-Story.md:747` says C5 "remains a proposal" 70 lines after describing it as shipped, and §12 sections run 12.5 → 12.7 → 12.8 → 12.9 → 12.6; `Demo-Install-Design.md:31,143,198` still argues from "enList has no authentication" and "not negotiable while C2 is open" **[V]**.
 
-**Retired vocabulary** survives wholesale in `SRS.md §3.1-3.2` (Machine Registry, SRS-MCH-*, "Placement (Assignments)") and in `SRS.md:158-159`, which describes a master-detail portal that was never built.
+**Retired vocabulary** survives wholesale in `SRS.md §3.1-3.2` (Machine Registry, SRS-MCH-*, "Placement (Assignments)") and in `SRS.md:158-159`. ~~which describes a master-detail portal that was never built~~ — **that half was WRONG** (`f1b14b5`): both master-detail views exist, Applications and Agents, expandable rows over per-agent and per-application tables, and the agent counts include rules a tag selector fans out. Only the vocabulary was stale.
 
 **Missing** (most valuable first): no FRS functional area and no SRS requirements for *any* 2026-09-11 feature (enroll, revoke, API keys, sign-in and roles); the Developer Setup Guide never mentions that a `Required` portal needs `ControlPlane:ApiKey` via `Enlist.Portal.exe protect`, nor that an agent must be enrolled before its service definition is created; LLD has no section on the authorization algorithm; UI-UX documents neither the role-gating convention nor the new app-bar identity.
 
@@ -294,5 +294,8 @@ Done:
 
 Left:
 
-15. **§6** — the architecture and requirements docs, starting with the ten "wrong" items.
-16. **§9** — the coverage gaps worth closing.
+15. ~~§6 — the architecture and requirements docs. One finding in it was wrong and is annotated; four missing areas were written.~~ `f1b14b5`
+
+Left:
+
+16. **§9** — the coverage gaps worth closing. One of them (a successful package DELETE) closed in `c257f06`.
