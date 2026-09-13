@@ -48,8 +48,16 @@ public static class AuthenticationSetup
             throw new InvalidOperationException(violation);
         }
 
+        // Order matters, and it was wrong until 2026-09-13: the audit middleware sat AFTER
+        // UseAuthorization, which short-circuits a refused request without ever calling the next
+        // middleware. Every 401 and 403 therefore left no audit line at all - and an attempt to do
+        // something one is not permitted to do is the single most interesting thing an audit trail
+        // can hold. Found by writing the test for it (CoverageGapTests).
+        //
+        // Between the two is the only correct place. After UseAuthentication, so the line can name
+        // WHO was refused; before UseAuthorization, so the refusal comes back THROUGH it.
         app.UseAuthentication();
-        app.UseAuthorization();
         app.UseMiddleware<AuditMiddleware>();
+        app.UseAuthorization();
     }
 }

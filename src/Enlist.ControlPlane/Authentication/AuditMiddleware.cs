@@ -54,12 +54,21 @@ public sealed class AuditMiddleware
             return;
         }
 
-        if (context.GetEndpoint() is RouteEndpoint endpoint && endpoint.RoutePattern.RawText is { } pattern)
+        // An agent acting as ITSELF is telemetry, not administration - reports, log batches and
+        // capability reports arrive every few seconds from every agent, and auditing them would bury
+        // every line worth reading. The hub is a connection rather than a write, and a revoked agent
+        // retries it on a backoff, so it is skipped for the same volume reason.
+        //
+        // The exception is a 403 on an agent-tier route. That means a VALID credential was used
+        // against a route belonging to a DIFFERENT agent - rare, never accidental in normal
+        // operation, and the one agent-shaped event worth a line. A 401 there is not: a revoked or
+        // expired agent produces one every few seconds until somebody stops it, which is the volume
+        // problem again and is already visible from the agent state on the Agents page.
+        if (context.GetEndpoint() is RouteEndpoint endpoint && endpoint.RoutePattern.RawText is { } pattern
+            && (EndpointPolicies.IsHub(pattern) || EndpointPolicies.For(method, pattern) == EndpointPolicy.Agent)
+            && !(failure is null && context.Response.StatusCode == StatusCodes.Status403Forbidden))
         {
-            if (EndpointPolicies.IsHub(pattern) || EndpointPolicies.For(method, pattern) == EndpointPolicy.Agent)
-            {
-                return;
-            }
+            return;
         }
 
         if (failure is null)

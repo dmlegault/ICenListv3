@@ -12,6 +12,9 @@ public static class RepoPaths
 
     public static string RunnerBinDirectory() => Path.Combine(Root(), "src", "Enlist.Runner", "bin", "Debug", "net10.0");
 
+    /// <summary>The real net472 runner build - what an agent is pointed at with --legacy-runner-bin, and what a net472 assignment must be hosted by.</summary>
+    public static string LegacyRunnerBinDirectory() => Path.Combine(Root(), "src", "Enlist.Runner.Legacy", "bin", "Debug", "net472");
+
     public static string ControlPlaneDll() => Path.Combine(Root(), "src", "Enlist.ControlPlane", "bin", "Debug", "net10.0", "Enlist.ControlPlane.dll");
 
     public static string DeployDll() => Path.Combine(Root(), "src", "Enlist.Deploy", "bin", "Debug", "net10.0", "enlist-deploy.dll");

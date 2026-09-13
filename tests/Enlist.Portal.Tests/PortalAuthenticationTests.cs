@@ -22,6 +22,13 @@ namespace Enlist.Portal.Tests;
 /// </summary>
 public sealed class PortalAuthenticationTests : IAsyncLifetime
 {
+    /// <summary>
+    /// Set the first time a Windows sign-in actually succeeds in this process. From then on a 400
+    /// cannot be this machine refusing itself, so it is a failure rather than a skip - see
+    /// SignedInAsync.
+    /// </summary>
+    private static bool _signInHasWorkedHere;
+
     private const string Everyone = @"NT AUTHORITY\Authenticated Users";
     private const string Nobody = @"BUILTIN\Guests";
 
@@ -116,9 +123,15 @@ public sealed class PortalAuthenticationTests : IAsyncLifetime
 
         using (response)
         {
-            Skip.If(response.StatusCode == HttpStatusCode.BadRequest,
+            // A 400 here is the LSA loopback refusal - UNLESS a sign-in has already succeeded in this
+            // process, in which case the machine has demonstrably proved it can do this and a 400 is a
+            // real regression that must fail rather than skip. Skipping on ANY 400 (as this did until
+            // 2026-09-13) would have swallowed a genuine Negotiate break, which is precisely the kind
+            // of test that is worse than none: it reports green on the machine where it matters most.
+            Skip.If(response.StatusCode == HttpStatusCode.BadRequest && !_signInHasWorkedHere,
                 "Windows refused this machine's own NTLM sign-in (LSA's loopback check); a domain member, or DisableLoopbackCheck, can run this test.");
             response.EnsureSuccessStatusCode();
+            _signInHasWorkedHere = true;
             return await response.Content.ReadAsStringAsync();
         }
     }

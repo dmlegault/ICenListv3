@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using System.Security.Claims;
 using System.Security.Principal;
 
@@ -21,13 +22,13 @@ public sealed class PortalRolesTests
     private const string Everyone = @"NT AUTHORITY\Authenticated Users";
     private const string Nobody = @"BUILTIN\Guests";
 
-    [Fact]
+    [SkippableFact]
+    [SupportedOSPlatform("windows")] // Skip.IfNot below is the runtime guard; this is the one the analyzer reads.
     public async Task A_windows_identity_becomes_a_detached_principal_with_the_roles_its_groups_earn()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
+        // Skip, not an early return. Returning made this test PASS on a machine where it never ran a
+        // single assertion, which is worse than no test: a green tick that means nothing.
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows identities and group membership are a Windows facility.");
 
         using var windows = WindowsIdentity.GetCurrent();
         var options = new PortalAuthenticationOptions { Windows = { OperatorsGroup = Everyone, ViewersGroup = Nobody } };
@@ -43,13 +44,11 @@ public sealed class PortalRolesTests
         Assert.IsNotType<WindowsIdentity>(principal.Identity);
     }
 
-    [Fact]
+    [SkippableFact]
+    [SupportedOSPlatform("windows")]
     public void Group_membership_decides_the_roles_and_an_unknown_or_unconfigured_group_admits_nobody()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows identities and group membership are a Windows facility.");
 
         using var windows = WindowsIdentity.GetCurrent();
         var me = new WindowsPrincipal(windows);

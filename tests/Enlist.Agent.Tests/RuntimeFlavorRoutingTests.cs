@@ -10,11 +10,16 @@ using Enlist.TestSupport;
 namespace Enlist.Agent.Tests;
 
 /// <summary>
-/// AgentHost's runner-bin selection by RuntimeFlavor (see docs/03-architecture/SAD.md §9). No real net472 runner build exists in this repository yet, so
-/// Starts_an_application_from_its_configured_secondary_runner_bin proves the SELECTION mechanism —
-/// AgentHost actually uses the path registered for a given flavor, not just the default — by
-/// registering the one real (net10.0) runner build under a second flavor name and confirming it's the
-/// one used. It does not claim to prove a real net472 plugin can be hosted.
+/// AgentHost’s runner-bin SELECTION by RuntimeFlavor (see docs/03-architecture/SAD.md §9): that AgentHost
+/// actually uses the path registered for a given flavor rather than the default. It proves that by
+/// registering the one real (net10.0) runner build under a second flavor name and confirming it is
+/// the one used, which keeps the test about selection and nothing else.
+///
+/// It does not claim to prove a real net472 plugin can be hosted. That is
+/// LegacyApplicationEndToEndTests, added 2026-09-13 once both halves existed — and note what it took
+/// to make THAT test mean anything: written the obvious way it passed with the net10.0 runner
+/// registered under the net472 flavor, because .NET 10 loads the sample’s simple net472 assembly
+/// perfectly well. It has to check which runner build is actually executing.
 /// </summary>
 public sealed class RuntimeFlavorRoutingTests : IAsyncLifetime
 {

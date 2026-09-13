@@ -4,6 +4,8 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
 
+using Microsoft.Data.SqlClient;
+
 namespace Enlist.TestSupport;
 
 /// <summary>
@@ -138,6 +140,24 @@ public sealed class ControlPlaneTestServer : IAsyncDisposable
         }
 
         return await stdout.ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs one SQL statement against this instance’s database and returns the rows it affected.
+    ///
+    /// For the one thing a test cannot otherwise reach: TIME. The shortest expiry any surface accepts
+    /// is an hour (CredentialIssuer.Expiry), deliberately, so a test that wants to prove expiry is
+    /// actually ENFORCED cannot wait one out and has no clock to move. Ageing the row is the honest
+    /// alternative to either loosening the parser for tests or introducing a time abstraction that
+    /// only tests use - both of which would mean the thing under test is no longer the thing that
+    /// ships. Everything else in this class drives the real surfaces.
+    /// </summary>
+    public async Task<int> ExecuteSqlAsync(string sql)
+    {
+        await using var connection = new SqlConnection(ConnectionString);
+        await connection.OpenAsync().ConfigureAwait(false);
+        await using var command = new SqlCommand(sql, connection);
+        return await command.ExecuteNonQueryAsync().ConfigureAwait(false);
     }
 
     /// <summary>A join token minted by the CLI (options as the verb takes them: --uses, --expires), for a test that enrolls an agent the way an operator provisions one.</summary>
