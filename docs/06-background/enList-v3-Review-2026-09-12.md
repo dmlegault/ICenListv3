@@ -1,8 +1,14 @@
 # enList v3 — Full Regression Review, 12 September 2026
 
-**Status:** A live worklist. It began as findings only — no code was changed during the review, and
-the working tree was clean at `34007c9` — and fixes have been landing against it since. Each section
-says what has been closed and by which commit; **§10 is the running order.**
+**Status: COMPLETE, 13 September 2026.** Every section is closed. It began as findings only — no code
+was changed during the review, and the working tree was clean at `34007c9` — and the fixes landed
+against it in sixteen batches over two days. Each section says which commit closed it; §10 is the
+order they were done in.
+
+Kept rather than archived, because two things in it are worth more than the findings were. Two
+findings were WRONG (a version alignment that would have reintroduced a high-severity CVE, and a
+claim that a built portal feature did not exist); both are annotated where a reader meets them, not
+quietly deleted. And several fixes are only explicable from the finding that produced them.
 
 **How this was produced.** Seven reviewers read every line of their area: control plane +
 contracts, agent, both runners (file-by-file drift diff), portal + deploy + samples, all
@@ -255,18 +261,19 @@ package versions uniform across all five test projects; and the launch and appse
 which sit on the safe side of both listener rules. `Application-Developer-Guide.md` had one wrong
 line in 421. `deploy/README.md` was clean.
 
-## 9. Coverage gaps in the suite
+## 9. Coverage gaps in the suite — COMPLETE (`ebf6bcb`)
 
 No test at any tier for: `POST /api/agents/{name}/commands` (the portal's Start/Stop buttons); `POST`/`GET /api/agents/{name}/logs`; a successful `DELETE /api/packages/{digest}`; an agent-tier route refusing *another agent's* token; expiry actually being enforced for join tokens or keys; the hub refusing a revoked agent on reconnect; the audit line for a *refused* write; a real net472 application end-to-end through AgentHost (the routing test registers the net10 runner under the net472 key).
 
-Two skips can hide real failures: `PortalAuthenticationTests.cs:119` skips on **any** 400, including a genuine Negotiate regression; `PortalRolesTests` and one agent test return early off Windows instead of using `Skip.IfNot`, so they pass vacuously.
+~~Two skips can hide real failures: `PortalAuthenticationTests.cs:119` skips on **any** 400, including a genuine Negotiate regression; `PortalRolesTests` and one agent test return early off Windows instead of using `Skip.IfNot`, so they pass vacuously.~~ Fixed in `ebf6bcb`, except that the AGENT test named here did not reproduce: it is a platform-conditional ACL assertion inside a test that does real work on every platform, not a vacuous pass.
 
 **A successful `DELETE /api/packages/{digest}` is now covered** (`c257f06`), and writing that one test found two things this section should have said. First, the suite had a HARD SIZE LIMIT set by the hardware: every test in the four process-spawning projects starts a real server, xunit defaulted `maxParallelThreads` to the processor count, and on 32 cores the control plane assembly survived exactly 92 tests. The 93rd made fifteen unrelated classes fail together. Pinned at 8 now, at no cost in wall time. Second, a test of a race has to be BUILT to lose: the obvious version of that test passed against the broken code, because the 34 KB sample package fits in the socket buffer and so was never actually in flight. Both belong with the command-ordering lesson recorded after §1.
 
 ## 10. Order of work
 
-**This list is the one place that says what is left. Keep it true — it was stale once already, and
-being sent back to redo finished work is exactly the cost of that.**
+**This list was the one place that said what was left, and it is now finished. It was kept true
+because it was stale once, early on, and being sent back to redo work that was already done is
+exactly what that costs.**
 
 Done:
 
@@ -294,6 +301,8 @@ Done:
 
 15. ~~§6 — the architecture and requirements docs. One finding in it was wrong and is annotated; four missing areas were written.~~ `f1b14b5`
 
-Left:
+16. ~~§9 — the coverage gaps. A successful package DELETE closed in `c257f06`; the rest in `ebf6bcb`, which found one defect (refused writes were never audited) and one new test that proved nothing until it was made falsifiable.~~ `ebf6bcb`
 
-16. **§9** — the coverage gaps worth closing. One of them (a successful package DELETE) closed in `c257f06`.
+**Nothing is left. Every section of this review is complete.** What it cost, for the next one: 16 batches
+over two days, 299 tests at the end against 232 at the start, two high-severity CVEs, one repository
+repair, two review findings that were themselves WRONG and are annotated where a reader meets them.
