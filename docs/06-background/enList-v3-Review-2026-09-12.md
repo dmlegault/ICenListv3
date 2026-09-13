@@ -196,7 +196,7 @@ Separately, **razor markup** carries ~25 more em dashes. That is user-visible te
 
 **Clean:** every relative link and heading anchor across all tracked markdown resolves; no mojibake; no TODO/FIXME anywhere in source **[V]**.
 
-## 7. Build, config, packaging
+## 7. Build, config, packaging — COMPLETE (`4c0fdd6`, `c257f06`)
 
 - `Runner/Dockerfile` does not `COPY Directory.Build.props`, so **the runner inside the published image is version 1.0.0, not 3.0.0**; there is no `.dockerignore`, so local `bin/`+`obj/` are copied into the build stage.
 - `RunnerProtocol.Version` is still 1 and its comment says a version skew "cannot arise yet" — but `enlist/runner` images now ship independently, and the `Success`→`Outcome` change went out without a bump, so an older image reports v1 and `"success": false` reads as Succeeded. Bump to 2 in both runners, one commit.
@@ -261,6 +261,8 @@ No test at any tier for: `POST /api/agents/{name}/commands` (the portal's Start/
 
 Two skips can hide real failures: `PortalAuthenticationTests.cs:119` skips on **any** 400, including a genuine Negotiate regression; `PortalRolesTests` and one agent test return early off Windows instead of using `Skip.IfNot`, so they pass vacuously.
 
+**A successful `DELETE /api/packages/{digest}` is now covered** (`c257f06`), and writing that one test found two things this section should have said. First, the suite had a HARD SIZE LIMIT set by the hardware: every test in the four process-spawning projects starts a real server, xunit defaulted `maxParallelThreads` to the processor count, and on 32 cores the control plane assembly survived exactly 92 tests. The 93rd made fifteen unrelated classes fail together. Pinned at 8 now, at no cost in wall time. Second, a test of a race has to be BUILT to lose: the obvious version of that test passed against the broken code, because the 34 KB sample package fits in the socket buffer and so was never actually in flight. Both belong with the command-ordering lesson recorded after §1.
+
 ## 10. Order of work
 
 **This list is the one place that says what is left. Keep it true — it was stale once already, and
@@ -288,7 +290,9 @@ Done:
 
 13. ~~§2, §3 — stale comments, dead code, and the duplicated test helpers.~~ `59194c8`
 
+14. ~~§7’s remainder — the protocol version bump and the net472 isolation claim. §7 complete.~~ `c257f06`
+
 Left:
 
-14. **§6** — the architecture and requirements docs, starting with the ten "wrong" items.
-15. **§9** — the coverage gaps worth closing.
+15. **§6** — the architecture and requirements docs, starting with the ten "wrong" items.
+16. **§9** — the coverage gaps worth closing.
