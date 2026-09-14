@@ -21,6 +21,25 @@ public abstract class CliContainerEngineBase
         CommandTimeout = commandTimeout ?? TimeSpan.FromSeconds(60);
     }
 
+    /// <summary>
+    /// The pull policy every `run` passes: never. Both engines default to "missing", which fetches an
+    /// image that is not already local from the engine's default registry - Docker Hub, for a name
+    /// like enlist/runner:3.0.0 - and runs whatever it finds there. That namespace is not ours. An
+    /// agent running as LocalSystem would then start somebody else's image with an application
+    /// package mounted into it, and the first sign would be a container that behaved oddly.
+    ///
+    /// The image an agent runs is put on the machine deliberately - built, or loaded from the
+    /// installer - so a missing one is an installation problem to report, not something to go and
+    /// find on the internet.
+    /// </summary>
+    protected const string PullPolicy = "never";
+
+    /// <summary>The error for a run refused because the image is not on this machine, saying what the operator can do about it.</summary>
+    protected static InvalidOperationException MissingImage(string engine, string image, string detail) =>
+        new($"{engine} run failed: the image '{image}' is not on this machine ({detail}). " +
+            $"The agent never pulls images. Load it ({engine} load -i <tarball>) or build it " +
+            $"({engine} build -f src/Enlist.Runner/Dockerfile -t {image} .), or point the application at an image that is present.");
+
     protected async Task<(int ExitCode, string Stdout, string Stderr)> RunCliAsync(IReadOnlyList<string> args, CancellationToken ct, TimeSpan? timeout = null)
     {
         var psi = new ProcessStartInfo(Executable)

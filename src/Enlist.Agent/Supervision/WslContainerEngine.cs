@@ -51,6 +51,11 @@ public sealed class WslContainerEngine : CliContainerEngineBase, IContainerEngin
         var args = new List<string>
         {
             "run",
+
+            // Never fetched from a registry - see CliContainerEngineBase.PullPolicy. wslc 2.9.11 takes
+            // the same spelling as Docker.
+            "--pull", PullPolicy,
+
             "--detach",
             "--name", spec.Name,
 
@@ -101,11 +106,18 @@ public sealed class WslContainerEngine : CliContainerEngineBase, IContainerEngin
         var result = await RunCliAsync(args, ct).ConfigureAwait(false);
         if (result.ExitCode != 0)
         {
+            // "No such image: enlist/runner:3.0.0" / "Error code: WSLC_E_IMAGE_NOT_FOUND", exit 1.
+            if (result.Stderr.Contains("WSLC_E_IMAGE_NOT_FOUND", StringComparison.OrdinalIgnoreCase) ||
+                result.Stderr.Contains("No such image", StringComparison.OrdinalIgnoreCase))
+            {
+                throw MissingImage("wslc", spec.Image, FirstLine(result.Stderr));
+            }
+
             throw new InvalidOperationException($"wslc run failed ({result.ExitCode}): {FirstLine(result.Stderr)}");
         }
 
-        // The id is the last non-empty line: wslc may print a pull progress line first when the image
-        // is not local yet.
+        // The id is the last non-empty line. With pulls disabled nothing should precede it, but a
+        // progress or notice line from a later wslc must not be mistaken for the id.
         var containerId = result.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
         if (string.IsNullOrEmpty(containerId))
         {

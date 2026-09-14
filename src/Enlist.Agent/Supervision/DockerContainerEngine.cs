@@ -25,6 +25,10 @@ public sealed class DockerContainerEngine : CliContainerEngineBase, IContainerEn
         var args = new List<string>
         {
             "run",
+
+            // Never fetched from a registry - see CliContainerEngineBase.PullPolicy.
+            "--pull", PullPolicy,
+
             "--detach",
             "--name", spec.Name,
 
@@ -86,6 +90,12 @@ public sealed class DockerContainerEngine : CliContainerEngineBase, IContainerEn
         var result = await RunCliAsync(args, ct).ConfigureAwait(false);
         if (result.ExitCode != 0)
         {
+            // "Error response from daemon: No such image: enlist/runner:3.0.0", exit 125.
+            if (result.Stderr.Contains("No such image", StringComparison.OrdinalIgnoreCase))
+            {
+                throw MissingImage("docker", spec.Image, result.Stderr.Trim());
+            }
+
             throw new InvalidOperationException($"docker run failed ({result.ExitCode}): {result.Stderr.Trim()}");
         }
 
