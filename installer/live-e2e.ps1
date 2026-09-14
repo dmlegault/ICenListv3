@@ -67,6 +67,7 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
+$script:runStartedUtc = [DateTime]::UtcNow
 $script:failures = 0
 $script:step = 0
 
@@ -811,9 +812,12 @@ ALTER ROLE db_owner ADD MEMBER [$login];
                         $record = Join-Path $agentImages 'loaded.json'
                         $recorded = if (Test-Path $record) { Get-Content $record -Raw } else { '' }
                         Check ($recorded -match [regex]::Escape($imageName) -and $recorded -match ('"Engine":\s*"' + $ContainerEngine + '"')) "THE AGENT LOADED THE IMAGE ITSELF: $record records $imageName loaded into $ContainerEngine" ($recorded -replace '\s+', ' ')
+                        # Only lines written since this run started: the log is in ProgramData, which outlives
+                        # an uninstall, and the first run of this check passed on the previous run's line too.
                         $said = @(Get-ChildItem (Join-Path $agentData 'Logs') -Filter 'agent-*.log' -File -ErrorAction SilentlyContinue |
                             ForEach-Object { Get-Content $_.FullName -ErrorAction SilentlyContinue } |
-                            Where-Object { $_ -match "Runner image $([regex]::Escape($imageName)) (loaded|not loaded|:)" })
+                            Where-Object { $_ -match "Runner image $([regex]::Escape($imageName)) (loaded|not loaded|:)" } |
+                            Where-Object { $stamp = [DateTimeOffset]::MinValue; [DateTimeOffset]::TryParse(($_ -split ' ', 2)[0], [ref] $stamp) -and $stamp.UtcDateTime -ge $script:runStartedUtc })
                         foreach ($line in $said) { Say "    agent log: $line" }
                         Check (@($said | Where-Object { $_ -match "loaded into $ContainerEngine" }).Count -gt 0) "and its log says so"
 
