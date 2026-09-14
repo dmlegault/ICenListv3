@@ -22,6 +22,13 @@ WORKDIR /src
 # the image is the copy nobody rebuilds by accident.
 COPY Directory.Build.props ./
 
+# The runner's icon, which its csproj names as ..\branding\enlist.ico. Not optional either: without
+# it the compiler stops with CS7064 before producing anything, which is how adding the icon on
+# 2026-09-14 broke this image build while every host build passed - the host has the whole tree.
+# A Linux runner has no use for a Win32 icon, but building the same project the same way everywhere
+# is worth 30 KB.
+COPY src/branding/ ./branding/
+
 # Only the runner project is copied. It is guaranteed to have zero PackageReferences (its csproj
 # enforces that with a build-time Error target), so this needs no restore of anything else and no
 # NuGet access beyond the base image.
