@@ -20,7 +20,7 @@ Four directories are source and four are build output. Nothing under the second 
 | `ba\` | **source** | The bootstrapper application: the wizard, the detection library behind it, and that library's tests. Three projects and a hosting contract with sharp edges — [`ba\README.md`](ba/README.md) covers it. `build.ps1` builds it first and hands the bundle its output folder. |
 | `tools\` | **source** | `refresh-prerequisites.ps1`, which regenerates the download URLs, SHA-512 hashes and sizes in `Prerequisites.wxs` when the required .NET patch changes. Run it on purpose, then commit what it wrote. |
 | `.config\` | **source** | `dotnet-tools.json`, which pins WiX 5. This is what makes the build reproducible rather than dependent on whatever `wix` happens to be on the machine. |
-| `publish\` | *output* | `dotnet publish` of each component, one folder per component, including both runners. The input to harvesting. |
+| `publish\` | *output* | `dotnet publish` of each component, one folder per component, including both runners. The input to harvesting. Each folder is emptied before its publish, because the packages harvest everything in it and `dotnet publish` never removes a file. |
 | `staging\` | *output* | A copy of each publish folder **with the service executable removed**, rebuilt from scratch every run. It exists only because WiX 5's `Files` element has no exclude — see below. |
 | `out\` | *output* | The three MSIs, the bundle, and their `.wixpdb` files. `enList-<version>-Setup.exe` here is the thing a person runs. |
 | `.wix\` | *output* | The WiX extension cache, populated by `build.ps1` on first run. Delete it if an extension ever reports itself damaged. |
@@ -34,7 +34,7 @@ And three scripts at the root, which is the whole of the tooling: **`build.ps1`*
 ```powershell
 .\build.ps1              # publish everything, build the MSIs, then the bundle
 .\build.ps1 -SkipPublish # reuse publish\, for when only the WiX changed
-.\verify.ps1             # 138 detection tests + 87 installer checks
+.\verify.ps1             # 138 detection tests + 90 installer checks
 .\verify.ps1 -Live       # really install, upgrade and uninstall (elevated shell)
 .\live-e2e.ps1           # a real install that RUNS (elevated shell) - see below
 ```

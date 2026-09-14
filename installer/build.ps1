@@ -147,9 +147,17 @@ if ($SkipPublish) {
     }
 }
 
+<#
+  Each publish goes into an EMPTY folder. dotnet publish adds and overwrites but never removes, and
+  the packages harvest the whole folder - so a file a project stopped publishing stayed in publish\
+  and went on being installed. That is not hypothetical: when the control plane stopped publishing
+  Roslyn's BuildHost folders, the old copies were still there, and the MSI would have gone on
+  carrying them with nothing in the project to say why.
+#>
 if (-not $SkipPublish) {
     foreach ($c in $components) {
         $target = Join-Path $publishRoot $c.Name
+        if (Test-Path $target) { Remove-Item -Recurse -Force $target }
         Write-Host "  publishing $($c.Name)" -ForegroundColor DarkGray
         & dotnet publish (Join-Path $repoRoot $c.Project) -c $Configuration -o $target --nologo -v q
         if ($LASTEXITCODE -ne 0) { throw "publish failed for $($c.Name)" }

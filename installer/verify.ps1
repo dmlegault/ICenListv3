@@ -181,16 +181,14 @@ namespace Enlist {
             finally { MsiCloseHandle(view); }
         }
 
-        // The File table key of the file called fileName in the directory with that Id - the name the
-        // file carries inside the cabinet. Harvested files get generated keys, so a check has to look
-        // the key up rather than name it. Exactly one match, or it is not the file the check means.
-        public static string FileKey(string package, string directory, string fileName) {
+        // Every file the package installs, as { File key, long file name, Directory Id }.
+        public static string[][] Files(string package) {
             IntPtr database, view, record;
             Ok(MsiOpenDatabase(package, IntPtr.Zero, out database), "opening " + package);
             try {
                 const string query = "SELECT `File`.`File`, `File`.`FileName`, `Component`.`Directory_` FROM `File`, `Component` WHERE `File`.`Component_` = `Component`.`Component`";
                 Ok(MsiDatabaseOpenView(database, query, out view), query);
-                var matches = new System.Collections.Generic.List<string>();
+                var files = new System.Collections.Generic.List<string[]>();
                 try {
                     Ok(MsiViewExecute(view, IntPtr.Zero), query);
                     while (MsiViewFetch(view, out record) == 0) {
@@ -198,18 +196,28 @@ namespace Enlist {
                             // FileName is "SHORT~1.EXE|long-name.exe" when the long name is not 8.3.
                             var name = Field(record, 2);
                             var longName = name.Contains("|") ? name.Substring(name.IndexOf('|') + 1) : name;
-                            if (Field(record, 3) == directory && string.Equals(longName, fileName, StringComparison.OrdinalIgnoreCase))
-                                matches.Add(Field(record, 1));
+                            files.Add(new[] { Field(record, 1), longName, Field(record, 3) });
                         }
                         finally { MsiCloseHandle(record); }
                     }
                 }
                 finally { MsiCloseHandle(view); }
-                if (matches.Count != 1)
-                    throw new InvalidOperationException(package + " has " + matches.Count + " files named " + fileName + " in " + directory);
-                return matches[0];
+                return files.ToArray();
             }
             finally { MsiCloseHandle(database); }
+        }
+
+        // The File table key of the file called fileName in the directory with that Id - the name the
+        // file carries inside the cabinet. Harvested files get generated keys, so a check has to look
+        // the key up rather than name it. Exactly one match, or it is not the file the check means.
+        public static string FileKey(string package, string directory, string fileName) {
+            var matches = Files(package)
+                .Where(f => f[2] == directory && string.Equals(f[1], fileName, StringComparison.OrdinalIgnoreCase))
+                .Select(f => f[0])
+                .ToArray();
+            if (matches.Length != 1)
+                throw new InvalidOperationException(package + " has " + matches.Length + " files named " + fileName + " in " + directory);
+            return matches[0];
         }
 
         static string Field(IntPtr record, uint field) {
@@ -821,8 +829,6 @@ else {
             # agent starts runners from runner\, not this one, but it is installed, so it is branded.
             @{ Msi = 'Enlist.Agent.msi';        Directory = 'INSTALLFOLDER';   Exe = 'enlist-runner.exe';       Shown = 'it if anything starts it'; Label = 'the enlist-runner.exe copy in the agent folder' }
         )
-        # Not checked, and not ours: Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.exe, which the
-        # control plane's EF Core design-time reference carries into its publish output.
         foreach ($executable in $executables) {
             $label = if ($executable.ContainsKey('Label')) { $executable.Label } else { $executable.Exe }
             [string] $package = Join-Path $OutDir $executable.Msi
@@ -872,6 +878,25 @@ else {
         }
     }
     finally { Remove-Item -Recurse -Force $extract -ErrorAction SilentlyContinue }
+}
+
+# ---- Nothing design-time ships ---------------------------------------------------------------------
+<#
+  `dotnet ef` needs Microsoft.EntityFrameworkCore.Design and everything it pulls in - Roslyn, MSBuild
+  loading, T4 templating, Humanizer - and a running control plane needs none of it. PrivateAssets=all
+  keeps the assemblies out of publish, but Roslyn's build host arrives as NuGet content files, which
+  take another route: Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.exe and about 4 MB beside it
+  were installed with every control plane until 2026-09-14.
+
+  Read from each package's File table, so the check sees what installs rather than what a project was
+  meant to publish - which also covers a stale publish\ folder, the other way it stayed in.
+#>
+Write-Host ""
+Write-Host "  Nothing design-time ships"
+$designTime = '(?i)BuildHost|^Microsoft\.CodeAnalysis\.|^Microsoft\.EntityFrameworkCore\.Design\.dll$|^Microsoft\.Build\.|^Mono\.TextTemplating\.|^Humanizer\.'
+foreach ($msi in 'Enlist.ControlPlane.msi', 'Enlist.Portal.msi', 'Enlist.Agent.msi') {
+    $found = @([Enlist.MsiCabinet]::Files([string] (Join-Path $OutDir $msi)) | ForEach-Object { $_[1] } | Where-Object { $_ -match $designTime } | Sort-Object -Unique)
+    Assert-That ($found.Count -eq 0) "$msi installs no design-time tooling$(if ($found.Count) { " (found $($found.Count): $(($found | Select-Object -First 4) -join ', '))" })"
 }
 
 # ---- Live -----------------------------------------------------------------------------------------

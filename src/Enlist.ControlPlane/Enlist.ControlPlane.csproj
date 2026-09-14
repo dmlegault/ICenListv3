@@ -40,4 +40,28 @@
     <ProjectReference Include="..\Enlist.ControlPlane.Contracts\Enlist.ControlPlane.Contracts.csproj" />
   </ItemGroup>
 
+  <!--
+    Roslyn's MSBuild build host, left out of PUBLISH and kept in the build.
+
+    Microsoft.EntityFrameworkCore.Design is design-time tooling for `dotnet ef`, and PrivateAssets=all
+    already keeps its assemblies out of publish - the SDK treats a private package as Publish=false.
+    But one of its dependencies, Microsoft.CodeAnalysis.Workspaces.MSBuild, carries its build host as
+    NuGet CONTENT files (BuildHost-net472\, with Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.exe,
+    and BuildHost-netcore\), and content files reach publish by a different route that Publish=false
+    does not cover. So about 4 MB of a tool for loading C# projects was installed beside every
+    control plane, which never loads a project.
+
+    Matched by the package the files came from rather than by folder name, so a renamed folder in a
+    later Roslyn does not quietly slip back in. The build output keeps them: `dotnet ef` runs against
+    bin\, and some of its commands (dbcontext optimize) do load the project. installer\verify.ps1
+    checks that no design-time tooling reaches any package.
+  -->
+  <Target Name="LeaveDesignTimeBuildHostOutOfPublish" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <_DesignTimeBuildHostFile Include="@(ResolvedFileToPublish)"
+                                Condition="$([System.String]::Copy('%(ResolvedFileToPublish.FullPath)').ToLowerInvariant().Contains('microsoft.codeanalysis.workspaces.msbuild'))" />
+      <ResolvedFileToPublish Remove="@(_DesignTimeBuildHostFile)" />
+    </ItemGroup>
+  </Target>
+
 </Project>
