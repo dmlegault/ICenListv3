@@ -40,7 +40,7 @@ And three scripts at the root, which is the whole of the tooling: **`build.ps1`*
 .\live-e2e.ps1           # a real install that RUNS (elevated shell) - see below
 ```
 
-**`live-e2e.ps1` is the one that cannot be faked.** `verify.ps1 -Live` proves the packages install, upgrade and uninstall; this proves the product *works* — a silent Server install over TLS through the bundle, the schema applied, the portal's key minted and stored, both services started and answering HTTPS, a real join token exchanged for an agent credential, and then all of it removed. It takes a thumbprint and a transcript path:
+**`live-e2e.ps1` is the one that cannot be faked.** `verify.ps1 -Live` proves the packages install, upgrade and uninstall; this proves the product *works* — a silent Server install over TLS through the bundle, the schema applied, the portal's key minted and stored, both services started and answering HTTPS, a real join token exchanged for an agent credential, and then **a real application deployed to that installed agent**: the sample package uploaded with `enlist-deploy`, placed on the agent by a rule, and run twice — as a process (the staged runner, a copy of the installed one, running as SYSTEM) and in a Docker container from the runner image side-loaded out of `out\` — then taken away again and confirmed stopped. After that, all of it is removed. It needs the repository built (`dotnet build enList_v3.slnx`, for the sample and the deploy tool) and Docker running; `-SkipContainers` runs the process half alone and says so. It also probes `wslc` as LocalSystem and prints the answer as a FINDING rather than a check — see below. It takes a thumbprint and a transcript path:
 
 ```powershell
 .\live-e2e.ps1 -Thumbprint <cert in LocalMachine\My> -Transcript "$env:TEMP\enlist-e2e.txt"
@@ -137,4 +137,4 @@ Three projects, split on one line: what can be tested, and what cannot. `Enlist.
 
 Nothing blocking an install. `live-e2e.ps1` passes end to end: schema, portal key, TLS, agent enrollment, and uninstall.
 
-Still outstanding: `verify.ps1 -Live` proves upgrade and uninstall for the agent package only, not all three; and nothing is code-signed (section 12 item 7, which needs a certificate purchase rather than a design).
+Still outstanding: `verify.ps1 -Live` proves upgrade and uninstall for the agent package only, not all three; nothing is code-signed (section 12 item 7, which needs a certificate purchase rather than a design); and **`wslc` does not work for the installed agent** (section 12 item 11). Run as LocalSystem, `wslc list` hung for three minutes, and the wizard currently makes `wslc` the default engine when it finds it, which on a machine with both engines is the one the service cannot use. Docker works and is proven by `live-e2e.ps1`.

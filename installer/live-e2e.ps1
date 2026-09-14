@@ -47,7 +47,16 @@ param(
     #
     # Off by default and removed in the finally either way. A verification run that permanently adds
     # a self-signed certificate to a machine's trusted roots would be a poor trade for a green tick.
-    [switch] $TrustCertificate
+    [switch] $TrustCertificate,
+
+    # The engine the agent is installed with, so an application can be deployed to it in a container
+    # as well as as a process. Docker, because it is the one a LocalSystem service can reach: its engine
+    # pipe grants SYSTEM full control. wslc is probed separately (see the deploy phase).
+    [string] $ContainerEngine = 'docker',
+
+    # Deploy as a process only. For a machine without Docker running - said in the transcript, because
+    # the container half of the product is then simply not being tested.
+    [switch] $SkipContainers
 )
 
 $ErrorActionPreference = 'Continue'
@@ -88,6 +97,10 @@ function Check([bool] $condition, [string] $what, [string] $detail = '') {
 }
 
 $setup = (Get-ChildItem (Join-Path $OutDir '*Setup.exe') | Select-Object -First 1).FullName
+$productVersion = [regex]::Match([string] $setup, 'enList-(.+)-Setup\.exe$').Groups[1].Value
+$runnerImage = "enlist/runner:$productVersion"
+$runnerImageFile = Join-Path $OutDir "enlist-runner-$productVersion.tar"
+$repoRoot = Split-Path $PSScriptRoot -Parent
 $cpDir = Join-Path $env:ProgramFiles 'enList\ControlPlane'
 $portalDir = Join-Path $env:ProgramFiles 'enList\Portal'
 $agentDir = Join-Path $env:ProgramFiles 'enList\Agent'
@@ -193,6 +206,119 @@ function Invoke-Bundle([string[]] $arguments, [int] $timeoutSeconds = 600) {
     }
 
     return $p.ExitCode
+}
+
+# ---- Talking to the installed control plane as an Operator ----------------------------------------
+$script:apiKey = ''
+$script:policyIds = @{}
+
+function Invoke-Api([string] $method, [string] $path, $body = $null) {
+    $request = @{ Method = $method; Uri = "$cpUrl$path"; Headers = @{ Authorization = "Bearer $script:apiKey" }; TimeoutSec = 30 }
+    if ($null -ne $body) {
+        $request.Body = ($body | ConvertTo-Json -Depth 8)
+        $request.ContentType = 'application/json'
+    }
+    Invoke-RestMethod @request
+}
+
+# The agent's last report as the control plane holds it, or $null.
+function Get-AgentReport {
+    try { Invoke-Api GET "/api/agents/$env:COMPUTERNAME/report/latest" } catch { $null }
+}
+
+function Get-ReportedApplication([string] $name) {
+    $report = Get-AgentReport
+    if (-not $report) { return $null }
+    @($report.applications) | Where-Object { $_.name -eq $name } | Select-Object -First 1
+}
+
+<#
+  Waits until the application AND its "Sample Service" report Running. The application is marked
+  Running the moment its runner starts; service states arrive afterwards, so waiting on the first alone
+  would pass for a runner whose service never came up.
+#>
+function Wait-ApplicationRunning([string] $name, [int] $seconds = 150) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    $last = $null
+    while ((Get-Date) -lt $deadline) {
+        $last = Get-ReportedApplication $name
+        if ($last -and $last.state -eq 'Running' -and
+            @(@($last.services) | Where-Object { $_.name -eq 'Sample Service' -and $_.state -eq 'Running' }).Count -gt 0) {
+            return $last
+        }
+        Start-Sleep -Seconds 3
+    }
+    return $last
+}
+
+function Wait-ApplicationGone([string] $name, [int] $seconds = 90) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        $app = Get-ReportedApplication $name
+        if (-not $app -or $app.state -eq 'Stopped') { return $true }
+        Start-Sleep -Seconds 3
+    }
+    return $false
+}
+
+<#
+  One rule per application for this agent, created or updated. The database survives an uninstall by
+  design, so a rule from a previous run is still there - and a SECOND rule for the same application and
+  agent that disagrees with the first is a conflict the agent reports as Failed. So an existing rule is
+  updated in place rather than added to.
+#>
+function Set-Policy([string] $app, [string] $digest, $isolation) {
+    # Assigned before it is filtered: Windows PowerShell's Invoke-RestMethod hands a JSON array back as ONE
+    # object, and piping a variable is what enumerates it.
+    $all = Invoke-Api GET '/api/application-policies'
+    $existing = $all |
+        Where-Object { $_.applicationName -eq $app -and $_.tagSelector -and $_.tagSelector.agent -eq $env:COMPUTERNAME } |
+        Select-Object -First 1
+    if ($existing) {
+        $policy = Invoke-Api PUT "/api/application-policies/$($existing.id)" @{ packageDigest = $digest; desiredState = 'Running'; isolation = $isolation }
+    }
+    else {
+        $policy = Invoke-Api POST '/api/application-policies' @{
+            applicationName = $app; desiredState = 'Running'
+            tagSelector = @{ agent = $env:COMPUTERNAME }
+            packageDigest = $digest; isolation = $isolation
+        }
+    }
+    $script:policyIds[$app] = $policy.id
+    return $policy
+}
+
+<#
+  Runs a command line as LocalSystem and returns what it printed. A scheduled task is the one way an
+  elevated script can put a process in the account a service runs as, which is the only account whose
+  answer matters for "can the agent use this".
+#>
+function Invoke-AsSystem([string] $name, [string] $commandLine, [int] $seconds = 60) {
+    $dir = Join-Path $env:ProgramData 'enList\e2e-probe'
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $cmdFile = Join-Path $dir "$name.cmd"
+    $output = Join-Path $dir "$name.txt"
+    if (Test-Path $output) { Remove-Item $output -Force }
+    Set-Content -Path $cmdFile -Encoding ASCII -Value "@echo off`r`n$commandLine > `"$output`" 2>&1`r`necho exit=%errorlevel%>> `"$output`"`r`n"
+
+    $task = "enlist-e2e-$name"
+    & schtasks.exe /create /tn $task /ru SYSTEM /sc once /st 23:59 /f /tr $cmdFile *>$null
+    & schtasks.exe /run /tn $task *>$null
+    $deadline = (Get-Date).AddSeconds($seconds)
+    $text = ''
+    while ((Get-Date) -lt $deadline) {
+        if (Test-Path $output) {
+            $text = Get-Content $output -Raw -ErrorAction SilentlyContinue
+            if ($text -match 'exit=') { break }
+        }
+        Start-Sleep -Seconds 1
+    }
+    # Whatever it managed to print is kept even on a timeout - partial output is the evidence of a hang.
+    if (-not $text -and (Test-Path $output)) { $text = Get-Content $output -Raw -ErrorAction SilentlyContinue }
+    & schtasks.exe /end /tn $task *>$null
+    & schtasks.exe /delete /tn $task /f *>$null
+    Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+    return [string] $text
 }
 
 $script:trustAdded = $false
@@ -400,6 +526,10 @@ ALTER ROLE db_owner ADD MEMBER [$login];
             "AGENT_ACCOUNT=$ServiceAccount",
             "AGENT_JOINTOKEN=$joinToken"
         )
+        # The engine, and NOT the image: the image the agent gets is the bundle's own default,
+        # enlist/runner:<version>, which is exactly the default an operator gets and so is the one worth
+        # proving.
+        if (-not $SkipContainers) { $arguments += "AGENT_ENGINE=$ContainerEngine" }
 
         # The live 'portal' key BEFORE the agent is added. Adding an agent used to re-run every
         # post-install step, and create-api-key --replace revoked the key the running portal held -
@@ -430,6 +560,10 @@ ALTER ROLE db_owner ADD MEMBER [$login];
         Check ($null -ne $agent) "the agent service exists"
         if ($agent) {
             Check ($agent.PathName -notmatch 'enlj_') "THE JOIN TOKEN IS NOT IN THE SERVICE COMMAND LINE"
+            if (-not $SkipContainers) {
+                Check ($agent.PathName -match ('--container-engine "?' + [regex]::Escape($ContainerEngine))) "the agent is given the $ContainerEngine engine"
+                Check ($agent.PathName -match ('--container-image "?' + [regex]::Escape($runnerImage))) "and the default image, $runnerImage" $agent.PathName
+            }
         }
 
         $credential = Join-Path $agentData 'credential'
@@ -452,6 +586,7 @@ ALTER ROLE db_owner ADD MEMBER [$login];
         $env:ASPNETCORE_ENVIRONMENT = $null
         $keyOutput = & (Join-Path $cpDir 'Enlist.ControlPlane.exe') create-api-key --name e2e --role Operator --expires never --replace 2>&1 | Out-String
         $apiKey = ([regex]::Match($keyOutput, 'enlk_\S+')).Value
+        $script:apiKey = $apiKey
         Check ($apiKey.Length -gt 5) "an Operator key was minted to ask the control plane with" ($keyOutput.Trim() -replace '\s+', ' ')
 
         $names = @()
@@ -465,6 +600,20 @@ ALTER ROLE db_owner ADD MEMBER [$login];
         Say "    agents the control plane knows: $(if ($names.Count) { $names -join ', ' } else { '(none returned)' })"
         Check ($names -contains $env:COMPUTERNAME) "the control plane has this agent registered"
 
+        # The runner image, side-loaded the way a recipient does it: from the download in out\, into the
+        # engine, before the agent needs it. The copy build.ps1 left in the engine is removed first, so
+        # what the agent runs below can only have come from the file - the agent never pulls.
+        if (-not $SkipContainers) {
+            Check (Test-Path $runnerImageFile) "the runner image download is in out\ ($(Split-Path -Leaf $runnerImageFile))"
+            if (Test-Path $runnerImageFile) {
+                & docker image rm $runnerImage *>$null
+                $loaded = & docker load -i $runnerImageFile 2>&1 | Out-String
+                Say "    $($loaded.Trim())"
+                & docker image inspect $runnerImage *>$null
+                Check ($LASTEXITCODE -eq 0) "docker load -i put $runnerImage into the engine" ($loaded.Trim())
+            }
+        }
+
         # And the agent actually runs against it.
         Request-ServiceStart "enlist-agent"
         Start-Sleep -Seconds 12
@@ -474,6 +623,164 @@ ALTER ROLE db_owner ADD MEMBER [$login];
         if (Test-Path $agentLog) {
             Get-ChildItem $agentLog -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Desc | Select-Object -First 1 |
                 ForEach-Object { Say "    agent log tail:"; Get-Content $_.FullName -Tail 8 | ForEach-Object { Say "      $_" } }
+        }
+
+        # -----------------------------------------------------------------------------------------
+        Phase "Deploy a real application to the installed agent - as a process, then in a container"
+
+        <#
+          Everything above proves enList INSTALLS. This proves it WORKS: a package uploaded with the
+          real deploy tool, a rule placing it on this agent, and the agent - a LocalSystem service,
+          started by the SCM, using the runners and the image the installer and the download put there
+          - actually running it. Until this phase existed every run ended with "Applications": [] and
+          nothing had ever been deployed to an installed agent.
+
+          The sample is deploy\SampleService from this repository, and the deploy tool is its own build:
+          neither ships with the installer. Both are built by `dotnet build enList_v3.slnx`.
+        #>
+        $samplePackage = Join-Path $repoRoot 'deploy\SampleService'
+        $deployTool = Join-Path $repoRoot 'src\Enlist.Deploy\bin\Debug\net10.0\enlist-deploy.dll'
+        $haveSample = Test-Path (Join-Path $samplePackage 'Enlist.Sample.Service.dll')
+        $haveTool = Test-Path $deployTool
+        Check $haveSample "the sample package is built ($samplePackage)" 'run: dotnet build enList_v3.slnx'
+        Check $haveTool "the deploy tool is built ($deployTool)" 'run: dotnet build enList_v3.slnx'
+
+        if ($haveSample -and $haveTool -and $apiKey -and (Service-Of 'enlist-agent').State -eq 'Running') {
+            # The key through the environment, as the tool supports - not as --api-key, where it would
+            # be readable out of the process list for as long as the upload takes.
+            $env:ENLIST_API_KEY = $apiKey
+            $digest = ''
+            foreach ($app in 'e2e-process', 'e2e-container') {
+                if ($app -eq 'e2e-container' -and $SkipContainers) { continue }
+                $deployed = & dotnet $deployTool --control-plane $cpUrl --app $app --source $samplePackage 2>&1 | Out-String
+                $deployExit = $LASTEXITCODE
+                $digest = [regex]::Match($deployed, 'digest:\s*([0-9a-f]{64})').Groups[1].Value
+                Check ($deployExit -eq 0 -and $digest) "enlist-deploy uploaded the sample as $app, over TLS, with the Operator key" ($deployed.Trim() -replace '\s+', ' ')
+            }
+            $env:ENLIST_API_KEY = $null
+
+            # ---- As a process ----
+            $processPid = 0
+            if ($digest) {
+                try { $null = Set-Policy 'e2e-process' $digest @{ mode = 'process' }; $ruled = $true } catch { $ruled = $false; Say "    (rule failed: $($_.Exception.Message))" }
+                Check $ruled "a rule places e2e-process on $env:COMPUTERNAME as a process"
+
+                $running = Wait-ApplicationRunning 'e2e-process'
+                Check ($running -and $running.state -eq 'Running') "THE AGENT RUNS IT: e2e-process is Running, with Sample Service Running" $(if ($running) { "state $($running.state)" } else { 'never reported' })
+                if ($running) {
+                    Check ($running.isolationMode -eq 'process' -or -not $running.isolationMode) "it runs as a process" $running.isolationMode
+                    $processPid = [int] $running.pid
+                    $runner = Get-CimInstance Win32_Process -Filter "ProcessId=$processPid" -ErrorAction SilentlyContinue
+
+                    <#
+                      NOT enlist-runner.exe by name, and that is by design: RunnerStaging copies the
+                      installed runner into <data>\Runners\<app>\ and renames the executable to the
+                      application's, so Task Manager shows "e2e-process.exe" rather than a column of
+                      identical runners. The first version of this check expected the canonical name and
+                      failed a runner that was exactly right. What is worth proving is that the process
+                      is that staged copy, and that the copy is byte-for-byte the runner the installer
+                      laid down.
+                    #>
+                    $staged = Join-Path $agentData 'Runners\e2e-process\e2e-process.exe'
+                    Check ($null -ne $runner -and $runner.ExecutablePath -eq $staged) "its pid $processPid is the runner staged for it, $staged" $(if ($runner) { $runner.ExecutablePath } else { 'no such process' })
+                    $installedRunner = Join-Path $agentDir 'runner\enlist-runner.exe'
+                    if ((Test-Path $staged) -and (Test-Path $installedRunner)) {
+                        Check ((Get-FileHash $staged).Hash -eq (Get-FileHash $installedRunner).Hash) "which is a copy of the installed runner, $installedRunner"
+                    }
+                    if ($runner) {
+                        $owner = Invoke-CimMethod -InputObject $runner -MethodName GetOwner -ErrorAction SilentlyContinue
+                        Check ($owner.User -eq 'SYSTEM') "started by the agent service, so running as SYSTEM" "$($owner.Domain)\$($owner.User)"
+                    }
+                }
+            }
+
+            # ---- In a container ----
+            $containerId = ''
+            if (-not $SkipContainers -and $digest) {
+                # What the agent - as LocalSystem, not as the person running this - found when it probed
+                # the engine. This is the question a desk test cannot answer.
+                $engineSeen = $null
+                $capDeadline = (Get-Date).AddSeconds(60)
+                while ((Get-Date) -lt $capDeadline) {
+                    try { $engineSeen = (Invoke-Api GET "/api/agents/$env:COMPUTERNAME").capabilities } catch { }
+                    if ($engineSeen -and $engineSeen.containerEngine) { break }
+                    Start-Sleep -Seconds 3
+                }
+                $engineOk = $engineSeen -and $engineSeen.containerEngine -and $engineSeen.containerEngine.available -eq $true
+                $engineDetail = if ($engineSeen -and $engineSeen.containerEngine) { "engine $($engineSeen.containerEngine.engine) $($engineSeen.containerEngine.version) error: $($engineSeen.containerEngine.error)" } else { 'no capability reported' }
+                Say "    the agent's container engine, as LocalSystem: $engineDetail"
+                Check $engineOk "the agent service, as LocalSystem, can use $ContainerEngine" $engineDetail
+                Check ($engineSeen -and @($engineSeen.isolationModes) -contains 'container') "it advertises container isolation" "$(@($engineSeen.isolationModes) -join ', ')"
+
+                if ($engineOk) {
+                    try { $null = Set-Policy 'e2e-container' $digest @{ mode = 'container' }; $ruled = $true } catch { $ruled = $false; Say "    (rule failed: $($_.Exception.Message))" }
+                    Check $ruled "a rule places e2e-container on $env:COMPUTERNAME in a container"
+
+                    $running = Wait-ApplicationRunning 'e2e-container'
+                    Check ($running -and $running.state -eq 'Running') "THE AGENT RUNS IT IN A CONTAINER: e2e-container is Running, with Sample Service Running" $(if ($running) { "state $($running.state)" } else { 'never reported' })
+                    if ($running) {
+                        Check ($running.isolationMode -eq 'container') "it runs in a container" $running.isolationMode
+                        $containerId = [string] $running.runtimeId
+                        $inspect = & docker inspect --format '{{.State.Running}}|{{.Config.Image}}' $containerId 2>&1 | Out-String
+                        $isRunning, $image = $inspect.Trim().Split('|')
+                        Check ($isRunning -eq 'true') "container $($containerId.Substring(0, [Math]::Min(12, $containerId.Length))) is running in $ContainerEngine" $inspect.Trim()
+                        Check ($image -eq $runnerImage) "from $runnerImage, the image side-loaded above" $image
+                    }
+                }
+            }
+
+            # ---- Taken away again ----
+            foreach ($app in @($script:policyIds.Keys)) {
+                try { Invoke-Api DELETE "/api/application-policies/$($script:policyIds[$app])" | Out-Null; $script:policyIds.Remove($app) } catch { Say "    (removing the $app rule failed: $($_.Exception.Message))" }
+            }
+            # Only for what actually ran: an application that never started is trivially "gone", and a
+            # check that passes for that reason is not a check.
+            if ($processPid -gt 0) {
+                Check (Wait-ApplicationGone 'e2e-process') "removing the rule stops e2e-process"
+                Start-Sleep -Seconds 2
+                Check (-not (Get-Process -Id $processPid -ErrorAction SilentlyContinue)) "and its runner process is gone"
+            }
+            if ($containerId) {
+                Check (Wait-ApplicationGone 'e2e-container') "removing the rule stops e2e-container"
+                Start-Sleep -Seconds 2
+                $still = & docker ps -q --no-trunc --filter "id=$containerId" 2>&1 | Out-String
+                Check (-not $still.Trim()) "and its container is no longer running"
+            }
+        }
+
+        # -----------------------------------------------------------------------------------------
+        <#
+          wslc, as LocalSystem. Not a check, a FINDING: the Agent page offers wslc and prefers it when it
+          is detected, but WSL is per-user, and whether a service account can use it at all has never
+          been tried. The answer decides whether the wizard should offer it for an agent installed as a
+          service, so it is reported here rather than turned into a pass or a fail.
+        #>
+        $wslc = Join-Path $env:ProgramFiles 'WSL\wslc.exe'
+        if (Test-Path $wslc) {
+            Say ""
+
+            # The mechanism first. The first run of this probe reported "no answer within a minute",
+            # which could equally have meant wslc hung as SYSTEM or that the task never ran at all - and
+            # the difference is the whole finding.
+            $whoami = Invoke-AsSystem 'whoami' 'whoami'
+            $asSystem = $whoami -match 'nt authority\\system'
+            Check $asSystem "a command can be run as LocalSystem to ask it (whoami says: $((($whoami -split "`r?`n") | Select-Object -First 1)))"
+
+            if ($asSystem) {
+                $probe = Invoke-AsSystem 'wslc' "`"$wslc`" list --quiet" 180
+                $exitLine = [regex]::Match($probe, 'exit=(-?\d+)').Groups[1].Value
+                $lines = @(($probe -split "`r?`n") | Where-Object { $_ -and $_ -notmatch '^exit=' })
+                $verdict = if ($exitLine -eq '0') { 'WORKS - wslc list succeeded as SYSTEM' }
+                    elseif ($exitLine) { "does NOT work (exit $exitLine): $($lines | Select-Object -First 1)" }
+                    else { "did not finish within 3 minutes - it HANGS as SYSTEM$(if ($lines.Count) { "; it had printed: $($lines -join ' | ')" } else { ', having printed nothing' })" }
+                Say "    FINDING - wslc as LocalSystem: $verdict"
+
+                # A wslc left waiting as SYSTEM would outlive this run; it is not the operator's.
+                Get-CimInstance Win32_Process -Filter "Name='wslc.exe'" -ErrorAction SilentlyContinue | ForEach-Object {
+                    $owner = Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue
+                    if ($owner.User -eq 'SYSTEM') { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Say "    (stopped a wslc.exe the probe left running as SYSTEM, pid $($_.ProcessId))" }
+                }
+            }
         }
     }
 }
@@ -487,7 +794,20 @@ finally {
     # ---------------------------------------------------------------------------------------------
     Phase "Uninstall, and leave the machine as it was found"
 
+    # Rules this run created and did not get to remove, while the control plane is still up to take them:
+    # the database survives the uninstall, and a stale rule would place the sample on the next run's agent.
+    foreach ($app in @($script:policyIds.Keys)) {
+        try { Invoke-Api DELETE "/api/application-policies/$($script:policyIds[$app])" | Out-Null; Say "    removed the leftover $app rule" } catch { }
+    }
+
     foreach ($name in "enlist-agent", "enlist-portal", "enlist-controlplane") { Request-ServiceStop $name }
+
+    # A container the agent did not get to stop outlives the agent service - it belongs to the engine.
+    if (-not $SkipContainers -and (Get-Command docker -ErrorAction SilentlyContinue)) {
+        $orphans = @(& docker ps -aq --filter "label=enlist.agent=$env:COMPUTERNAME" 2>$null | Where-Object { $_ })
+        foreach ($id in $orphans) { & docker rm -f $id *>$null }
+        if ($orphans.Count) { Say "    removed $($orphans.Count) container(s) the agent left behind" }
+    }
 
     # Only if there is something to remove. This runs in a finally, so it runs even when the install
     # never happened - and uninstalling nothing exits 1, which reported a failure for the one thing

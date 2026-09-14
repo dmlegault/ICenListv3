@@ -248,6 +248,8 @@ Same seam (`IContainerEngine`), same image built from the same Dockerfile (§3),
 
 `wslc`'s image store is separate from Docker Desktop's: an image built with `docker build` is not visible to `wslc` and vice versa — build it with `wslc build` (§3) or `wslc load` a saved tar. `wslc` is installed at `C:\Program Files\WSL\wslc.exe` and is not always on PATH; the agent looks there when it is not.
 
+**`wslc` does not work for an agent running as a Windows service under LocalSystem** — which is how the installer sets the agent up. WSL is per-user: run as LocalSystem, `wslc list` hung for three minutes without output (verified 2026-09-14 by `installer\live-e2e.ps1`), while the same command as the logged-in user answered immediately. An agent started from a terminal, as the demo does, is unaffected because it runs as you. For an installed agent use Docker, which a LocalSystem service can reach. See Installer-UI-Design §12 item 11.
+
 ---
 
 ## 3. Build the runner image

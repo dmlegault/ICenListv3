@@ -362,6 +362,16 @@ These need a call before WiX is written. My recommendation is in bold.
 
     Prefilling a value that cannot work is worse than an empty box: it is an empty box the operator does not know to look at.
 
+11. **`wslc` cannot be used by an agent running as LocalSystem - OPEN.** *(Found by installing for real, 2026-09-14.)*
+
+    `installer\live-e2e.ps1` now deploys the sample application to the installed agent, as a process and in a container, and both run. The container half ran on **Docker**: the agent service, as LocalSystem, reached Docker Desktop's engine (its pipe grants SYSTEM full control) and ran the image side-loaded from the download.
+
+    **`wslc` is a different story.** The same run executed `wslc list --quiet` as LocalSystem through a scheduled task - after proving the task really runs as SYSTEM with `whoami` - and it **hung for three minutes without printing anything**, while the same command as the logged-in user answered at once. WSL is per-user, and a service account has no WSL of its own to talk to. The agent would not hang with it (every engine command has a 60 second limit), but every container application would fail to start, and its capability report would say the engine is not answering.
+
+    That matters here because **the wizard currently prefers `wslc`**: the Prerequisites page probes `wslc` then `docker`, *as the operator*, where `wslc` works, and makes the first one found the Agent page's default (`WizardViewModel`). On a machine with both - this one - the default is the engine the installed service cannot use.
+
+    Two things are still unknown, and the decision depends on them: whether `wslc` works for an agent run as a named user account (*This account*, §6.7) rather than LocalSystem, and whether Docker Desktop's engine answers a service when nobody is logged in, since Docker Desktop itself runs in a user session. Until then the options are to prefer Docker as the default, to warn on the Agent page when `wslc` is chosen for a LocalSystem agent, or to stop offering `wslc` for an installed agent at all.
+
 ---
 
 *Related:* [`Deployment-IaC.md`](Deployment-IaC.md) (current manual deployment; §4 the IaC shape this installer's silent mode serves) · [`Runbook.md`](Runbook.md) (the duplicate-agent-name failure §6.7 guards against) · [`demo/README.md`](../../demo/README.md) (the demo's `start-demo.ps1` is the living reference for what each service is started with).
