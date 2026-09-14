@@ -29,6 +29,9 @@ COPY Directory.Build.props ./
 # is worth 30 KB.
 COPY src/branding/ ./branding/
 
+# (Every COPY in this stage is also a root in installer\tools\RunnerSourceHash.ps1, which is how a
+# stale image is recognised. Add one here, add it there.)
+#
 # Only the runner project is copied. It is guaranteed to have zero PackageReferences (its csproj
 # enforces that with a build-time Error target), so this needs no restore of anything else and no
 # NuGet access beyond the base image.
@@ -36,6 +39,17 @@ COPY src/Enlist.Runner/ ./Enlist.Runner/
 RUN dotnet publish Enlist.Runner/Enlist.Runner.csproj -c Release -o /publish
 
 FROM mcr.microsoft.com/dotnet/runtime:10.0 AS runtime
+
+# Which release this image is, and exactly what it was built from. installer\build.ps1 passes the
+# product version (and tags the image enlist/runner:<version> to match) and a SHA-256 over the files
+# the COPY lines above bring in; a plain developer build gets "dev" and "unknown". installer\verify.ps1
+# reads both back, so a stale image or a tag that disagrees with its label is caught rather than
+# trusted. A new COPY line needs a matching root in installer\tools\RunnerSourceHash.ps1.
+ARG VERSION=dev
+ARG SOURCE_SHA256=unknown
+LABEL org.opencontainers.image.title="enList runner" \
+      org.opencontainers.image.version="${VERSION}" \
+      enlist.source-sha256="${SOURCE_SHA256}"
 
 # Runs as a non-root user: the runner only ever reads the application directory (mounted read-only)
 # and speaks its control channel, so it has no reason to hold root inside the container. The package

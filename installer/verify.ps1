@@ -899,6 +899,74 @@ foreach ($msi in 'Enlist.ControlPlane.msi', 'Enlist.Portal.msi', 'Enlist.Agent.m
     Assert-That ($found.Count -eq 0) "$msi installs no design-time tooling$(if ($found.Count) { " (found $($found.Count): $(($found | Select-Object -First 4) -join ', '))" })"
 }
 
+# ---- The runner image the agent is told to use -----------------------------------------------------
+<#
+  The agent package names a runner image for every agent that runs applications in containers, and
+  until 2026-09-14 nothing built an image by that name. The agent never pulls (--pull never), so an
+  image that is not on the machine is a clear failure rather than a download - which makes producing
+  it part of the build, and this the check that the build did.
+
+  The name is read out of Enlist.Agent.msi - the AGENT_IMAGE default its SetProperty action carries -
+  rather than composed here, so a change to the default and a build that forgot to follow it cannot
+  both pass. Needs Docker; without it the checks are reported as not run, in yellow, rather than
+  passing or vanishing.
+#>
+Write-Host ""
+Write-Host "  The runner image the agent is told to use"
+[string] $agentMsi = Join-Path $OutDir 'Enlist.Agent.msi'
+$installer = New-Object -ComObject WindowsInstaller.Installer
+$database = $null
+try {
+    $database = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installer, @($agentMsi, 0))
+    $namedImage = [string] (Get-TableValue $database "SELECT Target FROM CustomAction WHERE Source = 'AGENT_IMAGE'")
+}
+finally {
+    if ($database) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($database) }
+    [void][Runtime.InteropServices.Marshal]::ReleaseComObject($installer)
+}
+$productVersion = ([xml](Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'Directory.Build.props'))).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+Assert-That ($namedImage -eq "enlist/runner:$productVersion") "the agent package names enlist/runner:$productVersion (found '$namedImage')"
+
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    $dockerAnswers = [bool] (Get-Command docker -ErrorAction SilentlyContinue) -and
+        ((& docker version --format '{{.Server.Version}}' 2>&1) -and $LASTEXITCODE -eq 0)
+    if (-not $dockerAnswers) {
+        Write-Host "    skip  the image itself: Docker is not answering, so whether $namedImage was built cannot be seen" -ForegroundColor Yellow
+    }
+    else {
+        # The whole JSON document rather than a --format template: a template naming a label needs
+        # double quotes inside it, and Windows PowerShell strips those on the way to a native command.
+        $inspect = & docker image inspect $namedImage 2>&1
+        $present = $LASTEXITCODE -eq 0
+        Assert-That $present "Docker has $namedImage, so an agent on this machine can run it (build.ps1 builds it)"
+        if ($present) {
+            $image = @(($inspect -join "`n") | ConvertFrom-Json)[0]
+
+            # Read defensively: an image built before these labels existed has none, and under strict
+            # mode a missing property is an exception - which would end the run instead of failing the check.
+            $labels = $image.Config.Labels
+            function Get-ImageLabel([string] $name) {
+                if ($labels -and $labels.PSObject.Properties[$name]) { return [string] $labels.PSObject.Properties[$name].Value }
+                return ''
+            }
+
+            $label = Get-ImageLabel 'org.opencontainers.image.version'
+            Assert-That ($label -eq $productVersion) "its version label says $productVersion (found '$label')"
+
+            # Stale is the failure that matters and the one nothing else would notice: the tests' :dev
+            # image went four days and seventeen runner commits out of date without a single failure.
+            # Compared by content - tools\RunnerSourceHash.ps1 says why not by time.
+            . (Join-Path $PSScriptRoot 'tools\RunnerSourceHash.ps1')
+            $expectedHash = Get-RunnerSourceHash -RepoRoot (Split-Path $PSScriptRoot -Parent)
+            $imageHash = Get-ImageLabel 'enlist.source-sha256'
+            Assert-That ($imageHash -eq $expectedHash) "it was built from the runner source as it is now (image $(if ($imageHash.Length -ge 12) { $imageHash.Substring(0, 12) } else { "'$imageHash'" }), source $($expectedHash.Substring(0, 12)))"
+        }
+    }
+}
+finally { $ErrorActionPreference = $previousPreference }
+
 # ---- Live -----------------------------------------------------------------------------------------
 <#
   The half that cannot be faked: install, upgrade to a higher version, uninstall.
@@ -958,7 +1026,9 @@ if ($Live) {
 
     # ---- upgrade ----
     $upgradeDir = Join-Path $env:TEMP 'enlist-verify-upgrade'
-    & (Join-Path $PSScriptRoot 'build.ps1') -SkipPublish -Version '3.0.1' -OutputDirectory $upgradeDir | Out-Null
+    # -SkipRunnerImage: this build exists to test an MSI upgrade, and an enlist/runner:3.0.1 image
+    # left behind by it would be a release tag nobody meant to make.
+    & (Join-Path $PSScriptRoot 'build.ps1') -SkipPublish -SkipRunnerImage -Version '3.0.1' -OutputDirectory $upgradeDir | Out-Null
     $upgradeSetup = Join-Path $upgradeDir 'enList-3.0.1-Setup.exe'
     Assert-That (Test-Path $upgradeSetup) 'a 3.0.1 build exists to upgrade to'
 

@@ -52,7 +52,12 @@ param(
 
     # Chain the stock WixStdBA instead of the wizard in ba\. The fallback if the wizard regresses:
     # the silent surface is identical either way, because a silent install never reaches a window.
-    [switch] $StandardBootstrapper
+    [switch] $StandardBootstrapper,
+
+    # Do not build the runner image. For a machine without Docker, or a build whose point is the MSIs
+    # alone (verify.ps1 -Live's upgrade build). Said out loud when used, because the agent package still
+    # names an image, and without this build nothing has produced it.
+    [switch] $SkipRunnerImage
 )
 
 $ErrorActionPreference = 'Stop'
@@ -196,6 +201,61 @@ if (-not $StandardBootstrapper) {
     }
 }
 
+<#
+  The runner image, tagged with the product version: enlist/runner:<version>.
+
+  That is the name the agent package gives every agent that runs applications in containers
+  (AGENT_IMAGE in Bundle.wxs and Agent.wxs), and until 2026-09-14 nothing produced it - this
+  repository built enlist/runner:dev for the tests and nothing else. An agent installed with a
+  container engine therefore pointed at an image that existed nowhere, and while agents still
+  pulled, a machine without it would have fetched whatever Docker Hub had under that name.
+
+  Built with Docker from the same Dockerfile the tests' :dev image comes from. Two build arguments
+  become labels that verify.ps1 reads back: VERSION, and SOURCE_SHA256 - a hash over exactly the files
+  the image is built from, so a stale image is detected by content.
+  Getting the image onto an agent's machine - a tarball the installer loads - is Installer-UI-Design
+  section 12 item 5 and is not done here.
+
+  A missing Docker stops the build rather than skipping quietly: the packages would still name the
+  image, and a build that says it succeeded while leaving that name unfilled is the defect this fixes.
+#>
+$runnerImage = "enlist/runner:$version"
+if ($SkipRunnerImage) {
+    Write-Host "  NOT building the runner image $runnerImage (-SkipRunnerImage)" -ForegroundColor Yellow
+}
+else {
+    Write-Host "  building the runner image $runnerImage" -ForegroundColor DarkGray
+
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        throw "The runner image needs Docker, and there is no docker command on this machine. Run build.ps1 -SkipRunnerImage to build the MSIs without it."
+    }
+
+    # Native stderr under 'Stop' becomes a terminating error in Windows PowerShell, and a stopped
+    # Docker daemon writes exactly that. Each call is judged by its exit code instead.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $engine = & docker version --format '{{.Server.Version}}' 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw ("The runner image needs Docker, and its engine is not answering: $(($engine | Select-Object -First 1))`n" +
+                "Start Docker Desktop, or run build.ps1 -SkipRunnerImage to build the MSIs without it.")
+        }
+
+        # The source hash verify.ps1 compares against - see tools\RunnerSourceHash.ps1 for why content
+        # and not timestamps.
+        . (Join-Path $installerRoot 'tools\RunnerSourceHash.ps1')
+        $sourceHash = Get-RunnerSourceHash -RepoRoot $repoRoot
+
+        # --quiet: BuildKit writes its progress to stderr, which would bury a real error in noise.
+        $built = & docker build --quiet -f (Join-Path $repoRoot 'src\Enlist.Runner\Dockerfile') `
+            --build-arg "VERSION=$version" --build-arg "SOURCE_SHA256=$sourceHash" -t $runnerImage $repoRoot 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "docker build failed for $runnerImage`n$($built -join "`n")"
+        }
+    }
+    finally { $ErrorActionPreference = $previous }
+}
+
 New-Item -ItemType Directory -Force -Path $outRoot | Out-Null
 
 # Harvest paths are resolved relative to the .wxs file, so every path handed to wix is absolute.
@@ -250,4 +310,7 @@ finally { Pop-Location }
 Write-Host ""
 Get-ChildItem $outRoot -Filter *.msi | ForEach-Object {
     Write-Host ("  {0,-32} {1,8:N1} MB" -f $_.Name, ($_.Length / 1MB)) -ForegroundColor Green
+}
+if (-not $SkipRunnerImage) {
+    Write-Host ("  {0,-32} {1}" -f $runnerImage, '(docker image, not in out\)') -ForegroundColor Green
 }

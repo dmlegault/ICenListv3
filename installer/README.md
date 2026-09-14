@@ -18,7 +18,7 @@ Four directories are source and four are build output. Nothing under the second 
 |---|---|---|
 | `src\` | **source** | The WiX. Three `.wxs` packages, `Bundle.wxs` for the Burn bundle, `Prerequisites.wxs` for the two .NET runtimes it chains, and `Common.wxi` for what all of them share (manufacturer, the three service names). |
 | `ba\` | **source** | The bootstrapper application: the wizard, the detection library behind it, and that library's tests. Three projects and a hosting contract with sharp edges — [`ba\README.md`](ba/README.md) covers it. `build.ps1` builds it first and hands the bundle its output folder. |
-| `tools\` | **source** | `refresh-prerequisites.ps1`, which regenerates the download URLs, SHA-512 hashes and sizes in `Prerequisites.wxs` when the required .NET patch changes. Run it on purpose, then commit what it wrote. |
+| `tools\` | **source** | `refresh-prerequisites.ps1`, which regenerates the download URLs, SHA-512 hashes and sizes in `Prerequisites.wxs` when the required .NET patch changes — run it on purpose, then commit what it wrote. And `RunnerSourceHash.ps1`, the one definition of "what the runner image is built from", shared by `build.ps1` and `verify.ps1`. |
 | `.config\` | **source** | `dotnet-tools.json`, which pins WiX 5. This is what makes the build reproducible rather than dependent on whatever `wix` happens to be on the machine. |
 | `publish\` | *output* | `dotnet publish` of each component, one folder per component, including both runners. The input to harvesting. Each folder is emptied before its publish, because the packages harvest everything in it and `dotnet publish` never removes a file. |
 | `staging\` | *output* | A copy of each publish folder **with the service executable removed**, rebuilt from scratch every run. It exists only because WiX 5's `Files` element has no exclude — see below. |
@@ -32,9 +32,10 @@ And three scripts at the root, which is the whole of the tooling: **`build.ps1`*
 ## Build and check
 
 ```powershell
-.\build.ps1              # publish everything, build the MSIs, then the bundle
+.\build.ps1              # publish everything, build the runner image, the MSIs, then the bundle
 .\build.ps1 -SkipPublish # reuse publish\, for when only the WiX changed
-.\verify.ps1             # 138 detection tests + 90 installer checks
+.\build.ps1 -SkipRunnerImage  # no Docker here: build the MSIs without the runner image
+.\verify.ps1             # 138 detection tests + 94 installer checks
 .\verify.ps1 -Live       # really install, upgrade and uninstall (elevated shell)
 .\live-e2e.ps1           # a real install that RUNS (elevated shell) - see below
 ```
@@ -46,6 +47,8 @@ And three scripts at the root, which is the whole of the tooling: **`build.ps1`*
 ```
 
 It always uninstalls, in a `finally`. `-TrustCertificate` adds a self-signed test certificate to `LocalMachine\Root` for the run and removes it again, which is what an agent needs before it will talk to a control plane serving one — the agent runs as LocalSystem and consults the *machine* trust store, not the operator's.
+
+**The runner image is part of the build.** The agent package tells every container-mode agent to run `enlist/runner:<product version>`, so `build.ps1` builds that image with Docker, labelled with the version and a SHA-256 of the source it came from. It lands in Docker's image store, not in `out\` — putting it into the installer as a tarball is still to do. Docker not running stops the build with a message rather than skipping quietly; `-SkipRunnerImage` is the deliberate way past it.
 
 `build.ps1` also takes `-Version` and `-OutputDirectory`, which exist for one purpose: building a higher version of the same source, somewhere else, so an upgrade can be tested without replacing the real output. `verify.ps1 -Live` uses both.
 
@@ -97,6 +100,7 @@ So the offline half opens each package as a real Windows Installer session, sets
 Two more groups check what the packages *contain* rather than what they do, and both read the built artifacts rather than the source, because the source is not what ships:
 
 - **Every installer and every enList executable carries the iC icon** — the bundle, the wizard, each MSI, and the three services and both runners as they sit inside their MSIs. Each executable is read out of its package's embedded cabinet through `msi.dll` and compared with `enlist.ico` byte for byte, with an unbranded executable as a control. Comparing rendered pixels, the first attempt, could not tell the generic icon from the real one.
+- **The runner image the agent is told to use exists and is current.** The name is read out of `Enlist.Agent.msi`, and Docker has to hold that exact tag, with a matching version label and a source hash equal to the runner source as it is now. By content, not by time: Docker's cache keeps an unchanged image's creation date, so "built after the newest file" fails a current image the moment a file is merely touched. Without Docker these are shown as not run, in yellow.
 - **Nothing design-time ships.** The control plane's `Microsoft.EntityFrameworkCore.Design` reference exists for `dotnet ef`, and Roslyn's build host — `Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.exe` and about 4 MB beside it — used to reach the control plane MSI as NuGet content files. The project now leaves it out of publish, `build.ps1` empties each publish folder so a stale copy cannot linger, and this check reads every package's File table to hold it that way.
 
 One defect it found is worth knowing about before editing any `.wxs` here: **a bundle variable that is empty replaces an MSI's default rather than falling back to it.** A `Property` element's value is the Property-table default, and the bundle passes every variable to every package unconditionally. `DB_SERVER` empty produced `Server=;` in a connection string — a control plane that installs perfectly and never starts. Every default in the three packages is therefore a conditional `SetProperty`, not a `Property` value, and there is a group of checks that holds it that way.
@@ -117,4 +121,4 @@ Three projects, split on one line: what can be tested, and what cannot. `Enlist.
 
 Nothing blocking an install. `live-e2e.ps1` passes end to end: schema, portal key, TLS, agent enrollment, and uninstall.
 
-Still outstanding: `verify.ps1 -Live` proves upgrade and uninstall for the agent package only, not all three; nothing is code-signed (section 12 item 7, which needs a certificate purchase rather than a design); and the released runner image has no tag yet (section 12 item 8) — this repository builds `enlist/runner:dev` only.
+Still outstanding: `verify.ps1 -Live` proves upgrade and uninstall for the agent package only, not all three; nothing is code-signed (section 12 item 7, which needs a certificate purchase rather than a design); and **the runner image is built but not shipped** (section 12 item 5). `build.ps1` produces `enlist/runner:3.0.0` on the build machine, but no installer carries it to an agent's machine yet, and since agents never pull, a container-mode agent installed elsewhere reports the image missing until it is loaded there by hand.
