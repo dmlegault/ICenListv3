@@ -70,6 +70,108 @@ function Split-CommandLine([string] $line) {
 }
 
 <#
+  The images an icon is made of, hashed and joined into one key, so "does this carry enlist.ico" is an
+  equality rather than a judgement. An .ico file and an icon resource store each image identically;
+  only the directory in front of them differs (an .ico points at file offsets, a resource group at
+  RT_ICON ids), so reading through each directory to the images gives the same key for the same icon.
+
+  C# 5 syntax throughout: Add-Type in Windows PowerShell compiles with the framework's own csc, which
+  predates expression-bodied members.
+#>
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+
+namespace Enlist {
+    public static class IconImages {
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        static extern IntPtr LoadLibraryEx(string file, IntPtr reserved, uint flags);
+        [DllImport("kernel32.dll")] static extern bool FreeLibrary(IntPtr module);
+        delegate bool EnumNamesProc(IntPtr module, IntPtr type, IntPtr name, IntPtr param);
+        [DllImport("kernel32.dll")] static extern bool EnumResourceNames(IntPtr module, IntPtr type, EnumNamesProc callback, IntPtr param);
+        [DllImport("kernel32.dll")] static extern IntPtr FindResource(IntPtr module, IntPtr name, IntPtr type);
+        [DllImport("kernel32.dll")] static extern IntPtr LoadResource(IntPtr module, IntPtr resource);
+        [DllImport("kernel32.dll")] static extern IntPtr LockResource(IntPtr data);
+        [DllImport("kernel32.dll")] static extern uint SizeofResource(IntPtr module, IntPtr resource);
+
+        const uint LoadAsDataFile = 0x2;
+        static readonly IntPtr RtIcon = (IntPtr)3;
+        static readonly IntPtr RtGroupIcon = (IntPtr)14;
+
+        static string Hash(byte[] bytes) {
+            using (var sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(bytes));
+        }
+
+        static string Key(IEnumerable<string> hashes) { return string.Join("|", hashes.OrderBy(h => h)); }
+
+        public static string OfIcoFile(string path) {
+            var file = File.ReadAllBytes(path);
+            int count = BitConverter.ToUInt16(file, 4);
+            var hashes = new List<string>();
+            for (int i = 0; i < count; i++) {
+                int entry = 6 + i * 16;
+                var image = new byte[BitConverter.ToInt32(file, entry + 8)];
+                Buffer.BlockCopy(file, BitConverter.ToInt32(file, entry + 12), image, 0, image.Length);
+                hashes.Add(Hash(image));
+            }
+            return Key(hashes);
+        }
+
+        // One key per icon group in the executable; a file with no icon returns none.
+        public static string[] OfExecutable(string path) {
+            var module = LoadLibraryEx(path, IntPtr.Zero, LoadAsDataFile);
+            if (module == IntPtr.Zero) return new string[0];
+            var keys = new List<string>();
+            try {
+                EnumResourceNames(module, RtGroupIcon, delegate (IntPtr m, IntPtr type, IntPtr name, IntPtr param) {
+                    var group = Read(m, name, type);
+                    int count = BitConverter.ToUInt16(group, 4);
+                    var hashes = new List<string>();
+                    for (int i = 0; i < count; i++) {
+                        var image = Read(m, (IntPtr)BitConverter.ToUInt16(group, 6 + i * 14 + 12), RtIcon);
+                        hashes.Add(image == null ? "missing" : Hash(image));
+                    }
+                    keys.Add(Key(hashes));
+                    return true;
+                }, IntPtr.Zero);
+            }
+            finally { FreeLibrary(module); }
+            return keys.ToArray();
+        }
+
+        static byte[] Read(IntPtr module, IntPtr name, IntPtr type) {
+            var resource = FindResource(module, name, type);
+            if (resource == IntPtr.Zero) return null;
+            var bytes = new byte[SizeofResource(module, resource)];
+            Marshal.Copy(LockResource(LoadResource(module, resource)), bytes, 0, bytes.Length);
+            return bytes;
+        }
+    }
+}
+'@
+
+# The first column of the first row, or $null.
+function Get-TableValue {
+    param($Database, [string] $Query)
+
+    $view = $Database.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $Database, @($Query))
+    try {
+        $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null) | Out-Null
+        $record = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
+        if (-not $record) { return $null }
+        return [string] $record.GetType().InvokeMember('StringData', 'GetProperty', $null, $record, @(1))
+    }
+    finally {
+        $view.GetType().InvokeMember('Close', 'InvokeMethod', $null, $view, $null) | Out-Null
+        [void][Runtime.InteropServices.Marshal]::ReleaseComObject($view)
+    }
+}
+
+<#
   Opens the package, applies properties, runs costing and the named actions, and hands back the
   composed command line. A fresh Installer object per call on purpose: Windows Installer allows one
   session at a time, and a session left un-released makes the NEXT OpenPackage fail with a COM error
@@ -568,6 +670,65 @@ else {
             $declared = [regex]::Match($manifest, "<Variable[^>]*Id=`"$secret`"[^>]*>").Value
             Assert-That ($declared -match 'Hidden="yes"') "$secret is Hidden, so the bundle log does not carry it"
         }
+
+        <#
+          THE iC MARK, on every installer. Windows shows an icon for enList in four places, each set in
+          a different way - which is exactly why they drifted apart. The bundle's IconSourceFile was set
+          before anyone looked at Installed apps; the bootstrapper executable's ApplicationIcon was
+          missed until it sat in Task Manager with the generic glyph beside a setup.exe carrying the
+          real one; and the three packages had none at all, which only shows when one is installed
+          directly with msiexec - the moment an operator is already off the usual path.
+
+          Compared as the exact image bytes, not as pictures. The first version of this check rendered
+          both icons at 32x32 and compared the pixels, and could not tell the generic application icon
+          from the real one: the rendering differs between an .ico and the same images read back out
+          of a resource. The images themselves do not - an icon resource carries each image of the
+          .ico verbatim, and a package's Icon table carries the whole file - so a hash says yes or no
+          where a picture only says "similar".
+
+          The bootstrapper executable is the one out of the bundle just extracted, not the build
+          output beside it: a stale payload is precisely the kind of thing that would carry the old
+          icon while the fresh build looked right.
+        #>
+        Write-Host ""
+        Write-Host "  Every installer carries the iC mark"
+        $iconFile = Join-Path $PSScriptRoot 'ba\Enlist.Installer.Ba\media\enlist.ico'
+        $expected = [Enlist.IconImages]::OfIcoFile($iconFile)
+
+        Assert-That (@([Enlist.IconImages]::OfExecutable($setup.FullName)) -contains $expected) 'the bundle carries it, which is what Installed apps shows'
+        Assert-That (@([Enlist.IconImages]::OfExecutable((Join-Path $extract 'ba\Enlist.Installer.Ba.exe'))) -contains $expected) 'the bootstrapper executable carries it, which is what Task Manager shows'
+
+        # Negative control: an unbranded executable must not pass, or the two checks above prove nothing.
+        Assert-That (-not (@([Enlist.IconImages]::OfExecutable((Get-Command powershell.exe).Source)) -contains $expected)) 'an executable without the iC mark is told apart (control)'
+
+        foreach ($msi in 'Enlist.ControlPlane.msi', 'Enlist.Portal.msi', 'Enlist.Agent.msi') {
+            # [string], and it matters: Join-Path hands back a wrapped string that COM rejects with
+            # DISP_E_TYPEMISMATCH, which the first version of this check swallowed and reported as a
+            # package with no icon.
+            [string] $package = Join-Path $OutDir $msi
+            [string] $exported = Join-Path ([IO.Path]::GetTempPath()) "enlist-icon-$([guid]::NewGuid().ToString('N'))"
+            New-Item -ItemType Directory $exported | Out-Null
+            $installer = New-Object -ComObject WindowsInstaller.Installer
+            $database = $null
+            try {
+                $database = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installer, @($package, 0))
+                $arp = [string] (Get-TableValue $database "SELECT Value FROM Property WHERE Property = 'ARPPRODUCTICON'")
+                # Export writes each binary column to Icon\<name>.ibd, which is the file as it was embedded.
+                $database.GetType().InvokeMember('Export', 'InvokeMethod', $null, $database, @('Icon', $exported, 'Icon.idt')) | Out-Null
+            }
+            finally {
+                if ($database) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($database) }
+                [void][Runtime.InteropServices.Marshal]::ReleaseComObject($installer)
+            }
+
+            # ARPPRODUCTICON names an Icon row; a property pointing at a row that is not there shows the
+            # generic glyph just as surely as no property at all.
+            $embedded = Join-Path $exported "Icon\$arp.ibd"
+            $carries = $arp -and (Test-Path $embedded) -and
+                ((Get-FileHash $embedded).Hash -eq (Get-FileHash $iconFile).Hash)
+            Remove-Item -Recurse -Force $exported -ErrorAction SilentlyContinue
+            Assert-That $carries "$msi carries it, which is what Installed apps shows if it is installed on its own"
+        }
     }
     finally { Remove-Item -Recurse -Force $extract -ErrorAction SilentlyContinue }
 }
@@ -676,6 +837,7 @@ if ($script:failures -gt 0) {
     exit 1
 }
 Write-Host "All checks passed." -ForegroundColor Green
+
 
 
 

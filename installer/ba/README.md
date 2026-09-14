@@ -130,6 +130,17 @@ The palette is the portal's, not a second opinion about what enList looks like: 
 
 The Iron Canary mark is the banner and, as a generated multi-size `.ico`, the window icon. Both are compiled in as WPF `Resource`s rather than declared as bundle payloads. A payload is a thing that can be forgotten — which is precisely how `mbanative.dll` went missing.
 
+**That one `media\enlist.ico` is every installer's icon, and each one is set somewhere different** — which is how they drifted apart and why `verify.ps1` now checks all of them:
+
+| Where Windows shows it | Set by |
+|---|---|
+| The wizard's title bar and taskbar button | `Icon=` in `WizardWindow.xaml` |
+| `enList-<version>-Setup.exe` in Explorer, and the bundle's entry in Installed apps | `IconSourceFile` on the `Bundle` element (`src\Bundle.wxs`) |
+| `Enlist.Installer.Ba.exe` in Task Manager | `<ApplicationIcon>` in `Enlist.Installer.Ba.csproj` — the one that was missed, so the bootstrapper sat in Task Manager with the generic glyph beside a setup.exe carrying the real one |
+| Each MSI's entry in Installed apps, when installed on its own with `msiexec` | `<Icon>` plus `ARPPRODUCTICON` in each package's `.wxs` |
+
+`build.ps1` passes the file to every WiX build as `IconFile`. The check compares the icon's image bytes, not how it looks: rendering an icon and comparing pixels could not tell the generic application icon from this one. If Task Manager or Explorer still shows the old icon after a rebuild, that is the shell's icon cache, which is keyed by path — copy the file somewhere new to see what it really carries.
+
 Note that a dark theme is not a background colour: every input, button, grid and header needs its own template, or it stays Windows-default white on a dark page.
 
 ## Building it

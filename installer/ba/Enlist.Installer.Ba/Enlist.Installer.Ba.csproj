@@ -45,6 +45,18 @@
     <StartupObject>Enlist.Installer.Ba.Program</StartupObject>
 
     <!--
+      The icon embedded in the EXECUTABLE FILE, which is a third thing and was the one missed.
+
+      There are three icons here and each is set in a different place: the wizard's window icon is
+      WizardWindow.xaml's Icon= and exists only while the window does; the bundle's icon is
+      IconSourceFile on the Bundle element and is what Installed apps shows; and this one is the Win32
+      resource in Enlist.Installer.Ba.exe itself. Task Manager, Explorer and the taskbar before the
+      window has rendered all read THIS one - so with only the other two set, the bootstrapper process
+      sat in Task Manager with the generic application icon beside a setup.exe carrying the iC mark.
+    -->
+    <ApplicationIcon>media\enlist.ico</ApplicationIcon>
+
+    <!--
       The BA and everything it needs are laid beside mbanative.dll in the bundle's payload, so the
       dependencies have to be copied out rather than resolved from anywhere else.
     -->

@@ -33,6 +33,16 @@
 
     <MediaTemplate EmbedCab="yes" />
 
+    <!--
+      The iC mark in Installed apps, which is where this package appears if it is installed on its own
+      with msiexec rather than through the bundle. Through the bundle it is hidden (ARPSYSTEMCOMPONENT)
+      and only the bundle entry shows - so without this, the generic MSI glyph only ever appears in the
+      one situation an operator is already doing something unusual, which is the worst time to look
+      unfamiliar.
+    -->
+    <Icon Id="enlist.ico" SourceFile="$(IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="enlist.ico" />
+
     <Property Id="PORTAL_INSTALLDIR" Secure="yes" />
     <Property Id="PORTAL_DATADIR" Secure="yes" />
 

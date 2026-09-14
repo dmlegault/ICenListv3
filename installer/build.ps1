@@ -193,6 +193,9 @@ New-Item -ItemType Directory -Force -Path $outRoot | Out-Null
 # Harvest paths are resolved relative to the .wxs file, so every path handed to wix is absolute.
 $defs = @(
     "ProductVersion=$version"
+    # The same .ico everywhere - bundle, bootstrapper executable, wizard window and all three packages -
+    # so enList looks like one product wherever Windows shows it.
+    "IconFile=$(Join-Path $installerRoot 'ba\Enlist.Installer.Ba\media\enlist.ico')"
     "ControlPlaneStaging=$(Join-Path $stagingRoot 'Enlist.ControlPlane')"
     "ControlPlanePublish=$(Join-Path $publishRoot 'Enlist.ControlPlane')"
     "PortalStaging=$(Join-Path $stagingRoot 'Enlist.Portal')"
