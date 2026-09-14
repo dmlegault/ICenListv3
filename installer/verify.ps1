@@ -908,11 +908,15 @@ foreach ($msi in 'Enlist.ControlPlane.msi', 'Enlist.Portal.msi', 'Enlist.Agent.m
 
   The name is read out of Enlist.Agent.msi - the AGENT_IMAGE default its SetProperty action carries -
   rather than composed here, so a change to the default and a build that forgot to follow it cannot
-  both pass. Needs Docker; without it the checks are reported as not run, in yellow, rather than
-  passing or vanishing.
+  both pass.
+
+  What is checked is the DOWNLOAD in out\, not Docker's image store, because the download is what an
+  operator is handed and side-loads (Installer-UI-Design section 12 item 5). A `docker save` file is
+  a plain tar with its manifest and image config inside, so the tag it loads under, its version label
+  and its source hash can all be read with tar.exe - no Docker needed to verify it.
 #>
 Write-Host ""
-Write-Host "  The runner image the agent is told to use"
+Write-Host "  The runner image download, and the image the agent is told to use"
 [string] $agentMsi = Join-Path $OutDir 'Enlist.Agent.msi'
 $installer = New-Object -ComObject WindowsInstaller.Installer
 $database = $null
@@ -927,45 +931,53 @@ finally {
 $productVersion = ([xml](Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'Directory.Build.props'))).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
 Assert-That ($namedImage -eq "enlist/runner:$productVersion") "the agent package names enlist/runner:$productVersion (found '$namedImage')"
 
-$previousPreference = $ErrorActionPreference
-$ErrorActionPreference = 'Continue'
-try {
-    $dockerAnswers = [bool] (Get-Command docker -ErrorAction SilentlyContinue) -and
-        ((& docker version --format '{{.Server.Version}}' 2>&1) -and $LASTEXITCODE -eq 0)
-    if (-not $dockerAnswers) {
-        Write-Host "    skip  the image itself: Docker is not answering, so whether $namedImage was built cannot be seen" -ForegroundColor Yellow
+$imageFile = Join-Path $OutDir "enlist-runner-$productVersion.tar"
+$haveImageFile = Test-Path $imageFile
+Assert-That $haveImageFile "out\ has the runner image download, $(Split-Path -Leaf $imageFile) (build.ps1 without -SkipRunnerImage)"
+
+if ($haveImageFile) {
+    # Read defensively: strict mode turns a missing property into an exception, which would end the run
+    # instead of failing the check - and an image built before these labels existed has none.
+    function Get-JsonProperty($object, [string] $name) {
+        if ($null -ne $object -and $object.PSObject.Properties[$name]) { return $object.PSObject.Properties[$name].Value }
+        return $null
     }
-    else {
-        # The whole JSON document rather than a --format template: a template naming a label needs
-        # double quotes inside it, and Windows PowerShell strips those on the way to a native command.
-        $inspect = & docker image inspect $namedImage 2>&1
-        $present = $LASTEXITCODE -eq 0
-        Assert-That $present "Docker has $namedImage, so an agent on this machine can run it (build.ps1 builds it)"
-        if ($present) {
-            $image = @(($inspect -join "`n") | ConvertFrom-Json)[0]
 
-            # Read defensively: an image built before these labels existed has none, and under strict
-            # mode a missing property is an exception - which would end the run instead of failing the check.
-            $labels = $image.Config.Labels
-            function Get-ImageLabel([string] $name) {
-                if ($labels -and $labels.PSObject.Properties[$name]) { return [string] $labels.PSObject.Properties[$name].Value }
-                return ''
-            }
+    # -InputObject, not the pipeline: Windows PowerShell's ConvertFrom-Json hands a JSON array down the
+    # pipeline as ONE object, so @(... | ConvertFrom-Json)[0] is the whole array and every property on
+    # it reads as missing.
+    $manifest = ConvertFrom-Json -InputObject ((& tar.exe -xOf $imageFile manifest.json) -join "`n")
+    $manifestEntry = @($manifest)[0]
+    $tags = @(Get-JsonProperty $manifestEntry 'RepoTags')
+    Assert-That ($tags -contains $namedImage) "it loads as $namedImage, the name the agent package uses (found '$($tags -join ', ')')"
 
-            $label = Get-ImageLabel 'org.opencontainers.image.version'
-            Assert-That ($label -eq $productVersion) "its version label says $productVersion (found '$label')"
-
-            # Stale is the failure that matters and the one nothing else would notice: the tests' :dev
-            # image went four days and seventeen runner commits out of date without a single failure.
-            # Compared by content - tools\RunnerSourceHash.ps1 says why not by time.
-            . (Join-Path $PSScriptRoot 'tools\RunnerSourceHash.ps1')
-            $expectedHash = Get-RunnerSourceHash -RepoRoot (Split-Path $PSScriptRoot -Parent)
-            $imageHash = Get-ImageLabel 'enlist.source-sha256'
-            Assert-That ($imageHash -eq $expectedHash) "it was built from the runner source as it is now (image $(if ($imageHash.Length -ge 12) { $imageHash.Substring(0, 12) } else { "'$imageHash'" }), source $($expectedHash.Substring(0, 12)))"
-        }
+    # Never ask tar for an empty member name: `tar -xOf file ""` extracts EVERY member to stdout, which
+    # for this file is 80 MB of layers poured into PowerShell strings. That happened once, through the
+    # quirk above, and turned a one-second check into a ten-minute hang.
+    $configMember = [string] (Get-JsonProperty $manifestEntry 'Config')
+    $labels = $null
+    if ($configMember) {
+        $imageConfig = ConvertFrom-Json -InputObject ((& tar.exe -xOf $imageFile $configMember) -join "`n")
+        $labels = Get-JsonProperty (Get-JsonProperty $imageConfig 'config') 'Labels'
     }
+
+    $label = [string] (Get-JsonProperty $labels 'org.opencontainers.image.version')
+    Assert-That ($label -eq $productVersion) "its version label says $productVersion (found '$label')"
+
+    # Stale is the failure that matters and the one nothing else would notice: the tests' :dev image went
+    # four days and seventeen runner commits out of date without a single failure. Compared by content -
+    # tools\RunnerSourceHash.ps1 says why not by time.
+    . (Join-Path $PSScriptRoot 'tools\RunnerSourceHash.ps1')
+    $expectedHash = Get-RunnerSourceHash -RepoRoot (Split-Path $PSScriptRoot -Parent)
+    $imageHash = [string] (Get-JsonProperty $labels 'enlist.source-sha256')
+    Assert-That ($imageHash -eq $expectedHash) "it was built from the runner source as it is now (image $(if ($imageHash.Length -ge 12) { $imageHash.Substring(0, 12) } else { "'$imageHash'" }), source $($expectedHash.Substring(0, 12)))"
+
+    # The checksum a recipient checks it against has to describe this file, or it teaches them to ignore it.
+    $checksumFile = "$imageFile.sha256"
+    $recorded = if (Test-Path $checksumFile) { ([IO.File]::ReadAllText($checksumFile)).Trim() } else { '' }
+    $actual = "$((Get-FileHash $imageFile -Algorithm SHA256).Hash.ToLowerInvariant())  $(Split-Path -Leaf $imageFile)"
+    Assert-That ($recorded -eq $actual) "its .sha256 matches the file, in the format sha256sum -c reads"
 }
-finally { $ErrorActionPreference = $previousPreference }
 
 # ---- Live -----------------------------------------------------------------------------------------
 <#

@@ -34,11 +34,17 @@ public abstract class CliContainerEngineBase
     /// </summary>
     protected const string PullPolicy = "never";
 
-    /// <summary>The error for a run refused because the image is not on this machine, saying what the operator can do about it.</summary>
+    /// <summary>
+    /// The error for a run refused because the image is not on this machine, saying what the operator
+    /// can do about it. The enList runner image is handed out as a download beside the installer,
+    /// enlist-runner-&lt;version&gt;.tar, which is loaded into the engine by hand - so that is what this
+    /// points at first, and building from source second.
+    /// </summary>
     protected static InvalidOperationException MissingImage(string engine, string image, string detail) =>
         new($"{engine} run failed: the image '{image}' is not on this machine ({detail}). " +
-            $"The agent never pulls images. Load it ({engine} load -i <tarball>) or build it " +
-            $"({engine} build -f src/Enlist.Runner/Dockerfile -t {image} .), or point the application at an image that is present.");
+            $"The agent never pulls images. Load the enList runner image download into {engine} " +
+            $"({engine} load -i enlist-runner-<version>.tar), or point the application at an image that is present. " +
+            $"From source: {engine} build -f src/Enlist.Runner/Dockerfile -t {image} .");
 
     protected async Task<(int ExitCode, string Stdout, string Stderr)> RunCliAsync(IReadOnlyList<string> args, CancellationToken ct, TimeSpan? timeout = null)
     {

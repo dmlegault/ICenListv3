@@ -213,16 +213,29 @@ if (-not $StandardBootstrapper) {
   Built with Docker from the same Dockerfile the tests' :dev image comes from. Two build arguments
   become labels that verify.ps1 reads back: VERSION, and SOURCE_SHA256 - a hash over exactly the files
   the image is built from, so a stale image is detected by content.
-  The installer does not carry this image. It is provided as a separate download that operators
-  side-load into their own engine (Installer-UI-Design section 12 item 5); saving it to that file is
-  not done here yet.
+
+  THE DOWNLOAD. The installer does not carry this image; it is handed to operators as a separate file
+  they side-load into their own engine (Installer-UI-Design section 12 item 5). So it is saved into
+  out\ beside the installers, as enlist-runner-<version>.tar, with a .sha256 beside it in the format
+  sha256sum -c reads. A plain tar and not gzipped: `docker save` already writes compressed layers, and
+  gzip took 79.5 MB to 78.9. Both engines load it as it is:
+
+      docker load -i enlist-runner-3.0.0.tar
+      wslc load -i enlist-runner-3.0.0.tar
+
+  Any earlier download in out\ is deleted first, including when this step is skipped - a file left
+  from a previous build would otherwise be handed out as if it were this one.
 
   A missing Docker stops the build rather than skipping quietly: the packages would still name the
   image, and a build that says it succeeded while leaving that name unfilled is the defect this fixes.
 #>
 $runnerImage = "enlist/runner:$version"
+$runnerImageFile = Join-Path $outRoot "enlist-runner-$version.tar"
+New-Item -ItemType Directory -Force -Path $outRoot | Out-Null
+Get-ChildItem $outRoot -Filter 'enlist-runner-*.tar*' -ErrorAction SilentlyContinue | Remove-Item -Force
+
 if ($SkipRunnerImage) {
-    Write-Host "  NOT building the runner image $runnerImage (-SkipRunnerImage)" -ForegroundColor Yellow
+    Write-Host "  NOT building the runner image $runnerImage (-SkipRunnerImage), so out\ has no image download" -ForegroundColor Yellow
 }
 else {
     Write-Host "  building the runner image $runnerImage" -ForegroundColor DarkGray
@@ -253,11 +266,20 @@ else {
         if ($LASTEXITCODE -ne 0) {
             throw "docker build failed for $runnerImage`n$($built -join "`n")"
         }
+
+        Write-Host "  saving $(Split-Path -Leaf $runnerImageFile)" -ForegroundColor DarkGray
+        $saved = & docker save -o $runnerImageFile $runnerImage 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "docker save failed for $runnerImage`n$($saved -join "`n")"
+        }
     }
     finally { $ErrorActionPreference = $previous }
-}
 
-New-Item -ItemType Directory -Force -Path $outRoot | Out-Null
+    # Two spaces and a bare file name, LF-terminated: what `sha256sum -c` expects, so a recipient on any
+    # platform can check the file they were given. Get-FileHash reads the same value on Windows.
+    $digest = (Get-FileHash $runnerImageFile -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText("$runnerImageFile.sha256", "$digest  $(Split-Path -Leaf $runnerImageFile)`n", (New-Object Text.UTF8Encoding $false))
+}
 
 # Harvest paths are resolved relative to the .wxs file, so every path handed to wix is absolute.
 $defs = @(
@@ -313,5 +335,6 @@ Get-ChildItem $outRoot -Filter *.msi | ForEach-Object {
     Write-Host ("  {0,-32} {1,8:N1} MB" -f $_.Name, ($_.Length / 1MB)) -ForegroundColor Green
 }
 if (-not $SkipRunnerImage) {
-    Write-Host ("  {0,-32} {1}" -f $runnerImage, '(docker image, not in out\)') -ForegroundColor Green
+    $file = Get-Item $runnerImageFile
+    Write-Host ("  {0,-32} {1,8:N1} MB  the runner image download, for operators to side-load" -f $file.Name, ($file.Length / 1MB)) -ForegroundColor Green
 }
