@@ -7,6 +7,8 @@
     <Nullable>enable</Nullable>
     <RootNamespace>Enlist.Agent</RootNamespace>
     <AssemblyName>enlist-agent</AssemblyName>
+    <!-- The iC mark on enlist-agent.exe, shared by all three services from src\branding. -->
+    <ApplicationIcon>..\branding\enlist.ico</ApplicationIcon>
   </PropertyGroup>
 
   <!--

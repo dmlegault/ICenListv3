@@ -34,7 +34,7 @@ And three scripts at the root, which is the whole of the tooling: **`build.ps1`*
 ```powershell
 .\build.ps1              # publish everything, build the MSIs, then the bundle
 .\build.ps1 -SkipPublish # reuse publish\, for when only the WiX changed
-.\verify.ps1             # 138 detection tests + 81 installer checks
+.\verify.ps1             # 138 detection tests + 84 installer checks
 .\verify.ps1 -Live       # really install, upgrade and uninstall (elevated shell)
 .\live-e2e.ps1           # a real install that RUNS (elevated shell) - see below
 ```

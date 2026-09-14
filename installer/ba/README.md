@@ -138,6 +138,7 @@ The Iron Canary mark is the banner and, as a generated multi-size `.ico`, the wi
 | `enList-<version>-Setup.exe` in Explorer, and the bundle's entry in Installed apps | `IconSourceFile` on the `Bundle` element (`src\Bundle.wxs`) |
 | `Enlist.Installer.Ba.exe` in Task Manager | `<ApplicationIcon>` in `Enlist.Installer.Ba.csproj` — the one that was missed, so the bootstrapper sat in Task Manager with the generic glyph beside a setup.exe carrying the real one |
 | Each MSI's entry in Installed apps, when installed on its own with `msiexec` | `<Icon>` plus `ARPPRODUCTICON` in each package's `.wxs` |
+| The running services in Task Manager — `Enlist.ControlPlane.exe`, `Enlist.Portal.exe`, `enlist-agent.exe` | `<ApplicationIcon>` in each service's project, from a second copy in `src\branding` (its README says why there are two) |
 
 `build.ps1` passes the file to every WiX build as `IconFile`. The check compares the icon's image bytes, not how it looks: rendering an icon and comparing pixels could not tell the generic application icon from this one. If Task Manager or Explorer still shows the old icon after a rebuild, that is the shell's icon cache, which is keyed by path — copy the file somewhere new to see what it really carries.
 

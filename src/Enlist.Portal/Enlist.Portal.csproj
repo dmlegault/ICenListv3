@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <!-- The iC mark on Enlist.Portal.exe, shared by all three services from src\branding. -->
+    <ApplicationIcon>..\branding\enlist.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

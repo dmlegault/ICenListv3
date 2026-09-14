@@ -85,6 +85,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace Enlist {
     public static class IconImages {
@@ -149,6 +150,64 @@ namespace Enlist {
             var bytes = new byte[SizeofResource(module, resource)];
             Marshal.Copy(LockResource(LoadResource(module, resource)), bytes, 0, bytes.Length);
             return bytes;
+        }
+    }
+
+    // A package's embedded cabinet, written to a file expand.exe can open. msi.dll directly rather
+    // than the WindowsInstaller COM object, because COM hands a stream back as a string and a
+    // cabinet is not one.
+    public static class MsiCabinet {
+        [DllImport("msi.dll", CharSet = CharSet.Unicode)] static extern uint MsiOpenDatabase(string path, IntPtr persist, out IntPtr database);
+        [DllImport("msi.dll", CharSet = CharSet.Unicode)] static extern uint MsiDatabaseOpenView(IntPtr database, string query, out IntPtr view);
+        [DllImport("msi.dll")] static extern uint MsiViewExecute(IntPtr view, IntPtr record);
+        [DllImport("msi.dll")] static extern uint MsiViewFetch(IntPtr view, out IntPtr record);
+        [DllImport("msi.dll", CharSet = CharSet.Unicode)] static extern uint MsiRecordGetString(IntPtr record, uint field, StringBuilder value, ref uint size);
+        [DllImport("msi.dll")] static extern uint MsiRecordDataSize(IntPtr record, uint field);
+        [DllImport("msi.dll")] static extern uint MsiRecordReadStream(IntPtr record, uint field, byte[] buffer, ref uint size);
+        [DllImport("msi.dll")] static extern uint MsiCloseHandle(IntPtr handle);
+
+        static void Ok(uint result, string what) {
+            if (result != 0) throw new InvalidOperationException(what + " failed with Windows Installer error " + result);
+        }
+
+        static IntPtr FetchFirst(IntPtr database, string query) {
+            IntPtr view, record;
+            Ok(MsiDatabaseOpenView(database, query, out view), query);
+            try {
+                Ok(MsiViewExecute(view, IntPtr.Zero), query);
+                if (MsiViewFetch(view, out record) != 0) throw new InvalidOperationException("no row for " + query);
+                return record;
+            }
+            finally { MsiCloseHandle(view); }
+        }
+
+        public static void Export(string package, string cabinetPath) {
+            IntPtr database;
+            Ok(MsiOpenDatabase(package, IntPtr.Zero, out database), "opening " + package);  // IntPtr.Zero is read-only
+            try {
+                var media = FetchFirst(database, "SELECT `Cabinet` FROM `Media`");
+                string cabinet;
+                try {
+                    uint size = 256;
+                    var name = new StringBuilder((int)size);
+                    Ok(MsiRecordGetString(media, 1, name, ref size), "reading the cabinet name");
+                    cabinet = name.ToString();
+                }
+                finally { MsiCloseHandle(media); }
+
+                // "#name" is a cabinet embedded as a stream; anything else is a file beside the package.
+                if (!cabinet.StartsWith("#")) throw new InvalidOperationException(package + " does not embed its cabinet: " + cabinet);
+
+                var stream = FetchFirst(database, "SELECT `Data` FROM `_Streams` WHERE `Name` = '" + cabinet.Substring(1) + "'");
+                try {
+                    uint size = MsiRecordDataSize(stream, 1);
+                    var bytes = new byte[size];
+                    Ok(MsiRecordReadStream(stream, 1, bytes, ref size), "reading " + cabinet);
+                    File.WriteAllBytes(cabinetPath, bytes);
+                }
+                finally { MsiCloseHandle(stream); }
+            }
+            finally { MsiCloseHandle(database); }
         }
     }
 }
@@ -691,7 +750,7 @@ else {
           icon while the fresh build looked right.
         #>
         Write-Host ""
-        Write-Host "  Every installer carries the iC mark"
+        Write-Host "  Every installer, and every service it installs, carries the iC mark"
         $iconFile = Join-Path $PSScriptRoot 'ba\Enlist.Installer.Ba\media\enlist.ico'
         $expected = [Enlist.IconImages]::OfIcoFile($iconFile)
 
@@ -700,6 +759,30 @@ else {
 
         # Negative control: an unbranded executable must not pass, or the two checks above prove nothing.
         Assert-That (-not (@([Enlist.IconImages]::OfExecutable((Get-Command powershell.exe).Source)) -contains $expected)) 'an executable without the iC mark is told apart (control)'
+
+        <#
+          The services, read out of the packages that install them. Each MSI's cabinet is written out
+          and the service executable expanded from it by its File table key, so what is checked is the
+          file a machine actually receives - an icon set in the project but missing from a stale
+          publish\ would pass a check of the build output and fail this one.
+        #>
+        $services = @(
+            @{ Msi = 'Enlist.ControlPlane.msi'; FileKey = 'ControlPlaneExe'; Exe = 'Enlist.ControlPlane.exe' },
+            @{ Msi = 'Enlist.Portal.msi';       FileKey = 'PortalExe';       Exe = 'Enlist.Portal.exe' },
+            @{ Msi = 'Enlist.Agent.msi';        FileKey = 'AgentExe';        Exe = 'enlist-agent.exe' }
+        )
+        foreach ($service in $services) {
+            [string] $unpacked = Join-Path ([IO.Path]::GetTempPath()) "enlist-cab-$([guid]::NewGuid().ToString('N'))"
+            New-Item -ItemType Directory $unpacked | Out-Null
+            try {
+                [string] $cabinet = Join-Path $unpacked 'package.cab'
+                [Enlist.MsiCabinet]::Export([string] (Join-Path $OutDir $service.Msi), $cabinet)
+                & expand.exe $cabinet "-F:$($service.FileKey)" $unpacked | Out-Null
+                $serviceExe = Join-Path $unpacked $service.FileKey
+                Assert-That ((Test-Path $serviceExe) -and (@([Enlist.IconImages]::OfExecutable($serviceExe)) -contains $expected)) "$($service.Exe) as installed by $($service.Msi) carries it, which is what Task Manager shows for the running service"
+            }
+            finally { Remove-Item -Recurse -Force $unpacked -ErrorAction SilentlyContinue }
+        }
 
         foreach ($msi in 'Enlist.ControlPlane.msi', 'Enlist.Portal.msi', 'Enlist.Agent.msi') {
             # [string], and it matters: Join-Path hands back a wrapped string that COM rejects with
