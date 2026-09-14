@@ -214,6 +214,63 @@ public sealed class InstallPlanTests
         Assert.Equal("enlist/runner:3.0.0", plan.ToBundleVariables()["AGENT_IMAGE"]);
     }
 
+    [Fact]
+    public void There_is_no_runner_image_note_without_an_agent_and_an_engine()
+    {
+        var plan = new InstallPlan { Type = InstallType.AgentOnly, AgentImage = "enlist/runner:3.0.0" };
+        Assert.Null(plan.RunnerImageNote());   // process isolation only: nothing to load
+
+        plan.AgentEngine = "docker";
+        plan.Type = InstallType.Server;
+        plan.Agent = false;
+        Assert.Null(plan.RunnerImageNote());   // an engine typed on a page for an agent that is not being installed
+    }
+
+    [Theory]
+    [InlineData("docker")]
+    [InlineData("wslc")]
+    public void A_container_engine_is_told_to_load_the_runner_image_download_by_its_file_name(string engine)
+    {
+        var plan = new InstallPlan { Type = InstallType.AgentOnly, AgentEngine = engine, AgentImage = "enlist/runner:3.0.0" };
+
+        var note = plan.RunnerImageNote();
+
+        Assert.NotNull(note);
+        Assert.Contains("does not include it", note);
+        Assert.Contains(engine + " load -i enlist-runner-3.0.0.tar", note);
+        Assert.Contains("never downloads", note);
+
+        // The Agent page's short form still carries the one thing to do.
+        var brief = plan.RunnerImageNote(brief: true);
+        Assert.NotNull(brief);
+        Assert.Contains("does not include", brief);
+        Assert.Contains(engine + " load -i enlist-runner-3.0.0.tar", brief);
+        Assert.True(brief!.Length < note!.Length, "the Agent page's form is meant to be the shorter one");
+    }
+
+    [Fact]
+    public void An_image_that_is_not_enlists_is_named_without_a_download_file_it_does_not_have()
+    {
+        var plan = new InstallPlan { Type = InstallType.AgentOnly, AgentEngine = "docker", AgentImage = "registry.corp.local/enlist-runner:pinned" };
+
+        var note = plan.RunnerImageNote();
+
+        Assert.NotNull(note);
+        Assert.Contains("registry.corp.local/enlist-runner:pinned", note);
+        Assert.DoesNotContain(".tar", note);
+    }
+
+    [Theory]
+    [InlineData("enlist/runner:3.0.0", "enlist-runner-3.0.0.tar")]
+    [InlineData("enlist/runner:3.1.0-beta", "enlist-runner-3.1.0-beta.tar")]
+    [InlineData("enlist/runner:", null)]
+    [InlineData("enlist/runner", null)]
+    [InlineData("other/runner:3.0.0", null)]
+    public void The_download_file_name_follows_the_image_tag_the_way_build_ps1_names_it(string image, string? expected)
+    {
+        Assert.Equal(expected, InstallPlan.RunnerImageDownloadFor(image));
+    }
+
     [Theory]
     [InlineData("env=prod role=web", 2)]
     [InlineData("env=prod,role=web", 2)]

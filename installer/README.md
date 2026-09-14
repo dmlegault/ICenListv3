@@ -35,7 +35,7 @@ And three scripts at the root, which is the whole of the tooling: **`build.ps1`*
 .\build.ps1              # publish everything, build the runner image, the MSIs, then the bundle
 .\build.ps1 -SkipPublish # reuse publish\, for when only the WiX changed
 .\build.ps1 -SkipRunnerImage  # no Docker here: build the MSIs without the runner image
-.\verify.ps1             # 138 detection tests + 96 installer checks
+.\verify.ps1             # 147 detection tests + 97 installer checks
 .\verify.ps1 -Live       # really install, upgrade and uninstall (elevated shell)
 .\live-e2e.ps1           # a real install that RUNS (elevated shell) - see below
 ```
@@ -55,7 +55,7 @@ docker load -i enlist-runner-3.0.0.tar     # or
 wslc load -i enlist-runner-3.0.0.tar
 ```
 
-It is a plain tar, about 80 MB — `docker save` already compresses the layers, and gzip saved half a megabyte. Agents never pull, so until this is loaded a container-mode agent reports the image missing by name. Docker not running stops the build with a message rather than skipping quietly; `-SkipRunnerImage` is the deliberate way past it, and removes any earlier download from `out\` so a stale one cannot be handed out.
+Beside them, `enlist-runner-<version>-README.md` says exactly that, so the instructions travel with the file. It is a plain tar, about 80 MB — `docker save` already compresses the layers, and gzip saved half a megabyte. The wizard says it too: choosing a container engine on the Agent page shows the load command in place of the "leave it empty" hint, and the Finish page repeats it. Agents never pull, so until this is loaded a container-mode agent reports the image missing by name. Docker not running stops the build with a message rather than skipping quietly; `-SkipRunnerImage` is the deliberate way past it, and removes any earlier download from `out\` so a stale one cannot be handed out.
 
 `build.ps1` also takes `-Version` and `-OutputDirectory`, which exist for one purpose: building a higher version of the same source, somewhere else, so an upgrade can be tested without replacing the real output. `verify.ps1 -Live` uses both.
 
@@ -118,7 +118,7 @@ Section 4 names the ASP.NET Core **Hosting Bundle** as the prerequisite for the 
 
 ## The wizard, in `ba\`
 
-Three projects, split on one line: what can be tested, and what cannot. `Enlist.Installer.Detection` holds every decision and has 138 tests over it; `Enlist.Installer.Ba` is the WPF shell and holds none, because a bootstrapper's pages cannot be exercised by a test.
+Three projects, split on one line: what can be tested, and what cannot. `Enlist.Installer.Detection` holds every decision and has 147 tests over it; `Enlist.Installer.Ba` is the WPF shell and holds none, because a bootstrapper's pages cannot be exercised by a test.
 
 **It is what the bundle chains.** Eight pages, styled to the portal's own palette, with `build.ps1 -StandardBootstrapper` as the way back to the stock WixStdBA if it ever regresses. A silent install reaches no window under either one, so the surface in section 10 is unaffected by the choice.
 
@@ -128,4 +128,4 @@ Three projects, split on one line: what can be tested, and what cannot. `Enlist.
 
 Nothing blocking an install. `live-e2e.ps1` passes end to end: schema, portal key, TLS, agent enrollment, and uninstall.
 
-Still outstanding: `verify.ps1 -Live` proves upgrade and uninstall for the agent package only, not all three; nothing is code-signed (section 12 item 7, which needs a certificate purchase rather than a design); and **the wizard does not mention the runner image download** (section 12 item 5): the file is built into `out\`, but the Agent and Finish pages do not yet tell an operator who chose a container engine that they need to load it.
+Still outstanding: `verify.ps1 -Live` proves upgrade and uninstall for the agent package only, not all three; and nothing is code-signed (section 12 item 7, which needs a certificate purchase rather than a design).

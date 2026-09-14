@@ -75,6 +75,7 @@ namespace Enlist.Installer.Ba
         private bool _busy;
         private string? _error;
         private bool _complete;
+        private string _finishNote = "";
 
         public WizardViewModel(IEngine engine, IBootstrapperCommand command, EnlistBootstrapperApplication ba)
         {
@@ -354,7 +355,27 @@ namespace Enlist.Installer.Ba
             Raise(nameof(NextBlockedBecause));
             Raise(nameof(Summary));
             Raise(nameof(StepLabel));
+            Raise(nameof(RunnerImageNote));
+            Raise(nameof(HasRunnerImageNote));
         }
+
+        /// <summary>
+        /// On the Agent page, under the engine: the runner image is a separate download this installer
+        /// does not carry, and has to be loaded before a container application can run. The words are the
+        /// plan's (InstallPlan.RunnerImageNote), so they are tested and follow the engine and image as typed.
+        /// </summary>
+        public string RunnerImageNote => Plan.RunnerImageNote(brief: true) ?? "";
+
+        public bool HasRunnerImageNote => Plan.RunnerImageNote() != null;
+
+        /// <summary>The same note on the Finish page, set once the install has succeeded - the last thing the operator reads.</summary>
+        public string FinishNote
+        {
+            get => _finishNote;
+            private set { _finishNote = value; Raise(); Raise(nameof(HasFinishNote)); }
+        }
+
+        public bool HasFinishNote => !string.IsNullOrEmpty(_finishNote);
 
         /// <summary>Welcome first, then whatever the plan says, then the progress and finish pages.</summary>
         public WizardPage? CurrentPage => _index >= 0 && _index < _pages.Count ? _pages[_index] : (WizardPage?)null;
@@ -585,6 +606,10 @@ namespace Enlist.Installer.Ba
             }
 
             Status = "enList is installed.";
+
+            // Only on an install that worked: on a failed one it would be one more thing to read in front
+            // of the thing that actually needs doing.
+            FinishNote = Plan.RunnerImageNote() ?? "";
 
             if (failures.Count > 0)
             {

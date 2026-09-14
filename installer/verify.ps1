@@ -977,6 +977,12 @@ if ($haveImageFile) {
     $recorded = if (Test-Path $checksumFile) { ([IO.File]::ReadAllText($checksumFile)).Trim() } else { '' }
     $actual = "$((Get-FileHash $imageFile -Algorithm SHA256).Hash.ToLowerInvariant())  $(Split-Path -Leaf $imageFile)"
     Assert-That ($recorded -eq $actual) "its .sha256 matches the file, in the format sha256sum -c reads"
+
+    # The README goes wherever the file goes, and has to name THIS file in both load commands.
+    $imageName = Split-Path -Leaf $imageFile
+    $readmeFile = Join-Path $OutDir "enlist-runner-$productVersion-README.md"
+    $readmeText = if (Test-Path $readmeFile) { [IO.File]::ReadAllText($readmeFile) } else { '' }
+    Assert-That ($readmeText.Contains("docker load -i $imageName") -and $readmeText.Contains("wslc load -i $imageName")) "its README says how to load it with docker and with wslc"
 }
 
 # ---- Live -----------------------------------------------------------------------------------------

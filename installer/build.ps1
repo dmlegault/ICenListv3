@@ -231,8 +231,9 @@ if (-not $StandardBootstrapper) {
 #>
 $runnerImage = "enlist/runner:$version"
 $runnerImageFile = Join-Path $outRoot "enlist-runner-$version.tar"
+$runnerImageReadme = Join-Path $outRoot "enlist-runner-$version-README.md"
 New-Item -ItemType Directory -Force -Path $outRoot | Out-Null
-Get-ChildItem $outRoot -Filter 'enlist-runner-*.tar*' -ErrorAction SilentlyContinue | Remove-Item -Force
+Get-ChildItem $outRoot -Filter 'enlist-runner-*' -ErrorAction SilentlyContinue | Remove-Item -Force
 
 if ($SkipRunnerImage) {
     Write-Host "  NOT building the runner image $runnerImage (-SkipRunnerImage), so out\ has no image download" -ForegroundColor Yellow
@@ -279,6 +280,22 @@ else {
     # platform can check the file they were given. Get-FileHash reads the same value on Windows.
     $digest = (Get-FileHash $runnerImageFile -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText("$runnerImageFile.sha256", "$digest  $(Split-Path -Leaf $runnerImageFile)`n", (New-Object Text.UTF8Encoding $false))
+
+    # Travels with the image, so whoever is handed the file is also handed what to do with it.
+    $imageName = Split-Path -Leaf $runnerImageFile
+    $readme = @(
+        "# $imageName - the enList runner image"
+        ''
+        'A user loads it on each machine that runs containers:'
+        ''
+        '```'
+        "docker load -i $imageName"
+        '```'
+        ''
+        "or for the WSL engine: ``wslc load -i $imageName``."
+        ''
+    ) -join "`n"
+    [IO.File]::WriteAllText($runnerImageReadme, $readme, (New-Object Text.UTF8Encoding $false))
 }
 
 # Harvest paths are resolved relative to the .wxs file, so every path handed to wix is absolute.

@@ -205,6 +205,64 @@ namespace Enlist.Installer.Detection
         public bool InstallsNothing => !InstallsControlPlane && !InstallsPortal && !InstallsAgent;
 
         /// <summary>
+        /// What an operator who chose a container engine has to do before any application can run in a
+        /// container, or null when there is nothing to do - no agent, or no engine.
+        ///
+        /// The runner image is not in this installer (Installer-UI-Design section 12 item 5). It is a
+        /// separate download, built beside the installer as enlist-runner-&lt;version&gt;.tar, and the
+        /// agent never pulls an image - so an agent installed with an engine and no image loaded
+        /// installs, starts, and fails every container application with "image not found". Said on the
+        /// Agent page, where the engine is chosen, and again on the Finish page, which is the last thing
+        /// the operator reads.
+        ///
+        /// The file name is derived from the image rather than from a version, because the image is what
+        /// the agent will actually ask for: enlist/runner:3.0.0 is loaded from enlist-runner-3.0.0.tar.
+        /// Any other image is the operator's own, and all that can be said is to load it.
+        /// </summary>
+        /// <param name="brief">
+        /// Two lines for the Agent page, where it has to fit under the engine field without pushing the
+        /// page past the window; the full sentence, with why, is kept for the Finish page.
+        /// </param>
+        public string? RunnerImageNote(bool brief = false)
+        {
+            if (!InstallsAgent || string.IsNullOrWhiteSpace(AgentEngine) || string.IsNullOrWhiteSpace(AgentImage))
+            {
+                return null;
+            }
+
+            var engine = AgentEngine.Trim();
+            var image = AgentImage.Trim();
+            var file = RunnerImageDownloadFor(image);
+
+            if (brief)
+            {
+                return file != null
+                    ? "This installer does not include the " + image + " image. Before running containers, load the runner image download on this machine: " +
+                      engine + " load -i " + file
+                    : "Before running containers, load the " + image + " image into " + engine + " on this machine. The agent never downloads images.";
+            }
+
+            return file != null
+                ? "Applications that run in containers need the " + image + " image on this machine, and this installer does not include it. " +
+                  "Load the runner image download that comes with enList (" + file + ") into " + engine + ": " +
+                  engine + " load -i " + file + ". The agent never downloads images itself."
+                : "Applications that run in containers need the " + image + " image loaded into " + engine + " on this machine. " +
+                  "The agent never downloads images itself.";
+        }
+
+        /// <summary>The download file an enList runner image is loaded from, or null for an image that is not enList's.</summary>
+        public static string? RunnerImageDownloadFor(string image)
+        {
+            const string prefix = "enlist/runner:";
+            if (image == null || !image.StartsWith(prefix, StringComparison.Ordinal) || image.Length == prefix.Length)
+            {
+                return null;
+            }
+
+            return "enlist-runner-" + image.Substring(prefix.Length) + ".tar";
+        }
+
+        /// <summary>
         /// The pages this plan has to walk through, in order, skipping the ones for components that
         /// are not being installed (section 5's flow). Welcome and License are not here: they come
         /// before anything is known and never vary.

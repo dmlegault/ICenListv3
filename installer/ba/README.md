@@ -5,7 +5,7 @@ Three projects. The split between them is one line: **what can be tested, and wh
 | Project | Target | What it is |
 |---|---|---|
 | `Enlist.Installer.Detection` | `netstandard2.0` + `net472` | Every decision the installer makes. No UI, no engine. |
-| `Enlist.Installer.Detection.Tests` | `net10.0` | 138 cases over the above, several against this machine. |
+| `Enlist.Installer.Detection.Tests` | `net10.0` | 147 cases over the above, several against this machine. |
 | `Enlist.Installer.Ba` | `net472` WPF, `WinExe` | The wizard Burn runs. Binding and navigation only. |
 
 A Burn bootstrapper cannot be exercised by a test — it is a process started by a native host inside an elevated install. So anything with a judgement in it lives in the detection library, where a test can reach it, and the wizard is left holding as close to nothing as it can be.
@@ -101,7 +101,7 @@ cd installer
 .\verify.ps1
 ```
 
-97 methods, 138 cases. `InstallPlanTests` is the bulk of it — page flow, blocking reasons, and the variable dictionary. `ProbeTests` uses a stub `HttpMessageHandler` for `/health` and `SkippableFact` for anything needing a real SQL Server. `RuntimeDetectionTests` and `ContainerEngineDetectionTests` run against this machine and skip rather than fail where it cannot answer.
+101 methods, 147 cases. `InstallPlanTests` is the bulk of it — page flow, blocking reasons, and the variable dictionary. `ProbeTests` uses a stub `HttpMessageHandler` for `/health` and `SkippableFact` for anything needing a real SQL Server. `RuntimeDetectionTests` and `ContainerEngineDetectionTests` run against this machine and skip rather than fail where it cannot answer.
 
 Not in `enList_v3.slnx`, for the same reason the rest of `installer\` is not: it belongs to an artifact built deliberately, not on every inner loop.
 
@@ -156,6 +156,8 @@ dotnet build ba\Enlist.Installer.Ba\Enlist.Installer.Ba.csproj -c Release
 ## The pages
 
 Welcome, install type, prerequisites, control plane, database, portal, agent, ready. Which of them appear is `InstallPlan.Pages()` — a Server install has no agent page, an agent-only install has no database page, and the step counter in the banner counts the pages this plan will actually show rather than all of them.
+
+**Choosing a container engine brings up the runner image note.** The installer does not carry the runner image — it is a separate download, `enlist-runner-<version>.tar` — and the agent never pulls one, so an agent installed with an engine and nothing loaded fails every container application. So the Agent page replaces its grey "leave the engine empty" hint with an amber note naming the image and the exact load command, and the Finish page repeats it in full after a successful install. Both come from `InstallPlan.RunnerImageNote` (brief and full), so the wording is tested and follows what was typed; an image that is not `enlist/runner:<tag>` gets told to load *that* image, with no download file it does not have. The window is 660 high rather than 620 for it: the note first ran past the bottom of the Agent page, which does not scroll.
 
 Passwords are handled in `WizardWindow.xaml.cs`, which is the one thing that belongs in code-behind: `PasswordBox.Password` is deliberately not a dependency property, so WPF will not let a password into the binding system where a snapshot of the visual tree could reach it.
 
