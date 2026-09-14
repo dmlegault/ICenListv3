@@ -273,9 +273,11 @@ public sealed class InstallPlanTests
         var warning = plan.AgentEngineWarning();
 
         Assert.NotNull(warning);
-        Assert.Contains("will not work", warning);
+        Assert.Contains("separate image store", warning);
+        Assert.Contains("invisible", warning);
         Assert.Contains(account, warning);
         Assert.Contains("docker", warning);
+        Assert.DoesNotContain("hang", warning);   // it does not: that was one cold-start probe, since disproved
     }
 
     [Fact]

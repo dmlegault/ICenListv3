@@ -672,7 +672,7 @@
                                 620 for it: the full sentence ran past the bottom of this page and was cut off,
                                 with nothing to scroll. The Finish page has the room for the full one.
                             -->
-                            <!-- Red instead of amber when the engine will not work for this agent at all (wslc under a service account). -->
+                            <!-- Red instead of amber when the engine as chosen has a trap: wslc under a service account, whose image store is not the operator's. -->
                             <Border Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,8,0,0" Padding="12,8"
                                     CornerRadius="8" Background="#1e1e2c" BorderThickness="1"
                                     Visibility="{Binding HasAgentEngineNote, Converter={StaticResource Visible}}">

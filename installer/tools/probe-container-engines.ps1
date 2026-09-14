@@ -7,8 +7,10 @@
     Answers the two questions Installer-UI-Design section 12 item 11 left open, by trying rather
     than reasoning:
 
-      1. Does wslc work for an agent running as a NAMED USER account, rather than LocalSystem? A
-         LocalSystem agent is already known not to work: `wslc list` hung for three minutes.
+      1. Does wslc work for the identities an agent runs as? One live-e2e probe saw `wslc list` as
+         LocalSystem print nothing for three minutes. -Now and -Wslc then showed it working as
+         LocalSystem in seconds - with a separate, empty image store per account, which is the real
+         constraint (Installer-UI-Design section 12 item 11).
       2. Does Docker Desktop's engine answer a service when NOBODY IS SIGNED IN? Docker Desktop runs
          in a user's session, so after a reboot the engine may simply not be there yet.
 
@@ -40,8 +42,8 @@ param(
 
     # wslc as LocalSystem, all the way: does SYSTEM see any images, can the runner image download be
     # loaded into SYSTEM's store, and does it run from there - each step timed. -Now showed that wslc
-    # answers SYSTEM (and that every identity, even an elevated token, gets its own empty store); this
-    # is the question that follows.
+    # answers SYSTEM, and that no other identity sees the containers running in the signed-in user's
+    # normal session; this is the question that follows.
     [Parameter(ParameterSetName = 'Wslc')] [switch] $Wslc,
     [Parameter(ParameterSetName = 'Wslc')] [string] $ImageFile = (Join-Path (Split-Path $PSScriptRoot -Parent) 'out\enlist-runner-3.0.0.tar'),
     [Parameter(ParameterSetName = 'Arm')] [switch] $ArmStartupProbe,

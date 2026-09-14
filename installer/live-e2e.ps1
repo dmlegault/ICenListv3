@@ -50,8 +50,9 @@ param(
     [switch] $TrustCertificate,
 
     # The engine the agent is installed with, so an application can be deployed to it in a container
-    # as well as as a process. Docker, because it is the one a LocalSystem service can reach: its engine
-    # pipe grants SYSTEM full control. wslc is probed separately (see the deploy phase).
+    # as well as as a process. Docker: its engine pipe grants SYSTEM full control, and its one image
+    # store is shared, so the image this script side-loads as the operator is the image the LocalSystem
+    # agent sees. (wslc's store is per account - see tools\probe-container-engines.ps1 -Wslc.)
     [string] $ContainerEngine = 'docker',
 
     # Deploy as a process only. For a machine without Docker running - said in the transcript, because
@@ -748,40 +749,13 @@ ALTER ROLE db_owner ADD MEMBER [$login];
             }
         }
 
-        # -----------------------------------------------------------------------------------------
         <#
-          wslc, as LocalSystem. Not a check, a FINDING: the Agent page offers wslc and prefers it when it
-          is detected, but WSL is per-user, and whether a service account can use it at all has never
-          been tried. The answer decides whether the wizard should offer it for an agent installed as a
-          service, so it is reported here rather than turned into a pass or a fail.
+          (A wslc-as-LocalSystem probe used to follow here, printed as a FINDING. Its one run reported
+          "no answer within 3 minutes", which was read as wslc hanging for a service. It does not:
+          installer\tools\probe-container-engines.ps1 -Wslc then ran version, image list, load, run and
+          remove as SYSTEM in five seconds. What is true is that LocalSystem's wslc image store is its
+          own and starts empty. That tool owns the question now; this script proves the Docker path.)
         #>
-        $wslc = Join-Path $env:ProgramFiles 'WSL\wslc.exe'
-        if (Test-Path $wslc) {
-            Say ""
-
-            # The mechanism first. The first run of this probe reported "no answer within a minute",
-            # which could equally have meant wslc hung as SYSTEM or that the task never ran at all - and
-            # the difference is the whole finding.
-            $whoami = Invoke-AsSystem 'whoami' 'whoami'
-            $asSystem = $whoami -match 'nt authority\\system'
-            Check $asSystem "a command can be run as LocalSystem to ask it (whoami says: $((($whoami -split "`r?`n") | Select-Object -First 1)))"
-
-            if ($asSystem) {
-                $probe = Invoke-AsSystem 'wslc' "`"$wslc`" list --quiet" 180
-                $exitLine = [regex]::Match($probe, 'exit=(-?\d+)').Groups[1].Value
-                $lines = @(($probe -split "`r?`n") | Where-Object { $_ -and $_ -notmatch '^exit=' })
-                $verdict = if ($exitLine -eq '0') { 'WORKS - wslc list succeeded as SYSTEM' }
-                    elseif ($exitLine) { "does NOT work (exit $exitLine): $($lines | Select-Object -First 1)" }
-                    else { "did not finish within 3 minutes - it HANGS as SYSTEM$(if ($lines.Count) { "; it had printed: $($lines -join ' | ')" } else { ', having printed nothing' })" }
-                Say "    FINDING - wslc as LocalSystem: $verdict"
-
-                # A wslc left waiting as SYSTEM would outlive this run; it is not the operator's.
-                Get-CimInstance Win32_Process -Filter "Name='wslc.exe'" -ErrorAction SilentlyContinue | ForEach-Object {
-                    $owner = Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue
-                    if ($owner.User -eq 'SYSTEM') { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Say "    (stopped a wslc.exe the probe left running as SYSTEM, pid $($_.ProcessId))" }
-                }
-            }
-        }
     }
 }
 catch {

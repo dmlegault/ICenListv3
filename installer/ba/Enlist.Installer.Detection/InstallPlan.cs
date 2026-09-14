@@ -251,19 +251,27 @@ namespace Enlist.Installer.Detection
         }
 
         /// <summary>
-        /// Why the engine as chosen will not work for this agent, or null when there is nothing to warn
-        /// about. Today that is one case: wslc, for an agent running under a built-in service account or
-        /// a group-managed one.
+        /// The trap in the engine as chosen, or null when there is none. Today that is one case: wslc,
+        /// for an agent running under a built-in or group-managed service account.
         ///
-        /// WSL belongs to a signed-in user. Run as LocalSystem, `wslc list` hung for three minutes
-        /// without printing anything, while the same command as the operator answered at once
-        /// (installer\live-e2e.ps1, 2026-09-14). The agent would not hang with it - every engine command
-        /// has a time limit - but no container application would ever start. A warning rather than a
-        /// block: an operator may know something this does not, and "leave the engine empty" and
-        /// "use docker" are both one edit away.
+        /// wslc keeps a SEPARATE image store for every account - its layers live under that account's
+        /// %LOCALAPPDATA%, which for LocalSystem is C:\Windows\System32\config\systemprofile\AppData\Local.
+        /// Run as LocalSystem it works, and quickly: version, image list,
+        /// loading the runner image download, and running the runner from it all succeeded in about five
+        /// seconds (installer\tools\probe-container-engines.ps1 -Wslc, 2026-09-14). But LocalSystem's
+        /// store started EMPTY. So the natural operator move - `wslc load -i` in their own shell - puts
+        /// the image where the agent will never look, and every container application fails with the
+        /// image missing. Docker has no such trap: one engine, one store, and an operator's `docker load`
+        /// is exactly what the LocalSystem agent ran in live-e2e.
         ///
-        /// A named user account is not warned about, because whether wslc works for a service running
-        /// as a real user has not been established. Until it is, saying either way would be a guess.
+        /// This replaces a warning that said wslc HANGS as a service. That rested on one probe in which
+        /// `wslc list` as SYSTEM printed nothing for three minutes; every later run answered at once, and
+        /// the likeliest reading is SYSTEM's first wslc session being created. It was wrong for a day, in
+        /// red, on the page an operator reads.
+        ///
+        /// Red rather than amber because the obvious action silently fails. Still a warning rather than
+        /// a block: loading as LocalSystem is possible, and docker is one edit away. A named user account
+        /// is not warned about - whether a service logon shares that user's store is not established.
         /// </summary>
         public string? AgentEngineWarning()
         {
@@ -278,8 +286,9 @@ namespace Enlist.Installer.Detection
                 return null;
             }
 
-            return "wslc will not work for this agent: it runs as a Windows service under " + account +
-                   ", and wslc needs a signed-in user's WSL - as a service it hangs. Use docker, or leave the engine empty to run applications as processes.";
+            return "wslc keeps a separate image store for each account, and this agent runs as " + account +
+                   ": an image loaded in your own session is invisible to it. Load the runner image as " + account +
+                   ", or use docker, whose images every account shares.";
         }
 
         /// <summary>The download file an enList runner image is loaded from, or null for an image that is not enList's.</summary>

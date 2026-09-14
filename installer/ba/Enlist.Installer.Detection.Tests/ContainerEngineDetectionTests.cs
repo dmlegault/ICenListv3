@@ -84,13 +84,14 @@ public sealed class ContainerEngineDetectionTests
     }
 
     /// <summary>
-    /// The Agent page's default engine: Docker when it answers, otherwise none - never wslc. Detection
-    /// runs as the operator, where wslc works; the agent runs as a LocalSystem service, where wslc hangs.
+    /// The Agent page's default engine: Docker when it answers, otherwise none - never wslc. wslc keeps a
+    /// separate image store per account, so the image an operator loads is not the LocalSystem agent's;
+    /// Docker's one store is shared.
     /// </summary>
     [Theory]
     [InlineData(true, true, "docker")]    // both: this machine, where "first found" used to pick wslc
     [InlineData(false, true, "docker")]
-    [InlineData(true, false, null)]       // wslc alone is still not proposed: the service cannot use it
+    [InlineData(true, false, null)]       // wslc alone is still not proposed: its image store is per account
     [InlineData(false, false, null)]
     public void The_default_engine_is_docker_when_it_answers_and_never_wslc(bool wslcUp, bool dockerUp, string? expected)
     {

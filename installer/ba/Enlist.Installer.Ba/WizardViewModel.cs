@@ -364,9 +364,10 @@ namespace Enlist.Installer.Ba
         /// On the Agent page, under the engine, one of two things - both the plan's words, so they are
         /// tested and follow what was typed:
         ///
-        ///   - the engine will not work for this agent at all (InstallPlan.AgentEngineWarning: wslc under
-        ///     a service account). Shown in red, and INSTEAD of the image note, because telling someone
-        ///     how to load an image into an engine the service cannot use would send them the wrong way;
+        ///   - the engine as chosen has a trap (InstallPlan.AgentEngineWarning: wslc under a service
+        ///     account, whose image store is its own, so an image loaded in the operator's session is not
+        ///     the agent's). Shown in red, and INSTEAD of the image note, because the image note's plain
+        ///     "wslc load -i" is exactly the step that would silently put the image in the wrong store;
         ///   - otherwise, that the runner image is a separate download to load first
         ///     (InstallPlan.RunnerImageNote), in amber.
         /// </summary>
@@ -768,17 +769,17 @@ namespace Enlist.Installer.Ba
 
                 foreach (var engine in engines)
                 {
-                    // wslc is reported, because it is on the machine - but found here, as the operator,
-                    // it says nothing about the agent service, which cannot use it (see DefaultEngine).
-                    var neededBy = engine.Engine == "wslc" ? "not usable by the agent service" : "container isolation (optional)";
+                    // wslc is reported, because it is on the machine - but found here, as the operator, its
+                    // images are the operator's: the agent service has a store of its own (see DefaultEngine).
+                    var neededBy = engine.Engine == "wslc" ? "images are per account" : "container isolation (optional)";
                     Prerequisites.Add(new PrerequisiteRow(
                         engine.Engine, neededBy, engine.Available, engine.Detail,
                         blocking: false, whenMissing: "not available"));
                 }
 
                 // Docker when it answers, otherwise none - never wslc. This was "the first engine that
-                // answers", wslc first, which on a machine with both proposed the one engine an agent
-                // running as a service cannot use. ContainerEngineDetection.DefaultEngine says why.
+                // answers", wslc first, which on a machine with both proposed the engine whose images an
+                // operator loads into the wrong account's store. ContainerEngineDetection.DefaultEngine says why.
                 var proposed = ContainerEngineDetection.DefaultEngine(engines);
                 if (proposed != null && string.IsNullOrWhiteSpace(Plan.AgentEngine))
                 {

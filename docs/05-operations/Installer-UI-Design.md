@@ -362,20 +362,25 @@ These need a call before WiX is written. My recommendation is in bold.
 
     Prefilling a value that cannot work is worse than an empty box: it is an empty box the operator does not know to look at.
 
-11. **`wslc` cannot be used by an agent running as LocalSystem - OPEN.** *(Found by installing for real, 2026-09-14.)*
+11. **Which container engine an installed agent should use: Docker, because `wslc`'s images are per account.** *(Found by installing for real, 2026-09-14; corrected the same day.)*
 
-    `installer\live-e2e.ps1` now deploys the sample application to the installed agent, as a process and in a container, and both run. The container half ran on **Docker**: the agent service, as LocalSystem, reached Docker Desktop's engine (its pipe grants SYSTEM full control) and ran the image side-loaded from the download.
+    `installer\live-e2e.ps1` deploys the sample application to the installed agent, as a process and in a container, and both run. The container half runs on **Docker**: the agent service, as LocalSystem, reaches Docker Desktop's engine (its pipe grants SYSTEM full control) and runs the image the script side-loaded *as the operator* - because Docker is one engine with one image store, shared by every account.
 
-    **`wslc` is a different story.** The same run executed `wslc list --quiet` as LocalSystem through a scheduled task - after proving the task really runs as SYSTEM with `whoami` - and it **hung for three minutes without printing anything**, while the same command as the logged-in user answered at once. WSL is per-user, and a service account has no WSL of its own to talk to. The agent would not hang with it (every engine command has a 60 second limit), but every container application would fail to start, and its capability report would say the engine is not answering.
+    **`wslc` is different, and this entry first got it wrong.** A probe in that run had `wslc list` as LocalSystem print nothing for three minutes, and for a few hours this said `wslc` *hangs* for a service - in red, on the wizard's Agent page. It does not. `installer\tools\probe-container-engines.ps1` then showed, as LocalSystem: `wslc version` answering at once, `-Now` answering with exit 0, and `-Wslc` running version, image list, loading `enlist-runner-3.0.0.tar`, running the runner from it and removing it again **in five seconds**. The likeliest reading of the silent run is SYSTEM's first `wslc` session being created; it was never seen again.
 
-    That mattered because **the wizard preferred `wslc`**: the Prerequisites page probed `wslc` then `docker`, *as the operator*, where `wslc` works, and made the first one found the Agent page's default. On a machine with both, the default was the engine the installed service could not use.
+    **What is true is that `wslc` keeps a separate image store for every account.** Its layers live under the account's `%LOCALAPPDATA%` - for LocalSystem, `C:\Windows\System32\config\systemprofile\AppData\Local` - and LocalSystem's `image list` came back empty while the operator's normal session held the demo's images. (The operator's own *elevated* shell also saw none of the containers running in their normal session. Only containers were listed there, not images, and an elevated token shares the account's `%LOCALAPPDATA%`, so that says the *sessions* are separate, not the image stores.) So the obvious step, `wslc load -i` in the operator's shell, puts the image where a LocalSystem agent never looks, and every container application fails with the image missing.
 
-    **Changed the same day:**
+    **A possible way round it, not yet tried here:** `.wslconfig` can point the container VM's storage at an explicit host directory both the operator and the service can reach (a `C:\wslc-store`, say), which would let one `wslc load` serve both. Whether a store shared between a user and LocalSystem is safe to use concurrently, and what permissions it needs, is untested - and the wizard's red note would then be describing a trap the operator had already removed.
+
+    That is why **the wizard no longer prefers `wslc`**. It probed `wslc` then `docker`, as the operator, and made the first one found the Agent page's default:
     - **The default engine is Docker when it answers, otherwise none** - never `wslc`, even when it is the only engine found (`ContainerEngineDetection.DefaultEngine`).
-    - **Choosing `wslc` for an agent under a built-in or group-managed service account shows a red warning** on the Agent page, in place of the image note, and again on the Finish page (`InstallPlan.AgentEngineWarning`). A warning rather than a block. A named user account is not warned about, because whether `wslc` works for one is not yet known.
-    - The Prerequisites page still lists `wslc`, marked *not usable by the agent service*.
+    - **Choosing `wslc` for an agent under a built-in or group-managed service account shows a red note** in place of the image note, on the Agent page and again on the Finish page (`InstallPlan.AgentEngineWarning`): the store is per account, load the image *as that account*, or use Docker. A warning rather than a block, since loading as LocalSystem is possible.
+    - The Prerequisites page still lists `wslc`, marked *images are per account*.
 
-    **Still unknown, and `installer\tools\probe-container-engines.ps1` exists to answer both:** whether `wslc` works for an agent run as a named user account (`-Now` tries it as an S4U logon of the operator's account - a non-interactive session, the nearest thing to a service logged on as that user), and whether Docker Desktop's engine answers a service when nobody is signed in, since Docker Desktop runs in a user session (`-ArmStartupProbe` samples it as SYSTEM after a reboot, before and after sign-in).
+    **Still open:**
+    - **A full agent deploy through `wslc` as LocalSystem** - loading the image as SYSTEM, then the agent publishing the control port and connecting - has not been run. The probe proves the image loads and runs; `live-e2e.ps1` proves the agent path on Docker only.
+    - **Whether Docker Desktop answers a service before anyone signs in.** Docker Desktop runs in a user session, so after a reboot the engine may not exist until someone signs in. `probe-container-engines.ps1 -ArmStartupProbe` samples it as SYSTEM after a reboot, before and after sign-in.
+    - **Whether a named user account's service logon sees that user's `wslc` images.** It shares the account's `%LOCALAPPDATA%`, so probably, but `-Now`'s S4U probe listed containers rather than images, so it does not settle this.
 
 ---
 
