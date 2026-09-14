@@ -50,13 +50,19 @@ param(
     [switch] $TrustCertificate,
 
     # The engine the agent is installed with, so an application can be deployed to it in a container
-    # as well as as a process. Docker: its engine pipe grants SYSTEM full control, and its one image
-    # store is shared, so the image this script side-loads as the operator is the image the LocalSystem
-    # agent sees. (wslc's store is per account - see tools\probe-container-engines.ps1 -Wslc.)
-    [string] $ContainerEngine = 'docker',
+    # as well as as a process. wslc by default, as the wizard defaults: it answered LocalSystem at every
+    # sample after a reboot, while Docker Desktop never started without someone signing in and starting
+    # it (tools\probe-container-engines.ps1 -ArmStartupProbe).
+    #
+    # Either way nobody side-loads the image: the runner image download sits beside the setup in out\,
+    # the installer copies it into the agent's Images folder, and the AGENT loads it into its engine as
+    # its own account. That matters for wslc, whose image store is per account - an image loaded in this
+    # elevated shell would be in the operator's store, where a LocalSystem agent never looks. So wslc's
+    # store is asked as SYSTEM here, which is also why a wslc run needs the agent to be LocalSystem.
+    [ValidateSet('docker', 'wslc')] [string] $ContainerEngine = 'wslc',
 
-    # Deploy as a process only. For a machine without Docker running - said in the transcript, because
-    # the container half of the product is then simply not being tested.
+    # Deploy as a process only. For a machine without the container engine - said in the transcript,
+    # because the container half of the product is then simply not being tested.
     [switch] $SkipContainers
 )
 
@@ -106,11 +112,14 @@ $cpDir = Join-Path $env:ProgramFiles 'enList\ControlPlane'
 $portalDir = Join-Path $env:ProgramFiles 'enList\Portal'
 $agentDir = Join-Path $env:ProgramFiles 'enList\Agent'
 $agentData = Join-Path $env:ProgramData 'enList\Agent'
+$agentImages = Join-Path $agentData 'Images'
+$wslcExe = Join-Path $env:ProgramFiles 'WSL\wslc.exe'
 $cpUrl = 'https://localhost:5293'
 
 Say "enList live end-to-end, $(Get-Date -Format s)"
 Say "  bundle      : $setup"
 Say "  certificate : $Thumbprint"
+Say "  engine      : $(if ($SkipContainers) { '(none - process only)' } else { $ContainerEngine })"
 
 # TLS trust is reported rather than assumed. The certificate here is a development one, and whether
 # this machine trusts its issuer is a fact about the machine, not about the install.
@@ -300,7 +309,10 @@ function Invoke-AsSystem([string] $name, [string] $commandLine, [int] $seconds =
     $cmdFile = Join-Path $dir "$name.cmd"
     $output = Join-Path $dir "$name.txt"
     if (Test-Path $output) { Remove-Item $output -Force }
-    Set-Content -Path $cmdFile -Encoding ASCII -Value "@echo off`r`n$commandLine > `"$output`" 2>&1`r`necho exit=%errorlevel%>> `"$output`"`r`n"
+    # The redirection goes FIRST on the exit line. `echo exit=%errorlevel%>> file` hands cmd "exit=1>>",
+    # and cmd reads the 1 as the handle to redirect - so the file got "exit=" and the code was lost. And
+    # not `echo exit=%errorlevel% >> file` either, which writes the space.
+    Set-Content -Path $cmdFile -Encoding ASCII -Value "@echo off`r`n$commandLine > `"$output`" 2>&1`r`n>> `"$output`" echo exit=%errorlevel%`r`n"
 
     $task = "enlist-e2e-$name"
     & schtasks.exe /create /tn $task /ru SYSTEM /sc once /st 23:59 /f /tr $cmdFile *>$null
@@ -320,6 +332,39 @@ function Invoke-AsSystem([string] $name, [string] $commandLine, [int] $seconds =
     & schtasks.exe /delete /tn $task /f *>$null
     Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
     return [string] $text
+}
+
+<#
+  Asks the container engine something AS THE AGENT'S ACCOUNT, which is the only answer that counts, and
+  returns { Exit; Text }.
+
+  Docker has one image store and its engine pipe grants SYSTEM, so the operator's docker sees exactly
+  what the agent's does. wslc keeps a store per account, so it is asked as SYSTEM through a scheduled
+  task: asking it in this shell would answer for the operator's store, and a check that looks in the
+  wrong store passes or fails for reasons that have nothing to do with the agent.
+#>
+function Invoke-Engine([string] $name, [string[]] $arguments, [int] $seconds = 120) {
+    if ($ContainerEngine -eq 'docker') {
+        if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { return [pscustomobject] @{ Exit = -1; Text = 'docker is not on PATH' } }
+        $text = & docker @arguments 2>&1 | Out-String
+        return [pscustomobject] @{ Exit = $LASTEXITCODE; Text = $text.Trim() }
+    }
+
+    $quoted = $arguments | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }
+    $text = Invoke-AsSystem $name "`"$wslcExe`" $($quoted -join ' ')" $seconds
+    $exit = [regex]::Match($text, 'exit=(-?\d+)\s*$')
+    return [pscustomobject] @{
+        Exit = $(if ($exit.Success) { [int] $exit.Groups[1].Value } else { -1 })   # -1: no answer in time
+        Text = ($text -replace 'exit=-?\d+\s*$', '').Trim()
+    }
+}
+
+# The JSON an engine's inspect printed, as one object - both engines print an array of one. Assigned
+# first and walked with foreach: Windows PowerShell hands a JSON array back as ONE pipeline object.
+function ConvertFrom-Inspect([string] $text) {
+    try { $parsed = ConvertFrom-Json -InputObject $text } catch { return $null }
+    foreach ($item in $parsed) { return $item }
+    return $null
 }
 
 $script:trustAdded = $false
@@ -366,6 +411,29 @@ try {
     }
 
     Check ((Get-CimInstance Win32_Service -Filter "Name LIKE 'enlist-%'" -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) "no enList service to begin with"
+
+    # The agent's Images folder goes too. ProgramData outlives an uninstall by design, so without this a
+    # previous run's archive, and its record of having been loaded, would still be there - and "the
+    # installer copied the image in" and "the agent loaded it" would pass on the last run's evidence.
+    if (Test-Path $agentImages) {
+        Remove-Item $agentImages -Recurse -Force -ErrorAction SilentlyContinue
+        Check (-not (Test-Path $agentImages)) "the previous run's agent Images folder is removed"
+    }
+
+    # And the runner image leaves the engine's store for the agent's account, so that whatever runs in a
+    # container below can only have been loaded by the agent from the file the installer copied in -
+    # the agent never pulls. build.ps1 leaves the image in Docker; an earlier run, or the engine probe,
+    # leaves it in SYSTEM's wslc store.
+    if (-not $SkipContainers) {
+        if ($ContainerEngine -eq 'wslc') {
+            Check ($ServiceAccount -match '^(LocalSystem|NT AUTHORITY\\SYSTEM)$') "a wslc run installs the agent as LocalSystem, whose store is the one this script asks" "the agent would run as $ServiceAccount"
+            Check (Test-Path $wslcExe) "wslc is installed ($wslcExe)"
+        }
+        $removed = Invoke-Engine 'image-rm' @('image', 'rm', '--force', $runnerImage)
+        Say "    $ContainerEngine image rm $runnerImage (as the agent's account): exit $($removed.Exit) $(($removed.Text -split "`r?`n" | Select-Object -First 1))"
+        $before = Invoke-Engine 'image-inspect' @('image', 'inspect', $runnerImage)
+        Check ($before.Exit -ne 0 -and $before.Text -match 'No such image|not found') "$runnerImage is not in $ContainerEngine's store for the agent's account to begin with" "exit $($before.Exit): $(($before.Text -split "`r?`n" | Select-Object -Last 1))"
+    }
 
     # ---------------------------------------------------------------------------------------------
     Phase "Install the Server role over TLS, silently, through the bundle"
@@ -601,17 +669,30 @@ ALTER ROLE db_owner ADD MEMBER [$login];
         Say "    agents the control plane knows: $(if ($names.Count) { $names -join ', ' } else { '(none returned)' })"
         Check ($names -contains $env:COMPUTERNAME) "the control plane has this agent registered"
 
-        # The runner image, side-loaded the way a recipient does it: from the download in out\, into the
-        # engine, before the agent needs it. The copy build.ps1 left in the engine is removed first, so
-        # what the agent runs below can only have come from the file - the agent never pulls.
+        # The runner image, delivered the way a recipient's is: the download sits beside the setup (out\
+        # is exactly what gets handed out), and the installer copies it into the agent's Images folder.
+        # Nobody loads it into an engine - the agent does that itself, below, as its own account.
         if (-not $SkipContainers) {
-            Check (Test-Path $runnerImageFile) "the runner image download is in out\ ($(Split-Path -Leaf $runnerImageFile))"
-            if (Test-Path $runnerImageFile) {
-                & docker image rm $runnerImage *>$null
-                $loaded = & docker load -i $runnerImageFile 2>&1 | Out-String
-                Say "    $($loaded.Trim())"
-                & docker image inspect $runnerImage *>$null
-                Check ($LASTEXITCODE -eq 0) "docker load -i put $runnerImage into the engine" ($loaded.Trim())
+            $imageName = Split-Path -Leaf $runnerImageFile
+            Check (Test-Path $runnerImageFile) "the runner image download is beside the setup in out\ ($imageName)"
+            $stagedImage = Join-Path $agentImages $imageName
+            Check (Test-Path $stagedImage) "THE INSTALLER COPIED IT INTO THE AGENT'S IMAGES FOLDER, $stagedImage"
+            if ((Test-Path $stagedImage) -and (Test-Path $runnerImageFile)) {
+                Check ((Get-FileHash $stagedImage).Hash -eq (Get-FileHash $runnerImageFile).Hash) "byte for byte"
+                Check (Test-Path "$stagedImage.sha256") "with its .sha256, which the agent checks the copy against"
+            }
+
+            <#
+              Whoever can write to this folder chooses the image the agent loads - as LocalSystem - so it
+              must not inherit ProgramData's "Users may create files". Enlist.Agent.msi locks it to SYSTEM
+              and Administrators. verify.ps1 reads that from the MSI; this is the folder it actually made.
+            #>
+            if (Test-Path $agentImages) {
+                $imagesAcl = Get-Acl $agentImages
+                $who = @($imagesAcl.Access | ForEach-Object { [string] $_.IdentityReference })
+                Check ($imagesAcl.AreAccessRulesProtected) "the Images folder's ACL is closed (inheritance off)"
+                Check (($who -match 'SYSTEM').Count -gt 0 -and ($who -match 'Administrators').Count -gt 0) "it grants SYSTEM and Administrators" ($who -join ', ')
+                Check (($who -match '\\Users$|Authenticated Users|Everyone|INTERACTIVE').Count -eq 0) "and no ordinary user can write an image into it" ($who -join ', ')
             }
         }
 
@@ -722,10 +803,34 @@ ALTER ROLE db_owner ADD MEMBER [$login];
                     if ($running) {
                         Check ($running.isolationMode -eq 'container') "it runs in a container" $running.isolationMode
                         $containerId = [string] $running.runtimeId
-                        $inspect = & docker inspect --format '{{.State.Running}}|{{.Config.Image}}' $containerId 2>&1 | Out-String
-                        $isRunning, $image = $inspect.Trim().Split('|')
-                        Check ($isRunning -eq 'true') "container $($containerId.Substring(0, [Math]::Min(12, $containerId.Length))) is running in $ContainerEngine" $inspect.Trim()
-                        Check ($image -eq $runnerImage) "from $runnerImage, the image side-loaded above" $image
+                        $shortId = $containerId.Substring(0, [Math]::Min(12, $containerId.Length))
+
+                        # The image got into the engine because the AGENT loaded it from its Images folder:
+                        # the clean slate took it out of the store, and nothing in this script put it back.
+                        $imageName = Split-Path -Leaf $runnerImageFile
+                        $record = Join-Path $agentImages 'loaded.json'
+                        $recorded = if (Test-Path $record) { Get-Content $record -Raw } else { '' }
+                        Check ($recorded -match [regex]::Escape($imageName) -and $recorded -match ('"Engine":\s*"' + $ContainerEngine + '"')) "THE AGENT LOADED THE IMAGE ITSELF: $record records $imageName loaded into $ContainerEngine" ($recorded -replace '\s+', ' ')
+                        $said = @(Get-ChildItem (Join-Path $agentData 'Logs') -Filter 'agent-*.log' -File -ErrorAction SilentlyContinue |
+                            ForEach-Object { Get-Content $_.FullName -ErrorAction SilentlyContinue } |
+                            Where-Object { $_ -match "Runner image $([regex]::Escape($imageName)) (loaded|not loaded|:)" })
+                        foreach ($line in $said) { Say "    agent log: $line" }
+                        Check (@($said | Where-Object { $_ -match "loaded into $ContainerEngine" }).Count -gt 0) "and its log says so"
+
+                        $imageNow = Invoke-Engine 'image-after' @('image', 'inspect', $runnerImage)
+                        $imageInfo = ConvertFrom-Inspect $imageNow.Text
+                        Check ($imageNow.Exit -eq 0 -and $null -ne $imageInfo) "$runnerImage is in $ContainerEngine's store for the agent's account now" "exit $($imageNow.Exit): $(($imageNow.Text -split "`r?`n" | Select-Object -Last 1))"
+
+                        # Read as JSON rather than through --format, which both engines spell differently and
+                        # whose quotes Windows PowerShell strips on the way to a native command.
+                        $inspect = Invoke-Engine 'inspect' @('inspect', $containerId)
+                        $container = ConvertFrom-Inspect $inspect.Text
+                        Check ($null -ne $container -and $container.State.Running -eq $true) "container $shortId is running in $ContainerEngine" "exit $($inspect.Exit): $(($inspect.Text -split "`r?`n" | Select-Object -First 1))"
+                        if ($container) {
+                            # By name, or - wslc shows it this way once the tag has moved on - by the image's id.
+                            $usedImage = @([string] $container.Config.Image, [string] $container.Image) | Where-Object { $_ }
+                            Check ($usedImage -contains $runnerImage -or ($imageInfo -and $usedImage -contains [string] $imageInfo.Id)) "from $runnerImage, the image the agent loaded" ($usedImage -join ' / ')
+                        }
                     }
                 }
             }
@@ -744,8 +849,12 @@ ALTER ROLE db_owner ADD MEMBER [$login];
             if ($containerId) {
                 Check (Wait-ApplicationGone 'e2e-container') "removing the rule stops e2e-container"
                 Start-Sleep -Seconds 2
-                $still = & docker ps -q --no-trunc --filter "id=$containerId" 2>&1 | Out-String
-                Check (-not $still.Trim()) "and its container is no longer running"
+                # Gone from the engine altogether, or still there but stopped. An engine that did not answer
+                # is neither, and must not read as "not running".
+                $after = Invoke-Engine 'inspect-after' @('inspect', $containerId)
+                $stopped = ConvertFrom-Inspect $after.Text
+                $removed = $after.Exit -ne 0 -and $after.Text -match 'No such|not found'
+                Check ($removed -or ($null -ne $stopped -and $stopped.State.Running -ne $true)) "and its container is no longer running" "exit $($after.Exit): $(($after.Text -split "`r?`n" | Select-Object -First 1))"
             }
         }
 
@@ -753,8 +862,8 @@ ALTER ROLE db_owner ADD MEMBER [$login];
           (A wslc-as-LocalSystem probe used to follow here, printed as a FINDING. Its one run reported
           "no answer within 3 minutes", which was read as wslc hanging for a service. It does not:
           installer\tools\probe-container-engines.ps1 -Wslc then ran version, image list, load, run and
-          remove as SYSTEM in five seconds. What is true is that LocalSystem's wslc image store is its
-          own and starts empty. That tool owns the question now; this script proves the Docker path.)
+          remove as SYSTEM in five seconds. What was true is that LocalSystem's wslc image store is its
+          own and starts empty - which the agent's Images folder now answers, and the deploy above proves.)
         #>
     }
 }
@@ -776,10 +885,16 @@ finally {
 
     foreach ($name in "enlist-agent", "enlist-portal", "enlist-controlplane") { Request-ServiceStop $name }
 
-    # A container the agent did not get to stop outlives the agent service - it belongs to the engine.
-    if (-not $SkipContainers -and (Get-Command docker -ErrorAction SilentlyContinue)) {
-        $orphans = @(& docker ps -aq --filter "label=enlist.agent=$env:COMPUTERNAME" 2>$null | Where-Object { $_ })
-        foreach ($id in $orphans) { & docker rm -f $id *>$null }
+    # A container the agent did not get to stop outlives the agent service - it belongs to the engine,
+    # and for wslc to SYSTEM's session, which is where it is looked for.
+    if (-not $SkipContainers) {
+        $listed = if ($ContainerEngine -eq 'docker') {
+            Invoke-Engine 'orphans' @('ps', '--all', '--quiet', '--filter', "label=enlist.agent=$env:COMPUTERNAME")
+        } else {
+            Invoke-Engine 'orphans' @('list', '--all', '--quiet', '--filter', "label=enlist.agent=$env:COMPUTERNAME")
+        }
+        $orphans = @(if ($listed.Exit -eq 0) { $listed.Text -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^[0-9a-f]{12,}$' } })
+        foreach ($id in $orphans) { $null = Invoke-Engine 'orphan-rm' @('rm', '--force', $id) }
         if ($orphans.Count) { Say "    removed $($orphans.Count) container(s) the agent left behind" }
     }
 
