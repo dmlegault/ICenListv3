@@ -42,6 +42,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Enlist.Runner.Legacy</RootNamespace>
+    <!-- The iC mark on the legacy enlist-runner.exe, as on the modern one; see src\branding. -->
+    <ApplicationIcon>..\branding\enlist.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

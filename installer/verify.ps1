@@ -181,6 +181,46 @@ namespace Enlist {
             finally { MsiCloseHandle(view); }
         }
 
+        // The File table key of the file called fileName in the directory with that Id - the name the
+        // file carries inside the cabinet. Harvested files get generated keys, so a check has to look
+        // the key up rather than name it. Exactly one match, or it is not the file the check means.
+        public static string FileKey(string package, string directory, string fileName) {
+            IntPtr database, view, record;
+            Ok(MsiOpenDatabase(package, IntPtr.Zero, out database), "opening " + package);
+            try {
+                const string query = "SELECT `File`.`File`, `File`.`FileName`, `Component`.`Directory_` FROM `File`, `Component` WHERE `File`.`Component_` = `Component`.`Component`";
+                Ok(MsiDatabaseOpenView(database, query, out view), query);
+                var matches = new System.Collections.Generic.List<string>();
+                try {
+                    Ok(MsiViewExecute(view, IntPtr.Zero), query);
+                    while (MsiViewFetch(view, out record) == 0) {
+                        try {
+                            // FileName is "SHORT~1.EXE|long-name.exe" when the long name is not 8.3.
+                            var name = Field(record, 2);
+                            var longName = name.Contains("|") ? name.Substring(name.IndexOf('|') + 1) : name;
+                            if (Field(record, 3) == directory && string.Equals(longName, fileName, StringComparison.OrdinalIgnoreCase))
+                                matches.Add(Field(record, 1));
+                        }
+                        finally { MsiCloseHandle(record); }
+                    }
+                }
+                finally { MsiCloseHandle(view); }
+                if (matches.Count != 1)
+                    throw new InvalidOperationException(package + " has " + matches.Count + " files named " + fileName + " in " + directory);
+                return matches[0];
+            }
+            finally { MsiCloseHandle(database); }
+        }
+
+        static string Field(IntPtr record, uint field) {
+            uint size = 0;
+            MsiRecordGetString(record, field, new StringBuilder(1), ref size);
+            size++;
+            var value = new StringBuilder((int)size);
+            Ok(MsiRecordGetString(record, field, value, ref size), "reading a string field");
+            return value.ToString();
+        }
+
         public static void Export(string package, string cabinetPath) {
             IntPtr database;
             Ok(MsiOpenDatabase(package, IntPtr.Zero, out database), "opening " + package);  // IntPtr.Zero is read-only
@@ -750,7 +790,7 @@ else {
           icon while the fresh build looked right.
         #>
         Write-Host ""
-        Write-Host "  Every installer, and every service it installs, carries the iC mark"
+        Write-Host "  Every installer, and every enList executable it installs, carries the iC mark"
         $iconFile = Join-Path $PSScriptRoot 'ba\Enlist.Installer.Ba\media\enlist.ico'
         $expected = [Enlist.IconImages]::OfIcoFile($iconFile)
 
@@ -761,27 +801,45 @@ else {
         Assert-That (-not (@([Enlist.IconImages]::OfExecutable((Get-Command powershell.exe).Source)) -contains $expected)) 'an executable without the iC mark is told apart (control)'
 
         <#
-          The services, read out of the packages that install them. Each MSI's cabinet is written out
-          and the service executable expanded from it by its File table key, so what is checked is the
-          file a machine actually receives - an icon set in the project but missing from a stale
+          The services and the runners, read out of the packages that install them. Each MSI's cabinet
+          is written out and the executable expanded from it by its File table key, so what is checked
+          is the file a machine actually receives - an icon set in the project but missing from a stale
           publish\ would pass a check of the build output and fail this one.
+
+          Found by directory and name rather than by key: the service executables have hand-written
+          keys, but the runners are harvested, and a harvested key is generated. Both runners are
+          called enlist-runner.exe (Enlist.Runner.Legacy.csproj says why), so the directory is what
+          tells them apart.
         #>
-        $services = @(
-            @{ Msi = 'Enlist.ControlPlane.msi'; FileKey = 'ControlPlaneExe'; Exe = 'Enlist.ControlPlane.exe' },
-            @{ Msi = 'Enlist.Portal.msi';       FileKey = 'PortalExe';       Exe = 'Enlist.Portal.exe' },
-            @{ Msi = 'Enlist.Agent.msi';        FileKey = 'AgentExe';        Exe = 'enlist-agent.exe' }
+        $executables = @(
+            @{ Msi = 'Enlist.ControlPlane.msi'; Directory = 'INSTALLFOLDER';   Exe = 'Enlist.ControlPlane.exe'; Shown = 'the running service' },
+            @{ Msi = 'Enlist.Portal.msi';       Directory = 'INSTALLFOLDER';   Exe = 'Enlist.Portal.exe';       Shown = 'the running service' },
+            @{ Msi = 'Enlist.Agent.msi';        Directory = 'INSTALLFOLDER';   Exe = 'enlist-agent.exe';        Shown = 'the running service' },
+            @{ Msi = 'Enlist.Agent.msi';        Directory = 'RUNNERDIR';       Exe = 'enlist-runner.exe';       Shown = 'each application the agent hosts'; Label = 'runner\enlist-runner.exe' },
+            @{ Msi = 'Enlist.Agent.msi';        Directory = 'RUNNERLEGACYDIR'; Exe = 'enlist-runner.exe';       Shown = 'each .NET Framework application the agent hosts'; Label = 'runner-legacy\enlist-runner.exe' },
+            # The copy the agent's project reference to Enlist.Runner lays beside enlist-agent.exe. The
+            # agent starts runners from runner\, not this one, but it is installed, so it is branded.
+            @{ Msi = 'Enlist.Agent.msi';        Directory = 'INSTALLFOLDER';   Exe = 'enlist-runner.exe';       Shown = 'it if anything starts it'; Label = 'the enlist-runner.exe copy in the agent folder' }
         )
-        foreach ($service in $services) {
+        # Not checked, and not ours: Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.exe, which the
+        # control plane's EF Core design-time reference carries into its publish output.
+        foreach ($executable in $executables) {
+            $label = if ($executable.ContainsKey('Label')) { $executable.Label } else { $executable.Exe }
+            [string] $package = Join-Path $OutDir $executable.Msi
             [string] $unpacked = Join-Path ([IO.Path]::GetTempPath()) "enlist-cab-$([guid]::NewGuid().ToString('N'))"
             New-Item -ItemType Directory $unpacked | Out-Null
+            $carries = $false
             try {
+                $fileKey = [Enlist.MsiCabinet]::FileKey($package, $executable.Directory, $executable.Exe)
                 [string] $cabinet = Join-Path $unpacked 'package.cab'
-                [Enlist.MsiCabinet]::Export([string] (Join-Path $OutDir $service.Msi), $cabinet)
-                & expand.exe $cabinet "-F:$($service.FileKey)" $unpacked | Out-Null
-                $serviceExe = Join-Path $unpacked $service.FileKey
-                Assert-That ((Test-Path $serviceExe) -and (@([Enlist.IconImages]::OfExecutable($serviceExe)) -contains $expected)) "$($service.Exe) as installed by $($service.Msi) carries it, which is what Task Manager shows for the running service"
+                [Enlist.MsiCabinet]::Export($package, $cabinet)
+                & expand.exe $cabinet "-F:$fileKey" $unpacked | Out-Null
+                $extracted = Join-Path $unpacked $fileKey
+                $carries = (Test-Path $extracted) -and (@([Enlist.IconImages]::OfExecutable($extracted)) -contains $expected)
             }
+            catch { Write-Host "          $($_.Exception.Message)" -ForegroundColor Red }
             finally { Remove-Item -Recurse -Force $unpacked -ErrorAction SilentlyContinue }
+            Assert-That $carries "$label as installed by $($executable.Msi) carries it, which is what Task Manager shows for $($executable.Shown)"
         }
 
         foreach ($msi in 'Enlist.ControlPlane.msi', 'Enlist.Portal.msi', 'Enlist.Agent.msi') {

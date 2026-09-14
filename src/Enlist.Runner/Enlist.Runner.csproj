@@ -8,6 +8,11 @@
     <RootNamespace>Enlist.Runner</RootNamespace>
     <AssemblyName>enlist-runner</AssemblyName>
     <InvariantGlobalization>false</InvariantGlobalization>
+    <!--
+      The iC mark on enlist-runner.exe, one process per hosted application under the agent. A Win32
+      resource in this executable, not a dependency, so the zero-PackageReference rule below is untouched.
+    -->
+    <ApplicationIcon>..\branding\enlist.ico</ApplicationIcon>
   </PropertyGroup>
 
   <!--
