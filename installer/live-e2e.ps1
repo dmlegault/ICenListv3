@@ -417,18 +417,28 @@ ALTER ROLE db_owner ADD MEMBER [$login];
         }
 
         # The control plane's own view: an agent it has never heard of would not be registered.
+        #
+        # --replace, and a FAIL when there is no key rather than a skip. This block used to sit inside
+        # `if ($apiKey)`, and the database survives an uninstall by design - so on the second run an
+        # "e2e" key already existed, create-api-key refused a duplicate name, the key came back empty,
+        # and the registration check silently did not run. The transcript said "all checks passed"
+        # while the check that mattered most had not been attempted. A check that can vanish without
+        # saying so is worse than no check.
         $env:ASPNETCORE_ENVIRONMENT = $null
-        $keyOutput = & (Join-Path $cpDir 'Enlist.ControlPlane.exe') create-api-key --name e2e --role Operator --expires never 2>&1 | Out-String
+        $keyOutput = & (Join-Path $cpDir 'Enlist.ControlPlane.exe') create-api-key --name e2e --role Operator --expires never --replace 2>&1 | Out-String
         $apiKey = ([regex]::Match($keyOutput, 'enlk_\S+')).Value
+        Check ($apiKey.Length -gt 5) "an Operator key was minted to ask the control plane with" ($keyOutput.Trim() -replace '\s+', ' ')
+
+        $names = @()
         if ($apiKey) {
             try {
                 $agents = Invoke-RestMethod -Uri "$cpUrl/api/agents" -Headers @{ Authorization = "Bearer $apiKey" } -TimeoutSec 20
                 $names = @($agents | ForEach-Object { $_.name })
-                Say "    agents the control plane knows: $($names -join ', ')"
-                Check ($names -contains $env:COMPUTERNAME) "the control plane has this agent registered"
             }
-            catch { Check $false "the control plane has this agent registered" $_.Exception.Message }
+            catch { Say "    (listing agents failed: $($_.Exception.Message))" }
         }
+        Say "    agents the control plane knows: $(if ($names.Count) { $names -join ', ' } else { '(none returned)' })"
+        Check ($names -contains $env:COMPUTERNAME) "the control plane has this agent registered"
 
         # And the agent actually runs against it.
         Request-ServiceStart "enlist-agent"
