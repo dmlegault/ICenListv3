@@ -5,7 +5,7 @@ Three projects. The split between them is one line: **what can be tested, and wh
 | Project | Target | What it is |
 |---|---|---|
 | `Enlist.Installer.Detection` | `netstandard2.0` + `net472` | Every decision the installer makes. No UI, no engine. |
-| `Enlist.Installer.Detection.Tests` | `net10.0` | 128 cases over the above, several against this machine. |
+| `Enlist.Installer.Detection.Tests` | `net10.0` | 138 cases over the above, several against this machine. |
 | `Enlist.Installer.Ba` | `net472` WPF, `WinExe` | The wizard Burn runs. Binding and navigation only. |
 
 A Burn bootstrapper cannot be exercised by a test — it is a process started by a native host inside an elevated install. So anything with a judgement in it lives in the detection library, where a test can reach it, and the wizard is left holding as close to nothing as it can be.
@@ -100,7 +100,7 @@ cd installer
 .\verify.ps1
 ```
 
-76 methods, 128 cases. `InstallPlanTests` is the bulk of it — page flow, blocking reasons, and the variable dictionary. `ProbeTests` uses a stub `HttpMessageHandler` for `/health` and `SkippableFact` for anything needing a real SQL Server. `RuntimeDetectionTests` and `ContainerEngineDetectionTests` run against this machine and skip rather than fail where it cannot answer.
+86 methods, 138 cases. `InstallPlanTests` is the bulk of it — page flow, blocking reasons, and the variable dictionary. `ProbeTests` uses a stub `HttpMessageHandler` for `/health` and `SkippableFact` for anything needing a real SQL Server. `RuntimeDetectionTests` and `ContainerEngineDetectionTests` run against this machine and skip rather than fail where it cannot answer.
 
 Not in `enList_v3.slnx`, for the same reason the rest of `installer\` is not: it belongs to an artifact built deliberately, not on every inner loop.
 
@@ -150,15 +150,21 @@ Passwords are handled in `WizardWindow.xaml.cs`, which is the one thing that bel
 
 The MSIs lay down files and create **stopped** services, and nothing else. Everything in section 8 happens here, in every display mode — a silent install needs its credentials as much as a watched one, so `InstallPlan.FromVariables` rebuilds the plan from the bundle's own variables when there is no wizard to have assembled one.
 
-`PostInstall.Steps(plan)` returns them in order, and the order is a dependency chain:
+`PostInstall.Steps(plan, executedPackages)` returns them in order, and the order is a dependency chain:
 
 | Step | Runs | When |
 |---|---|---|
-| `GrantCertificateAccess` | `<host>.exe grant-certificate-access` | a component with a TLS certificate |
-| `ApplySchema` | `Enlist.ControlPlane.exe apply-schema` | a control plane is being installed |
-| `CreatePortalKey` | `Enlist.ControlPlane.exe create-api-key --name portal --role Operator --expires never` | control plane **and** portal |
+| `GrantCertificateAccess` | `<host>.exe grant-certificate-access` | that component's package **ran**, and it has a TLS certificate |
+| `ApplySchema` | `Enlist.ControlPlane.exe apply-schema` | the control plane package **ran** |
+| `CreatePortalKey` | `Enlist.ControlPlane.exe create-api-key --name portal --role Operator --expires never --replace` | the portal package **ran**, and a control plane is installed |
 | `StorePortalKey` | `Enlist.Portal.exe protect <key> --store` | the same |
-| `EnrollAgent` | `enlist-agent enroll --join-token <token>` | an agent, and a token was given |
+| `EnrollAgent` | `enlist-agent enroll --join-token <token>` | the agent package **ran**, and a token was given |
+
+**"Ran" means Burn executed that package in this apply** — recorded from `OnExecutePackageBegin` and `OnExecutePackageComplete`, not inferred from the plan. The plan says what the machine *should* have; the engine says what this run *touched*, and only the second is safe to act on.
+
+That distinction is a fix for a real defect. Adding an agent to a Server box is `setup.exe` run again with the agent switched on: the plan still names the control plane and the portal, but Burn executes only the Agent package. Computing steps from the plan re-minted the portal's key, `--replace` revoked the key the *already-running* portal held, and — because the portal reads its key once at startup — it went on presenting a revoked key and got 401 from everything until someone restarted it. Found in the `ApiKeys` table after a live run that otherwise passed.
+
+It is safe to gate this way, not merely convenient, because every enList `ServiceControl` is `Stop="both"`: executing a package stops that component's service, so anything re-keyed is re-read when it next starts. A package Burn did *not* execute still has its service running exactly as it was, and that is the one whose credentials must not move. The two conditions on the portal key are deliberately different for the same reason — the *portal* must have run, because it is what needs the key; the control plane only has to be *installed*, because `create-api-key` needs its database and that is there either way.
 
 **`apply-schema` is new, and the design did not call for it.** `create-api-key` writes to the database directly, so on a fresh machine there is no schema to write to — and the control plane deliberately refuses to migrate itself outside Development, because creating a database and altering tables need rights an application login should not hold. The verb is the deploy step `Deployment-IaC` §1.4 already asked for, run by an installer that is already elevated.
 

@@ -390,16 +390,40 @@ ALTER ROLE db_owner ADD MEMBER [$login];
             'INSTALLTYPE=Server', 'InstallAgent=1',
             "CP_CERT=$Thumbprint", "PORTAL_CERT=$Thumbprint", "PORTAL_CPURL=$cpUrl",
             # The SAME settings as the first call, not just the new ones. A bundle variable not given
-            # again falls back to its declared default, and the post-install steps are recomputed from
-            # the whole plan - so omitting these re-granted the certificate to NETWORK SERVICE on a
-            # machine where the services run as LocalSystem.
+            # again falls back to its declared default, and the plan is rebuilt from those variables.
+            # Post-install steps are now gated on the packages Burn actually executed, so this matters
+            # less than it did - but a plan that disagrees with what is installed is still a plan that
+            # would configure the wrong thing the moment a step did run.
             "DB_SERVER=$DatabaseServer", "CP_ACCOUNT=$ServiceAccount", "PORTAL_ACCOUNT=$ServiceAccount",
             "AGENT_CPURL=$cpUrl",
             "AGENT_ACCOUNT=$ServiceAccount",
             "AGENT_JOINTOKEN=$joinToken"
         )
+
+        # The live 'portal' key BEFORE the agent is added. Adding an agent used to re-run every
+        # post-install step, and create-api-key --replace revoked the key the running portal held -
+        # found in this very table after a run that otherwise passed. The portal reads its key once at
+        # startup, so it would go on presenting a revoked one and get 401 from everything.
+        function Get-LivePortalKeyCreated {
+            try {
+                $c = New-Object System.Data.SqlClient.SqlConnection "Server=$DatabaseServer;Database=EnlistControlPlane;Trusted_Connection=True;TrustServerCertificate=True;Connect Timeout=15"
+                $c.Open()
+                $q = $c.CreateCommand()
+                $q.CommandText = "SELECT TOP 1 CONVERT(varchar(40), CreatedAtUtc, 126) FROM ApiKeys WHERE Name = 'portal' AND RevokedAtUtc IS NULL"
+                $v = $q.ExecuteScalar()
+                $c.Close()
+                return [string] $v
+            }
+            catch { return "" }
+        }
+        $portalKeyBefore = Get-LivePortalKeyCreated
+
         $exit = Invoke-Bundle $arguments
         Check ($exit -eq 0) "adding the agent exits 0" "exit $exit"
+
+        $portalKeyAfter = Get-LivePortalKeyCreated
+        Say "    live portal key created at: before $portalKeyBefore, after $portalKeyAfter"
+        Check ($portalKeyBefore -and $portalKeyBefore -eq $portalKeyAfter) "ADDING THE AGENT LEFT THE RUNNING PORTAL'S KEY ALONE"
 
         $agent = Service-Of 'enlist-agent'
         Check ($null -ne $agent) "the agent service exists"

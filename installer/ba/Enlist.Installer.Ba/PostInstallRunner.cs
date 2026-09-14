@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -53,12 +54,19 @@ namespace Enlist.Installer.Ba
     public sealed class PostInstallRunner
     {
         private readonly InstallPlan _plan;
+        private readonly IReadOnlyCollection<string> _executedPackages;
         private readonly Action<string> _progress;
         private readonly Action<string> _log;
 
-        public PostInstallRunner(InstallPlan plan, Action<string> progress, Action<string> log)
+        /// <param name="executedPackages">
+        /// The Burn package IDs actually installed, modified, repaired or upgraded in this apply. See
+        /// PostInstall.Steps for why the plan on its own is not enough - running from the plan alone
+        /// re-keyed a portal that the apply had not touched.
+        /// </param>
+        public PostInstallRunner(InstallPlan plan, IReadOnlyCollection<string> executedPackages, Action<string> progress, Action<string> log)
         {
             _plan = plan;
+            _executedPackages = executedPackages;
             _progress = progress;
             _log = log;
         }
@@ -68,7 +76,9 @@ namespace Enlist.Installer.Ba
             var results = new List<PostInstallResult>();
             string? portalKey = null;
 
-            foreach (var step in PostInstall.Steps(_plan))
+            _log("packages executed this apply: " + (_executedPackages.Count == 0 ? "(none)" : string.Join(", ", _executedPackages.ToArray())));
+
+            foreach (var step in PostInstall.Steps(_plan, _executedPackages))
             {
                 _progress(step.Description);
                 _log($"post-install: {step.Description} ({step.Executable} {string.Join(" ", step.Arguments)})");

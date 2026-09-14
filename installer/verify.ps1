@@ -452,6 +452,28 @@ else {
         $chain = @([regex]::Matches($manifest, '<(?:MsiPackage|ExePackage)[^>]*\sId="([^"]+)"') | ForEach-Object { $_.Groups[1].Value })
         Assert-That ($chain.Count -eq 5) "the chain has five packages, two runtimes and three MSIs (found $($chain.Count))"
 
+        <#
+          The bootstrapper decides which post-install steps to run by the package IDs Burn reports
+          executing, compared against PostInstall.Packages. If the two ever disagreed - a package
+          renamed in Bundle.wxs and not in the library - every step for that component would silently
+          stop running and the install would still report success. So the constants are read out of
+          the built assembly itself rather than restated here, which would only test that two copies of
+          the same mistake agree.
+        #>
+        $detectionDll = Join-Path $PSScriptRoot 'ba\Enlist.Installer.Ba\bin\Release\net472\Enlist.Installer.Detection.dll'
+        if (Test-Path $detectionDll) {
+            $bytes = [IO.File]::ReadAllBytes($detectionDll)
+            $asm = [Reflection.Assembly]::Load($bytes)
+            $packagesType = $asm.GetTypes() | Where-Object { $_.FullName -eq 'Enlist.Installer.Detection.PostInstall+Packages' }
+            $expected = @($packagesType.GetFields() | ForEach-Object { [string] $_.GetValue($null) })
+            foreach ($id in $expected) {
+                Assert-That ($chain -contains $id) "the bundle has a package with Id '$id', which the post-install gating keys on"
+            }
+        }
+        else {
+            Assert-That $false "the bootstrapper is built, so its package IDs can be checked against the bundle"
+        }
+
         $conditions = @([regex]::Matches($manifest, 'InstallCondition="([^"]*)"') | ForEach-Object { $_.Groups[1].Value -replace '&quot;', '"' })
         Assert-That (@($conditions | Where-Object { $_ -eq 'INSTALLTYPE = "Server" OR InstallControlPlane = "1"' }).Count -eq 1) 'the control plane installs on Server, or when asked for directly'
         Assert-That (@($conditions | Where-Object { $_ -eq 'INSTALLTYPE = "Server" OR InstallPortal = "1"' }).Count -eq 1) 'the portal installs on Server, or when asked for directly'
@@ -654,6 +676,7 @@ if ($script:failures -gt 0) {
     exit 1
 }
 Write-Host "All checks passed." -ForegroundColor Green
+
 
 
 

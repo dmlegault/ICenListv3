@@ -34,7 +34,7 @@ And three scripts at the root, which is the whole of the tooling: **`build.ps1`*
 ```powershell
 .\build.ps1              # publish everything, build the MSIs, then the bundle
 .\build.ps1 -SkipPublish # reuse publish\, for when only the WiX changed
-.\verify.ps1             # 128 detection tests + 70 installer checks
+.\verify.ps1             # 138 detection tests + 73 installer checks
 .\verify.ps1 -Live       # really install, upgrade and uninstall (elevated shell)
 .\live-e2e.ps1           # a real install that RUNS (elevated shell) - see below
 ```
@@ -102,7 +102,7 @@ Section 4 names the ASP.NET Core **Hosting Bundle** as the prerequisite for the 
 
 ## The wizard, in `ba\`
 
-Three projects, split on one line: what can be tested, and what cannot. `Enlist.Installer.Detection` holds every decision and has 128 tests over it; `Enlist.Installer.Ba` is the WPF shell and holds none, because a bootstrapper's pages cannot be exercised by a test.
+Three projects, split on one line: what can be tested, and what cannot. `Enlist.Installer.Detection` holds every decision and has 138 tests over it; `Enlist.Installer.Ba` is the WPF shell and holds none, because a bootstrapper's pages cannot be exercised by a test.
 
 **It is what the bundle chains.** Eight pages, styled to the portal's own palette, with `build.ps1 -StandardBootstrapper` as the way back to the stock WixStdBA if it ever regresses. A silent install reaches no window under either one, so the surface in section 10 is unaffected by the choice.
 

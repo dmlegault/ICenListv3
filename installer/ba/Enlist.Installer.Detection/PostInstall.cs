@@ -88,8 +88,21 @@ namespace Enlist.Installer.Detection
         public const string PortalKeyName = "portal";
 
         /// <summary>
-        /// The steps for this plan, in order. Empty is a perfectly ordinary answer - an agent-only
-        /// install with no join token has nothing to do here.
+        /// The Burn package IDs, which must match the MsiPackage Id attributes in Bundle.wxs.
+        /// verify.ps1 asserts they do, because a mismatch would silently skip every step for that
+        /// component and report the install as a success.
+        /// </summary>
+        public static class Packages
+        {
+            public const string ControlPlane = "ControlPlane";
+            public const string Portal = "Portal";
+            public const string Agent = "Agent";
+        }
+
+        /// <summary>
+        /// The steps for a FIRST install of this plan: every package it names is taken to have just
+        /// been installed. Convenient for anything that is not a bootstrapper watching a real apply.
+        /// The bootstrapper uses the overload that says what actually ran.
         /// </summary>
         public static IReadOnlyList<PostInstallStep> Steps(InstallPlan plan)
         {
@@ -97,6 +110,50 @@ namespace Enlist.Installer.Detection
             {
                 throw new ArgumentNullException(nameof(plan));
             }
+
+            var all = new List<string>();
+            if (plan.InstallsControlPlane) { all.Add(Packages.ControlPlane); }
+            if (plan.InstallsPortal) { all.Add(Packages.Portal); }
+            if (plan.InstallsAgent) { all.Add(Packages.Agent); }
+
+            return Steps(plan, all);
+        }
+
+        /// <summary>
+        /// The steps for this plan, restricted to the components whose packages Burn actually
+        /// installed, modified, repaired or upgraded in THIS apply.
+        ///
+        /// WHY THE PLAN ALONE IS NOT ENOUGH. Adding an agent to a machine already hosting the control
+        /// plane and portal is `setup.exe` run again - an Install action - with the agent switched on.
+        /// The plan still says Server, so it still names the control plane and the portal; Burn,
+        /// correctly, executes only the Agent package. Computing steps from the plan re-ran every one
+        /// of them, and create-api-key --replace revoked the key the already-running portal held. The
+        /// portal reads its key once, at startup, so it carried on presenting a revoked key and got 401
+        /// from every call until somebody restarted it. Found in the database after a live run:
+        ///
+        ///     portal  created 13:21:51  revoked 13:21:59   (the key the running portal started with)
+        ///     portal  created 13:22:00  live               (minted when the agent was ADDED)
+        ///
+        /// WHY GATING ON EXECUTION IS SAFE, and not merely convenient: every enList service's
+        /// ServiceControl is Stop="both", so executing a package stops that component's service. Anything
+        /// re-keyed or re-granted here is therefore picked up when the service next starts. A package
+        /// Burn did NOT execute still has its service running exactly as it was, and that is the one
+        /// whose credentials must not move underneath it.
+        ///
+        /// Empty is a perfectly ordinary answer - an agent-only install with no join token has nothing
+        /// to do here, and neither does a modify that touched no enList package.
+        /// </summary>
+        public static IReadOnlyList<PostInstallStep> Steps(InstallPlan plan, IEnumerable<string> executedPackages)
+        {
+            if (plan == null)
+            {
+                throw new ArgumentNullException(nameof(plan));
+            }
+
+            var executed = new HashSet<string>(executedPackages ?? new string[0], StringComparer.OrdinalIgnoreCase);
+            var controlPlaneRan = plan.InstallsControlPlane && executed.Contains(Packages.ControlPlane);
+            var portalRan = plan.InstallsPortal && executed.Contains(Packages.Portal);
+            var agentRan = plan.InstallsAgent && executed.Contains(Packages.Agent);
 
             var steps = new List<PostInstallStep>();
 
@@ -106,7 +163,7 @@ namespace Enlist.Installer.Detection
             // the default service account, NETWORK SERVICE, cannot use a certificate an administrator
             // installed. Nothing about the certificate looks wrong when this is missing, which is what
             // makes it worth doing before anything else has a chance to obscure it.
-            if (plan.InstallsControlPlane && !string.IsNullOrWhiteSpace(plan.ControlPlaneCertificate))
+            if (controlPlaneRan && !string.IsNullOrWhiteSpace(plan.ControlPlaneCertificate))
             {
                 steps.Add(new PostInstallStep(
                     PostInstallStepKind.GrantCertificateAccess,
@@ -122,7 +179,7 @@ namespace Enlist.Installer.Detection
                     optional: false));
             }
 
-            if (plan.InstallsPortal && !string.IsNullOrWhiteSpace(plan.PortalCertificate))
+            if (portalRan && !string.IsNullOrWhiteSpace(plan.PortalCertificate))
             {
                 steps.Add(new PostInstallStep(
                     PostInstallStepKind.GrantCertificateAccess,
@@ -138,7 +195,7 @@ namespace Enlist.Installer.Detection
                     optional: false));
             }
 
-            if (plan.InstallsControlPlane)
+            if (controlPlaneRan)
             {
                 steps.Add(new PostInstallStep(
                     PostInstallStepKind.ApplySchema,
@@ -149,11 +206,21 @@ namespace Enlist.Installer.Detection
                     optional: false));
             }
 
-            // Both, deliberately. create-api-key writes to the database directly, so the portal's key
-            // can only be minted where the control plane's database is reachable. A portal installed
-            // on its own - a split tier - gets its key from an Operator on the control plane host, and
-            // says so on the Finish page rather than silently starting without one.
-            if (plan.InstallsControlPlane && plan.InstallsPortal)
+            // Gated on the PORTAL having just been installed, and on the control plane merely being
+            // PRESENT - the two conditions are deliberately different.
+            //
+            // The portal is what needs a key, so it is the portal's package that decides. If Burn did
+            // not execute it, its service is still running with the key it read at startup, and minting
+            // a new one with --replace would revoke that key out from under it. That is the defect this
+            // gate exists for: adding an agent to a Server box re-keyed a portal nobody had touched.
+            //
+            // The control plane only has to be installed, not re-installed: create-api-key writes to
+            // its database directly, and that database is there whether or not its package ran this
+            // time. A portal added to an existing control plane host still gets its key.
+            //
+            // A portal installed on its own - a split tier - gets its key from an Operator on the
+            // control plane host, and says so on the Finish page rather than silently starting without one.
+            if (portalRan && plan.InstallsControlPlane)
             {
                 steps.Add(new PostInstallStep(
                     PostInstallStepKind.CreatePortalKey,
@@ -181,7 +248,7 @@ namespace Enlist.Installer.Detection
 
             // A join token is optional: an agent against a control plane running Off needs none, and
             // an operator may prefer to enroll by hand later.
-            if (plan.InstallsAgent && !string.IsNullOrWhiteSpace(plan.AgentJoinToken))
+            if (agentRan && !string.IsNullOrWhiteSpace(plan.AgentJoinToken))
             {
                 steps.Add(new PostInstallStep(
                     PostInstallStepKind.EnrollAgent,

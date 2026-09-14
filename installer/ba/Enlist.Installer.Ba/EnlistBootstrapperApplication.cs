@@ -379,6 +379,58 @@ namespace Enlist.Installer.Ba
         /// done rather than when Apply finished, which is what keeps the engine from quitting out
         /// from under a half-configured install.
         /// </summary>
+        // ---- Which packages this apply actually touched --------------------------------------
+        //
+        // Recorded from the engine rather than inferred from the plan, and that distinction is the
+        // fix for a real defect. Adding an agent to a Server box is setup.exe run again with the agent
+        // switched on: the PLAN still names the control plane and portal, but Burn executes only the
+        // Agent package. Post-install steps computed from the plan re-keyed the running portal and
+        // revoked the key it held. See PostInstall.Steps.
+        //
+        // Begin records intent, Complete confirms it. A package whose execution failed is not counted
+        // - though in practice a failed package fails the apply, and post-install does not run at all.
+
+        private readonly object _executedGate = new object();
+        private readonly Dictionary<string, ActionState> _executing = new Dictionary<string, ActionState>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _executed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        protected override void OnExecutePackageBegin(ExecutePackageBeginEventArgs args)
+        {
+            base.OnExecutePackageBegin(args);
+
+            // Only the actions that leave a package installed. An Uninstall is not something to
+            // configure, and rollback arrives as uninstalls - so it cannot sneak a package in either.
+            if (args.ShouldExecute &&
+                (args.Action == ActionState.Install || args.Action == ActionState.Modify ||
+                 args.Action == ActionState.Repair || args.Action == ActionState.MinorUpgrade))
+            {
+                lock (_executedGate) { _executing[args.PackageId] = args.Action; }
+            }
+        }
+
+        protected override void OnExecutePackageComplete(ExecutePackageCompleteEventArgs args)
+        {
+            base.OnExecutePackageComplete(args);
+
+            lock (_executedGate)
+            {
+                if (_executing.TryGetValue(args.PackageId, out var action))
+                {
+                    _executing.Remove(args.PackageId);
+                    if (args.Status >= 0)
+                    {
+                        _executed.Add(args.PackageId);
+                        Trace("executed " + args.PackageId + " (" + action + ")");
+                    }
+                }
+            }
+        }
+
+        private IReadOnlyCollection<string> ExecutedPackages()
+        {
+            lock (_executedGate) { return _executed.ToArray(); }
+        }
+
         protected override void OnApplyComplete(ApplyCompleteEventArgs args)
         {
             base.OnApplyComplete(args);
@@ -401,6 +453,7 @@ namespace Enlist.Installer.Ba
                     var plan = _wizard?.Plan ?? InstallPlan.FromVariables(name => Read(name));
                     var runner = new PostInstallRunner(
                         plan,
+                        ExecutedPackages(),
                         progress: message =>
                         {
                             Trace(message);
