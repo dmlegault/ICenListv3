@@ -73,8 +73,11 @@ function Get-ProbeCommands([string] $output) {
 # Reads the markers back into { who; docker; wslc }. A section with no exit= line is a command that
 # never finished - which, for wslc, is the finding.
 function Read-ProbeOutput([string] $text) {
+    # [ \t]* after each marker, and it is not optional: `echo === docker >> file` writes "=== docker "
+    # WITH the space before >>. The first run of this script matched the markers exactly, found none of
+    # them, and reported every engine as NOT REACHED for every identity.
     function Section([string] $name) {
-        $m = [regex]::Match($text, "(?s)=== $name\r?\n(.*?)(?=\r?\n=== |\z)")
+        $m = [regex]::Match($text, "(?s)=== $name[ \t]*\r?\n(.*?)(?=\r?\n=== |\z)")
         if (-not $m.Success) { return 'NOT REACHED' }
         $body = $m.Groups[1].Value.Trim()
         $exit = [regex]::Match($body, 'exit=(-?\d+)').Groups[1].Value
@@ -83,8 +86,8 @@ function Read-ProbeOutput([string] $text) {
         if ($exit) { return "fails, exit ${exit}: $first" }
         return "HANGS - no answer$(if ($first) { " (printed: $first)" })"
     }
-    $who = [regex]::Match($text, '(?s)=== whoami\r?\n(.*?)\r?\n').Groups[1].Value.Trim()
-    [pscustomobject]@{ Who = $who; Docker = Section 'docker'; Wslc = Section 'wslc' }
+    $who = [regex]::Match([string] $text, '(?s)=== whoami[ \t]*\r?\n(.*?)\r?\n').Groups[1].Value.Trim()
+    [pscustomobject]@{ Who = $who; Docker = Section 'docker'; Wslc = Section 'wslc'; Raw = [string] $text }
 }
 
 function Invoke-AsTask([string] $name, $principal, [int] $seconds) {
@@ -149,6 +152,14 @@ if ($Now) {
     Say ""
     Say "S4U is a non-interactive logon of your account with no password stored - the nearest thing to a"
     Say "service set to log on as you. It has no network credentials, which neither engine needs locally."
+
+    # The raw output too, always. The table is a reading of it, and a reading can be wrong - the first
+    # run's was, and with the raw text already deleted there was nothing left to check it against.
+    foreach ($probe in @(@('you', $you), @('LocalSystem', $system), @('S4U', $s4u))) {
+        Say ""
+        Say "--- raw: $($probe[0]) ---"
+        Say $(if ($probe[1].Raw) { $probe[1].Raw.TrimEnd() } else { '(nothing was written)' })
+    }
 
     Remove-Item $probeRoot -Recurse -Force -ErrorAction SilentlyContinue
     [IO.File]::WriteAllLines($Transcript, $lines)
