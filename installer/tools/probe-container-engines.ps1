@@ -56,7 +56,9 @@ $ErrorActionPreference = 'Stop'
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) { throw 'Run this from an elevated PowerShell: it creates scheduled tasks that run as SYSTEM and as you.' }
 
-$wslc = Join-Path $env:ProgramFiles 'WSL\wslc.exe'
+# $wslcExe, not $wslc: PowerShell variable names ignore case, so $wslc IS the -Wslc switch, and assigning
+# the path to it failed with "Cannot convert ... to type SwitchParameter" the first time -Wslc was run.
+$wslcExe = Join-Path $env:ProgramFiles 'WSL\wslc.exe'
 $probeRoot = Join-Path $env:ProgramData 'enList\engine-probe'
 $startupTask = 'enlist-engine-probe-at-startup'
 $me = "$env:USERDOMAIN\$env:USERNAME"
@@ -71,7 +73,7 @@ function Get-ProbeCommands([string] $output) {
         "docker version --format `"{{.Server.Version}}`" >> `"$output`" 2>&1"
         "echo exit=%errorlevel% >> `"$output`""
         "echo === wslc >> `"$output`""
-        "`"$wslc`" list --quiet >> `"$output`" 2>&1"
+        "`"$wslcExe`" list --quiet >> `"$output`" 2>&1"
         "echo exit=%errorlevel% >> `"$output`""
         "echo === DONE >> `"$output`""
     )
@@ -193,12 +195,12 @@ if ($Wslc) {
         )
     }
     $lines = @('@echo off', 'setlocal EnableDelayedExpansion', "echo === whoami>> `"$output`"", "whoami >> `"$output`" 2>&1")
-    $lines += Step 'version (starts the session)' "`"$wslc`" version"
-    $lines += Step 'images before' "`"$wslc`" image list"
-    $lines += Step "load $ImageFile" "`"$wslc`" load -i `"$ImageFile`""
-    $lines += Step 'images after' "`"$wslc`" image list"
-    $lines += Step "run $image (prints the runner's usage and exits)" "`"$wslc`" run --pull never --rm $image"
-    $lines += Step "remove $image again" "`"$wslc`" image remove $image"
+    $lines += Step 'version (starts the session)' "`"$wslcExe`" version"
+    $lines += Step 'images before' "`"$wslcExe`" image list"
+    $lines += Step "load $ImageFile" "`"$wslcExe`" load -i `"$ImageFile`""
+    $lines += Step 'images after' "`"$wslcExe`" image list"
+    $lines += Step "run $image (prints the runner's usage and exits)" "`"$wslcExe`" run --pull never --rm $image"
+    $lines += Step "remove $image again" "`"$wslcExe`" image remove $image"
     $lines += "echo === DONE at !time!>> `"$output`""
     Set-Content -Path $cmdFile -Encoding ASCII -Value $lines
 
