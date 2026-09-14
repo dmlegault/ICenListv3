@@ -213,8 +213,9 @@ if (-not $StandardBootstrapper) {
   Built with Docker from the same Dockerfile the tests' :dev image comes from. Two build arguments
   become labels that verify.ps1 reads back: VERSION, and SOURCE_SHA256 - a hash over exactly the files
   the image is built from, so a stale image is detected by content.
-  Getting the image onto an agent's machine - a tarball the installer loads - is Installer-UI-Design
-  section 12 item 5 and is not done here.
+  The installer does not carry this image. It is provided as a separate download that operators
+  side-load into their own engine (Installer-UI-Design section 12 item 5); saving it to that file is
+  not done here yet.
 
   A missing Docker stops the build rather than skipping quietly: the packages would still name the
   image, and a build that says it succeeded while leaving that name unfilled is the defect this fixes.
