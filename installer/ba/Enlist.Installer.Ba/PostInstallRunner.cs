@@ -93,6 +93,34 @@ namespace Enlist.Installer.Ba
                     continue;
                 }
 
+                // Not a process: a file copy, done here. The archive (and its .sha256, which the agent
+                // checks it against) goes into the agent's Images folder, which Enlist.Agent.msi has
+                // already created with its ACL - this elevated bootstrapper is an Administrator, which
+                // that ACL names.
+                if (step.Kind == PostInstallStepKind.StageRunnerImage)
+                {
+                    try
+                    {
+                        var destination = step.Arguments[0];
+                        System.IO.Directory.CreateDirectory(destination);
+                        var name = System.IO.Path.GetFileName(step.Executable);
+                        System.IO.File.Copy(step.Executable, System.IO.Path.Combine(destination, name), overwrite: true);
+                        var checksum = step.Executable + ".sha256";
+                        if (System.IO.File.Exists(checksum))
+                        {
+                            System.IO.File.Copy(checksum, System.IO.Path.Combine(destination, name + ".sha256"), overwrite: true);
+                        }
+
+                        results.Add(new PostInstallResult(step.Kind, true, step.Optional, step.Description + " - done."));
+                    }
+                    catch (Exception ex) when (ex is System.IO.IOException || ex is UnauthorizedAccessException)
+                    {
+                        results.Add(Failed(step, ex.Message));
+                    }
+
+                    continue;
+                }
+
                 var arguments = new List<string>(step.Arguments);
 
                 // The secret, appended at the last possible moment.

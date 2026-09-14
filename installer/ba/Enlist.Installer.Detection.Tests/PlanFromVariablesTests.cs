@@ -105,6 +105,16 @@ public sealed class PlanFromVariablesTests
     }
 
     [Fact]
+    public void A_silent_install_knows_where_setup_was_started_from_so_it_can_find_the_runner_image_beside_it()
+    {
+        // Burn's own variable for the ORIGINAL location - not the package cache it actually runs from,
+        // where nothing handed out beside the setup would be.
+        var plan = From(("WixBundleOriginalSourceFolder", @"D:\enList 3.0.0\"));
+
+        Assert.Equal(@"D:\enList 3.0.0\", plan.SetupFolder);
+    }
+
+    [Fact]
     public void A_null_reader_is_a_programming_error()
     {
         Assert.Throws<ArgumentNullException>(() => InstallPlan.FromVariables(null!));

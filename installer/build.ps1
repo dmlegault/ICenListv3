@@ -281,18 +281,26 @@ else {
     $digest = (Get-FileHash $runnerImageFile -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText("$runnerImageFile.sha256", "$digest  $(Split-Path -Leaf $runnerImageFile)`n", (New-Object Text.UTF8Encoding $false))
 
-    # Travels with the image, so whoever is handed the file is also handed what to do with it.
+    # Travels with the image, so whoever is handed the file is also handed what to do with it. The agent's
+    # Images folder first: the agent loads what is there itself, as its own account, which is the only way
+    # a wslc image reaches a LocalSystem agent - wslc keeps a separate image store for every account. The
+    # two load commands stay as the by-hand route, with that caveat on wslc.
     $imageName = Split-Path -Leaf $runnerImageFile
     $readme = @(
         "# $imageName - the enList runner image"
         ''
-        'A user loads it on each machine that runs containers:'
+        'The agent loads this image into its container engine itself. On each machine that runs containers, either:'
+        ''
+        "- put it beside ``enList-$version-Setup.exe`` before installing - the installer copies it in, or"
+        "- copy it, with ``$imageName.sha256``, to ``C:\ProgramData\enList\Agent\Images`` - the agent loads it the next time it starts a container."
+        ''
+        'Or load it by hand. A user loads it on each machine that runs containers:'
         ''
         '```'
         "docker load -i $imageName"
         '```'
         ''
-        "or for the WSL engine: ``wslc load -i $imageName``."
+        "or for the WSL engine: ``wslc load -i $imageName`` - run as the account the agent runs as (LocalSystem, unless it was installed otherwise), because wslc keeps a separate image store for every account."
         ''
     ) -join "`n"
     [IO.File]::WriteAllText($runnerImageReadme, $readme, (New-Object Text.UTF8Encoding $false))
@@ -353,5 +361,5 @@ Get-ChildItem $outRoot -Filter *.msi | ForEach-Object {
 }
 if (-not $SkipRunnerImage) {
     $file = Get-Item $runnerImageFile
-    Write-Host ("  {0,-32} {1,8:N1} MB  the runner image download, for operators to side-load" -f $file.Name, ($file.Length / 1MB)) -ForegroundColor Green
+    Write-Host ("  {0,-32} {1,8:N1} MB  the runner image download - hand it out beside the setup" -f $file.Name, ($file.Length / 1MB)) -ForegroundColor Green
 }

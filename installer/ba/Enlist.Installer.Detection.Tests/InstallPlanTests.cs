@@ -229,23 +229,62 @@ public sealed class InstallPlanTests
     [Theory]
     [InlineData("docker")]
     [InlineData("wslc")]
-    public void A_container_engine_is_told_to_load_the_runner_image_download_by_its_file_name(string engine)
+    public void Without_the_download_beside_setup_the_note_says_where_to_put_it_and_that_the_agent_loads_it(string engine)
     {
-        var plan = new InstallPlan { Type = InstallType.AgentOnly, AgentEngine = engine, AgentImage = "enlist/runner:3.0.0" };
+        using var setup = new TempFolder();
+        var plan = new InstallPlan { Type = InstallType.AgentOnly, AgentEngine = engine, AgentImage = "enlist/runner:3.0.0", SetupFolder = setup.Path };
 
         var note = plan.RunnerImageNote();
-
-        Assert.NotNull(note);
-        Assert.Contains("does not include it", note);
-        Assert.Contains(engine + " load -i enlist-runner-3.0.0.tar", note);
-        Assert.Contains("never downloads", note);
-
-        // The Agent page's short form still carries the one thing to do.
         var brief = plan.RunnerImageNote(brief: true);
-        Assert.NotNull(brief);
-        Assert.Contains("does not include", brief);
-        Assert.Contains(engine + " load -i enlist-runner-3.0.0.tar", brief);
-        Assert.True(brief!.Length < note!.Length, "the Agent page's form is meant to be the shorter one");
+
+        foreach (var text in new[] { note, brief })
+        {
+            Assert.NotNull(text);
+            Assert.Contains("enlist-runner-3.0.0.tar", text);
+            Assert.Contains(plan.ResolvedAgentImagesDir, text);
+            Assert.Contains("the agent loads it into " + engine + " itself", text, StringComparison.OrdinalIgnoreCase);
+
+            // Not "wslc load -i": loading in the operator's own shell is exactly the step that puts a wslc
+            // image in the wrong account's store. The agent's Images folder is the instruction now.
+            Assert.DoesNotContain("load -i", text);
+        }
+
+        Assert.Contains("beside this setup", brief);           // the Agent page can still say "hand them out together"
+        Assert.Contains("does not include", note);
+        Assert.Null(plan.RunnerImageDownloadBesideSetup());
+    }
+
+    [Fact]
+    public void With_the_download_beside_setup_the_note_says_it_is_copied_in()
+    {
+        using var setup = new TempFolder();
+        var archive = System.IO.Path.Combine(setup.Path, "enlist-runner-3.0.0.tar");
+        File.WriteAllText(archive, "stand-in");
+        var plan = new InstallPlan { Type = InstallType.AgentOnly, AgentEngine = "wslc", AgentImage = "enlist/runner:3.0.0", SetupFolder = setup.Path };
+
+        Assert.Equal(archive, plan.RunnerImageDownloadBesideSetup());
+        Assert.Contains("found beside this setup", plan.RunnerImageNote(brief: true));
+        Assert.Contains("copied to " + plan.ResolvedAgentImagesDir, plan.RunnerImageNote());
+    }
+
+    [Fact]
+    public void The_download_is_only_looked_for_when_this_plan_will_use_it()
+    {
+        using var setup = new TempFolder();
+        File.WriteAllText(System.IO.Path.Combine(setup.Path, "enlist-runner-3.0.0.tar"), "stand-in");
+        var plan = new InstallPlan { Type = InstallType.AgentOnly, AgentEngine = "wslc", AgentImage = "enlist/runner:3.0.0", SetupFolder = setup.Path };
+        Assert.NotNull(plan.RunnerImageDownloadBesideSetup());
+
+        plan.AgentEngine = "";
+        Assert.Null(plan.RunnerImageDownloadBesideSetup());        // no engine: nothing will run in a container
+
+        plan.AgentEngine = "wslc";
+        plan.AgentImage = "enlist/runner:3.1.0";
+        Assert.Null(plan.RunnerImageDownloadBesideSetup());        // a different version is not this plan's image
+
+        plan.AgentImage = "enlist/runner:3.0.0";
+        plan.SetupFolder = "";
+        Assert.Null(plan.RunnerImageDownloadBesideSetup());        // no idea where setup was started from
     }
 
     [Fact]
@@ -257,48 +296,26 @@ public sealed class InstallPlanTests
 
         Assert.NotNull(note);
         Assert.Contains("registry.corp.local/enlist-runner:pinned", note);
+        Assert.Contains("as the account the agent runs as", note);   // the Images folder only takes enlist/runner images
         Assert.DoesNotContain(".tar", note);
     }
 
-    [Theory]
-    [InlineData("LocalSystem")]
-    [InlineData(@"NT AUTHORITY\SYSTEM")]
-    [InlineData(@"NT AUTHORITY\NetworkService")]
-    [InlineData(@"NT AUTHORITY\LocalService")]
-    [InlineData(@"CORP\svc-enlist$")]   // a group-managed service account: also nobody's session
-    public void Wslc_under_a_service_account_is_warned_about_and_the_image_note_is_not_what_it_says(string account)
+    private sealed class TempFolder : IDisposable
     {
-        var plan = new InstallPlan { Type = InstallType.AgentOnly, AgentEngine = "WSLC ", AgentImage = "enlist/runner:3.0.0", AgentAccount = account };
+        public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "enlist-plan-" + Guid.NewGuid().ToString("N"));
 
-        var warning = plan.AgentEngineWarning();
+        public TempFolder() => Directory.CreateDirectory(Path);
 
-        Assert.NotNull(warning);
-        Assert.Contains("separate image store", warning);
-        Assert.Contains("invisible", warning);
-        Assert.Contains(account, warning);
-        Assert.Contains("docker", warning);
-        Assert.DoesNotContain("hang", warning);   // it does not: that was one cold-start probe, since disproved
-    }
-
-    [Fact]
-    public void There_is_no_engine_warning_for_docker_for_no_engine_for_no_agent_or_for_a_named_user()
-    {
-        var plan = new InstallPlan { Type = InstallType.AgentOnly, AgentEngine = "docker", AgentAccount = "LocalSystem" };
-        Assert.Null(plan.AgentEngineWarning());   // docker works for a LocalSystem service - live-e2e deploys through it
-
-        plan.AgentEngine = "";
-        Assert.Null(plan.AgentEngineWarning());
-
-        plan.AgentEngine = "wslc";
-        plan.Type = InstallType.Server;
-        plan.Agent = false;
-        Assert.Null(plan.AgentEngineWarning());   // no agent is being installed
-
-        // A real user account is not warned about, because whether wslc works for a service running as
-        // a user has not been established - and a warning that is a guess teaches people to ignore it.
-        plan.Type = InstallType.AgentOnly;
-        plan.AgentAccount = @"CORP\alice";
-        Assert.Null(plan.AgentEngineWarning());
+        public void Dispose()
+        {
+            try
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+            catch
+            {
+            }
+        }
     }
 
     [Theory]

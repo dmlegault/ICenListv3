@@ -84,22 +84,22 @@ public sealed class ContainerEngineDetectionTests
     }
 
     /// <summary>
-    /// The Agent page's default engine: Docker when it answers, otherwise none - never wslc. wslc keeps a
-    /// separate image store per account, so the image an operator loads is not the LocalSystem agent's;
-    /// Docker's one store is shared.
+    /// The Agent page's default engine: wslc when it answers, then Docker, then none. wslc is the engine
+    /// that is there for an unattended LocalSystem service after a reboot; Docker Desktop's engine is not,
+    /// until someone starts it (probe-container-engines.ps1 -ArmStartupProbe, 2026-09-14).
     /// </summary>
     [Theory]
-    [InlineData(true, true, "docker")]    // both: this machine, where "first found" used to pick wslc
+    [InlineData(true, true, "wslc")]      // both: this machine
     [InlineData(false, true, "docker")]
-    [InlineData(true, false, null)]       // wslc alone is still not proposed: its image store is per account
+    [InlineData(true, false, "wslc")]
     [InlineData(false, false, null)]
-    public void The_default_engine_is_docker_when_it_answers_and_never_wslc(bool wslcUp, bool dockerUp, string? expected)
+    public void The_default_engine_is_wslc_then_docker_then_none(bool wslcUp, bool dockerUp, string? expected)
     {
-        // wslc first, as the wizard probes them, so an order-based default would pick it.
+        // Docker listed FIRST here, so a default that simply took the first engine found would pick it.
         var engines = new[]
         {
-            new EngineResult("wslc", wslcUp, wslcUp ? "wslc 2.9.11.0" : "not installed"),
             new EngineResult("docker", dockerUp, dockerUp ? "29.7.2" : "not running"),
+            new EngineResult("wslc", wslcUp, wslcUp ? "wslc 2.9.11.0" : "not installed"),
         };
 
         Assert.Equal(expected, ContainerEngineDetection.DefaultEngine(engines));

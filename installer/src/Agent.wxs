@@ -80,7 +80,9 @@
 
     <StandardDirectory Id="CommonAppDataFolder">
       <Directory Id="DATAROOT" Name="enList">
-        <Directory Id="AGENTDATA" Name="Agent" />
+        <Directory Id="AGENTDATA" Name="Agent">
+          <Directory Id="AGENTIMAGES" Name="Images" />
+        </Directory>
       </Directory>
     </StandardDirectory>
 
@@ -126,6 +128,7 @@
       <ComponentGroupRef Id="RunnerLegacyFiles" />
       <ComponentRef Id="AgentService" />
       <ComponentRef Id="AgentDataFolder" />
+      <ComponentRef Id="AgentImagesFolderAccount" />
     </Feature>
 
     <!--
@@ -200,7 +203,36 @@
     -->
     <Component Id="AgentDataFolder" Directory="AGENTDATA" Guid="C7E9A1D3-4B62-4F08-8E5A-16C4D9B7F320" NeverOverwrite="yes" Permanent="yes">
       <CreateFolder />
+
+      <!--
+        THE IMAGES FOLDER, and its ACL is the point of it. The agent loads every enList runner image
+        archive put here into its container engine, as the account it runs as - the one way to get the
+        image into the store a LocalSystem agent uses, because wslc keeps a separate store per account
+        (RunnerImageDropFolder). Whoever can write here decides which runner image this machine's
+        container applications run in. So it is NOT left to inherit ProgramData's ACL, which lets any
+        signed-in user create files: the DACL is protected (P) and names SYSTEM and Administrators only.
+        The agent itself refuses any archive not tagged enlist/runner, but that narrows a mistake; this
+        is the control.
+      -->
+      <CreateFolder Directory="AGENTIMAGES">
+        <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" />
+      </CreateFolder>
+
       <RegistryValue Root="HKLM" Key="SOFTWARE\enList\Agent" Name="DataDirectory" Type="string" Value="[AGENTDATA]" KeyPath="yes" />
+    </Component>
+
+    <!--
+      An agent running as a NAMED account also has to read the archives and write its record of what it
+      loaded. A component of its own so the grant can be conditioned: LocalSystem is SYSTEM, which the
+      folder's ACL already names, and it is not a name util:PermissionEx should be asked to resolve.
+    -->
+    <Component Id="AgentImagesFolderAccount" Directory="AGENTIMAGES" Guid="5D2B7E91-3C48-4A6F-B0E2-8F14C69A7D35"
+               Condition="AGENT_ACCOUNT ~&lt;&gt; &quot;LocalSystem&quot; AND AGENT_ACCOUNT ~&lt;&gt; &quot;NT AUTHORITY\SYSTEM&quot;"
+               NeverOverwrite="yes" Permanent="yes">
+      <CreateFolder>
+        <util:PermissionEx User="[AGENT_ACCOUNT]" GenericAll="yes" />
+      </CreateFolder>
+      <RegistryValue Root="HKLM" Key="SOFTWARE\enList\Agent" Name="ImagesFolderAccount" Type="string" Value="[AGENT_ACCOUNT]" KeyPath="yes" />
     </Component>
 
   </Package>

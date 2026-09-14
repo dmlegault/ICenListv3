@@ -60,22 +60,28 @@ namespace Enlist.Installer.Detection
         }
 
         /// <summary>
-        /// The engine the Agent page proposes: Docker when it answers, and otherwise none - never wslc,
-        /// even when wslc is the only engine found.
+        /// The engine the Agent page proposes: wslc when it answers, then Docker, then none.
         ///
-        /// This used to be "the first engine that answers", probed wslc first, and that was wrong in a
-        /// way only an installed agent could show. Detection runs as the OPERATOR; the agent runs as a
-        /// Windows service under LocalSystem. wslc works for LocalSystem, but keeps a separate image store
-        /// for every account, and LocalSystem's starts empty - so the runner image an operator loads in
-        /// their own shell is not there for the agent (probe-container-engines.ps1 -Wslc, 2026-09-14).
-        /// Docker is one engine with one store: an operator's `docker load` is what the LocalSystem agent
-        /// ran in installer\live-e2e.ps1. So Docker is the engine the obvious steps work for.
+        /// wslc, because an agent is an unattended Windows service and wslc is the engine that is there
+        /// for one. After a reboot, as LocalSystem, wslc listed, loaded the runner image and ran it from
+        /// two minutes after boot, every two minutes for fifteen minutes - while Docker's engine did not
+        /// exist at all, because Docker Desktop runs in a user's session and had not been started
+        /// (probe-container-engines.ps1 -ArmStartupProbe, 2026-09-14). Docker Desktop also needs a paid
+        /// subscription in larger organisations; wslc ships with WSL.
         ///
-        /// wslc is still reported on the Prerequisites page and can still be typed on the Agent page,
-        /// which then says where its image has to be loaded (InstallPlan.AgentEngineWarning).
+        /// wslc's one trap - a separate image store per account, so an image an operator loads in their
+        /// own shell is not the LocalSystem agent's - is closed by the agent loading the runner image from
+        /// its Images folder itself (RunnerImageDropFolder), which is why this could change.
+        ///
+        /// For a few hours on 2026-09-14 this was the other way round, Docker first, on a reading of wslc
+        /// that turned out to be wrong ("hangs as a service") and then on that per-account store.
         /// </summary>
-        public static string? DefaultEngine(IEnumerable<EngineResult> engines) =>
-            engines.Any(e => e.Available && string.Equals(e.Engine, "docker", StringComparison.OrdinalIgnoreCase)) ? "docker" : null;
+        public static string? DefaultEngine(IEnumerable<EngineResult> engines)
+        {
+            var available = engines.Where(e => e.Available).Select(e => e.Engine).ToList();
+            return available.FirstOrDefault(e => string.Equals(e, "wslc", StringComparison.OrdinalIgnoreCase))
+                ?? available.FirstOrDefault(e => string.Equals(e, "docker", StringComparison.OrdinalIgnoreCase));
+        }
 
         public static Task<EngineResult> ProbeWslcAsync()
         {

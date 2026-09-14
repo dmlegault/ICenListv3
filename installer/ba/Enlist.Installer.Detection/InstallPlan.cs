@@ -89,6 +89,13 @@ namespace Enlist.Installer.Detection
         public string AgentPassword { get; set; } = "";
 
         /// <summary>
+        /// The folder the setup executable was started from - Burn's WixBundleOriginalSourceFolder, not
+        /// the cache folder Burn runs from. The runner image download is handed out beside the setup, and
+        /// this is where the installer looks for it (<see cref="RunnerImageDownloadBesideSetup"/>).
+        /// </summary>
+        public string SetupFolder { get; set; } = "";
+
+        /// <summary>
         /// Shown once, on the Agent page, and exchanged for the agent's own credential BEFORE the
         /// service is created. Never a bundle variable and never an MSI property: a join token in a
         /// service's binPath is readable by any local user out of the process list, which section 8
@@ -162,6 +169,7 @@ namespace Enlist.Installer.Detection
             plan.AgentImage = Value("AGENT_IMAGE", plan.AgentImage);
             plan.AgentAccount = Value("AGENT_ACCOUNT", plan.AgentAccount);
             plan.AgentJoinToken = Value("AGENT_JOINTOKEN", "");
+            plan.SetupFolder = Value("WixBundleOriginalSourceFolder", "");
 
             return plan;
         }
@@ -187,6 +195,13 @@ namespace Enlist.Installer.Detection
 
         public string ResolvedAgentDataDir => Resolve(AgentDataDir, CommonAppData, "enList", "Agent");
 
+        /// <summary>
+        /// The agent's Images folder: runner image archives put here are loaded into the container engine
+        /// by the agent itself, as its own account (Enlist.Agent's RunnerImageDropFolder). Created by
+        /// Enlist.Agent.msi with an ACL naming SYSTEM and Administrators only.
+        /// </summary>
+        public string ResolvedAgentImagesDir => Path.Combine(ResolvedAgentDataDir, "Images");
+
         private static string ProgramFiles => Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
 
         private static string CommonAppData => Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
@@ -209,19 +224,24 @@ namespace Enlist.Installer.Detection
         /// container, or null when there is nothing to do - no agent, or no engine.
         ///
         /// The runner image is not in this installer (Installer-UI-Design section 12 item 5). It is a
-        /// separate download, built beside the installer as enlist-runner-&lt;version&gt;.tar, and the
-        /// agent never pulls an image - so an agent installed with an engine and no image loaded
-        /// installs, starts, and fails every container application with "image not found". Said on the
-        /// Agent page, where the engine is chosen, and again on the Finish page, which is the last thing
-        /// the operator reads.
+        /// separate download, enlist-runner-&lt;version&gt;.tar, and the agent never pulls an image. What
+        /// the operator does with it is put it in the agent's Images folder - or, simplest, beside this
+        /// setup, which copies it there - and the AGENT loads it into its engine, as its own account.
+        /// That is what makes it work for wslc, whose image store is per account: an image loaded in the
+        /// operator's shell is not in a LocalSystem agent's store, and one the agent loads itself is.
+        ///
+        /// Three cases, and the words differ because the action does:
+        ///   - the download is beside this setup: it will be (Finish: was) copied in, nothing to do;
+        ///   - it is not: put it beside the setup, or copy it to the Images folder later;
+        ///   - the image is not enList's: the Images folder only takes enlist/runner images, so the
+        ///     operator loads it themselves, as the agent's account.
         ///
         /// The file name is derived from the image rather than from a version, because the image is what
-        /// the agent will actually ask for: enlist/runner:3.0.0 is loaded from enlist-runner-3.0.0.tar.
-        /// Any other image is the operator's own, and all that can be said is to load it.
+        /// the agent will actually ask for: enlist/runner:3.0.0 comes from enlist-runner-3.0.0.tar.
         /// </summary>
         /// <param name="brief">
-        /// Two lines for the Agent page, where it has to fit under the engine field without pushing the
-        /// page past the window; the full sentence, with why, is kept for the Finish page.
+        /// For the Agent page, where it has to fit under the engine field without pushing the page past
+        /// the window; the Finish page has the room for the full sentence.
         /// </param>
         public string? RunnerImageNote(bool brief = false)
         {
@@ -233,62 +253,50 @@ namespace Enlist.Installer.Detection
             var engine = AgentEngine.Trim();
             var image = AgentImage.Trim();
             var file = RunnerImageDownloadFor(image);
+            var images = ResolvedAgentImagesDir;
 
-            if (brief)
+            if (file == null)
             {
-                return file != null
-                    ? "This installer does not include the " + image + " image. Before running containers, load the runner image download on this machine: " +
-                      engine + " load -i " + file
-                    : "Before running containers, load the " + image + " image into " + engine + " on this machine. The agent never downloads images.";
+                return "The agent never downloads images, and its Images folder only takes enlist/runner images: load " + image +
+                       " into " + engine + " yourself, as the account the agent runs as (" + AgentAccount + "), before running containers.";
             }
 
-            return file != null
-                ? "Applications that run in containers need the " + image + " image on this machine, and this installer does not include it. " +
-                  "Load the runner image download that comes with enList (" + file + ") into " + engine + ": " +
-                  engine + " load -i " + file + ". The agent never downloads images itself."
-                : "Applications that run in containers need the " + image + " image loaded into " + engine + " on this machine. " +
-                  "The agent never downloads images itself.";
+            if (RunnerImageDownloadBesideSetup() != null)
+            {
+                return brief
+                    ? file + " was found beside this setup. It will be copied to " + images + ", and the agent loads it into " + engine + " itself."
+                    : "The runner image, " + file + ", was found beside this setup and copied to " + images +
+                      ". The agent loads it into " + engine + " itself, as its own account, the first time it starts a container.";
+            }
+
+            return brief
+                ? "This installer does not include the " + image + " image. Put " + file + " beside this setup before installing, or copy it to " +
+                  images + " later - the agent loads it into " + engine + " itself."
+                : "Before running containers, copy " + file + " to " + images + ". The agent loads it into " + engine +
+                  " itself, as its own account. This installer does not include the image: it is a separate download.";
         }
 
         /// <summary>
-        /// The trap in the engine as chosen, or null when there is none. Today that is one case: wslc,
-        /// for an agent running under a built-in or group-managed service account.
-        ///
-        /// wslc keeps a SEPARATE image store for every account - its layers live under that account's
-        /// %LOCALAPPDATA%, which for LocalSystem is C:\Windows\System32\config\systemprofile\AppData\Local.
-        /// Run as LocalSystem it works, and quickly: version, image list,
-        /// loading the runner image download, and running the runner from it all succeeded in about five
-        /// seconds (installer\tools\probe-container-engines.ps1 -Wslc, 2026-09-14). But LocalSystem's
-        /// store started EMPTY. So the natural operator move - `wslc load -i` in their own shell - puts
-        /// the image where the agent will never look, and every container application fails with the
-        /// image missing. Docker has no such trap: one engine, one store, and an operator's `docker load`
-        /// is exactly what the LocalSystem agent ran in live-e2e.
-        ///
-        /// This replaces a warning that said wslc HANGS as a service. That rested on one probe in which
-        /// `wslc list` as SYSTEM printed nothing for three minutes; every later run answered at once, and
-        /// the likeliest reading is SYSTEM's first wslc session being created. It was wrong for a day, in
-        /// red, on the page an operator reads.
-        ///
-        /// Red rather than amber because the obvious action silently fails. Still a warning rather than
-        /// a block: loading as LocalSystem is possible, and docker is one edit away. A named user account
-        /// is not warned about - whether a service logon shares that user's store is not established.
+        /// The runner image download, when it sits beside the setup executable and this plan will need it
+        /// (an agent with a container engine, running an enlist/runner image); null otherwise. The
+        /// post-install step copies it into the agent's Images folder, so handing out the setup and the
+        /// .tar together is all an operator has to do.
         /// </summary>
-        public string? AgentEngineWarning()
+        public string? RunnerImageDownloadBesideSetup()
         {
-            if (!InstallsAgent || !string.Equals(AgentEngine?.Trim(), "wslc", StringComparison.OrdinalIgnoreCase))
+            if (!InstallsAgent || string.IsNullOrWhiteSpace(AgentEngine) || string.IsNullOrWhiteSpace(SetupFolder))
             {
                 return null;
             }
 
-            var account = string.IsNullOrWhiteSpace(AgentAccount) ? "LocalSystem" : AgentAccount.Trim();
-            if (!IsServiceIdentity(account))
+            var file = RunnerImageDownloadFor((AgentImage ?? "").Trim());
+            if (file == null)
             {
                 return null;
             }
 
-            return "wslc keeps a separate image store for each account, and this agent runs as " + account +
-                   ": an image loaded in your own session is invisible to it. Load the runner image as " + account +
-                   ", or use docker, whose images every account shares.";
+            var path = Path.Combine(SetupFolder.Trim(), file);
+            return File.Exists(path) ? path : null;
         }
 
         /// <summary>The download file an enList runner image is loaded from, or null for an image that is not enList's.</summary>

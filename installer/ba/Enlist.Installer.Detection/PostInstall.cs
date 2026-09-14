@@ -21,6 +21,13 @@ namespace Enlist.Installer.Detection
 
         /// <summary>Let a service account read the private key of the certificate it will serve TLS with.</summary>
         GrantCertificateAccess,
+
+        /// <summary>
+        /// Copy the runner image download from beside the setup into the agent's Images folder. No
+        /// process: the runner copies the file itself. <see cref="PostInstallStep.Executable"/> is the
+        /// archive and the one argument is the destination folder.
+        /// </summary>
+        StageRunnerImage,
     }
 
     /// <summary>
@@ -244,6 +251,23 @@ namespace Enlist.Installer.Detection
                     new[] { "protect" },
                     needsDatabase: false,
                     optional: false));
+            }
+
+            // The runner image, when it was handed out beside the setup. Copied into the agent's Images
+            // folder, where the agent loads it into its engine as its own account - which is the only way
+            // it reaches a LocalSystem agent's wslc store. Before enrollment, so it is in place however
+            // soon the service is started. Optional: without it the install is sound and every process
+            // application runs; the Finish page says how to add the image later.
+            var runnerImage = agentRan ? plan.RunnerImageDownloadBesideSetup() : null;
+            if (runnerImage != null)
+            {
+                steps.Add(new PostInstallStep(
+                    PostInstallStepKind.StageRunnerImage,
+                    "Copying the runner image for the agent",
+                    runnerImage,
+                    new[] { plan.ResolvedAgentImagesDir },
+                    needsDatabase: false,
+                    optional: true));
             }
 
             // A join token is optional: an agent against a control plane running Off needs none, and

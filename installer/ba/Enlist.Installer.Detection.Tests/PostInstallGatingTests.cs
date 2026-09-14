@@ -140,4 +140,40 @@ public sealed class PostInstallGatingTests
         // The safe reading. "I do not know what ran" must never become "re-key everything".
         Assert.Empty(PostInstall.Steps(ServerWithAgent(), null!));
     }
+
+    [Fact]
+    public void The_runner_image_beside_setup_is_copied_into_the_agents_Images_folder_before_enrollment()
+    {
+        var setup = Path.Combine(Path.GetTempPath(), "enlist-stage-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(setup);
+        try
+        {
+            var archive = Path.Combine(setup, "enlist-runner-3.0.0.tar");
+            File.WriteAllText(archive, "stand-in");
+            var plan = ServerWithAgent();
+            plan.AgentEngine = "wslc";
+            plan.AgentImage = "enlist/runner:3.0.0";
+            plan.SetupFolder = setup;
+
+            var steps = PostInstall.Steps(plan, new[] { PostInstall.Packages.Agent });
+            var stage = Assert.Single(steps, s => s.Kind == PostInstallStepKind.StageRunnerImage);
+
+            Assert.Equal(archive, stage.Executable);
+            Assert.Equal([plan.ResolvedAgentImagesDir], stage.Arguments);
+            Assert.True(stage.Optional);   // without it every process application still runs
+            Assert.True(steps.ToList().IndexOf(stage) < steps.ToList().FindIndex(s => s.Kind == PostInstallStepKind.EnrollAgent),
+                "staged before enrollment, so it is in place however soon the service starts");
+
+            // Not when the agent package did not run - adding a portal must not re-copy anything.
+            Assert.DoesNotContain(PostInstall.Steps(plan, new[] { PostInstall.Packages.Portal }), s => s.Kind == PostInstallStepKind.StageRunnerImage);
+
+            // And not when there is nothing beside the setup to copy.
+            File.Delete(archive);
+            Assert.DoesNotContain(PostInstall.Steps(plan, new[] { PostInstall.Packages.Agent }), s => s.Kind == PostInstallStepKind.StageRunnerImage);
+        }
+        finally
+        {
+            Directory.Delete(setup, recursive: true);
+        }
+    }
 }

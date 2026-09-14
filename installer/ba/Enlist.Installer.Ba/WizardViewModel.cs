@@ -357,36 +357,29 @@ namespace Enlist.Installer.Ba
             Raise(nameof(StepLabel));
             Raise(nameof(AgentEngineNote));
             Raise(nameof(HasAgentEngineNote));
-            Raise(nameof(AgentEngineNoteIsWarning));
         }
 
         /// <summary>
-        /// On the Agent page, under the engine, one of two things - both the plan's words, so they are
-        /// tested and follow what was typed:
+        /// On the Agent page, under the engine: where the runner image comes from - found beside this
+        /// setup and copied in, or to be put in the agent's Images folder - in the plan's words
+        /// (InstallPlan.RunnerImageNote), so they are tested and follow what was typed.
         ///
-        ///   - the engine as chosen has a trap (InstallPlan.AgentEngineWarning: wslc under a service
-        ///     account, whose image store is its own, so an image loaded in the operator's session is not
-        ///     the agent's). Shown in red, and INSTEAD of the image note, because the image note's plain
-        ///     "wslc load -i" is exactly the step that would silently put the image in the wrong store;
-        ///   - otherwise, that the runner image is a separate download to load first
-        ///     (InstallPlan.RunnerImageNote), in amber.
+        /// There used to be a second, red note for wslc under a service account, whose per-account image
+        /// store made an operator-loaded image invisible to the agent. The agent now loads the image from
+        /// its Images folder itself, as its own account, so that trap is gone and so is the note.
         /// </summary>
-        public string AgentEngineNote => Plan.AgentEngineWarning() ?? Plan.RunnerImageNote(brief: true) ?? "";
+        public string AgentEngineNote => Plan.RunnerImageNote(brief: true) ?? "";
 
         public bool HasAgentEngineNote => AgentEngineNote.Length > 0;
 
-        public bool AgentEngineNoteIsWarning => Plan.AgentEngineWarning() != null;
-
-        /// <summary>The same choice of note on the Finish page, set once the install has succeeded - the last thing the operator reads.</summary>
+        /// <summary>The same note on the Finish page, set once the install has succeeded - the last thing the operator reads.</summary>
         public string FinishNote
         {
             get => _finishNote;
-            private set { _finishNote = value; Raise(); Raise(nameof(HasFinishNote)); Raise(nameof(FinishNoteIsWarning)); }
+            private set { _finishNote = value; Raise(); Raise(nameof(HasFinishNote)); }
         }
 
         public bool HasFinishNote => !string.IsNullOrEmpty(_finishNote);
-
-        public bool FinishNoteIsWarning => Plan.AgentEngineWarning() != null;
 
         /// <summary>Welcome first, then whatever the plan says, then the progress and finish pages.</summary>
         public WizardPage? CurrentPage => _index >= 0 && _index < _pages.Count ? _pages[_index] : (WizardPage?)null;
@@ -510,6 +503,9 @@ namespace Enlist.Installer.Ba
             Plan.AgentControlPlaneUrl = Read("AGENT_CPURL", Plan.AgentControlPlaneUrl);
             Plan.AgentImage = Read("AGENT_IMAGE", Plan.AgentImage);
             Plan.AgentEngine = Read("AGENT_ENGINE", Plan.AgentEngine);
+
+            // Where the setup was started from, which is where the runner image download is looked for.
+            Plan.SetupFolder = Read("WixBundleOriginalSourceFolder", Plan.SetupFolder);
             Plan.ControlPlaneUrls = Read("CP_URLS", Plan.ControlPlaneUrls);
             Plan.ControlPlaneAccount = Read("CP_ACCOUNT", Plan.ControlPlaneAccount);
             Plan.PortalUrls = Read("PORTAL_URLS", Plan.PortalUrls);
@@ -620,7 +616,7 @@ namespace Enlist.Installer.Ba
 
             // Only on an install that worked: on a failed one it would be one more thing to read in front
             // of the thing that actually needs doing.
-            FinishNote = Plan.AgentEngineWarning() ?? Plan.RunnerImageNote() ?? "";
+            FinishNote = Plan.RunnerImageNote() ?? "";
 
             if (failures.Count > 0)
             {
@@ -769,17 +765,14 @@ namespace Enlist.Installer.Ba
 
                 foreach (var engine in engines)
                 {
-                    // wslc is reported, because it is on the machine - but found here, as the operator, its
-                    // images are the operator's: the agent service has a store of its own (see DefaultEngine).
-                    var neededBy = engine.Engine == "wslc" ? "images are per account" : "container isolation (optional)";
                     Prerequisites.Add(new PrerequisiteRow(
-                        engine.Engine, neededBy, engine.Available, engine.Detail,
+                        engine.Engine, "container isolation (optional)", engine.Available, engine.Detail,
                         blocking: false, whenMissing: "not available"));
                 }
 
-                // Docker when it answers, otherwise none - never wslc. This was "the first engine that
-                // answers", wslc first, which on a machine with both proposed the engine whose images an
-                // operator loads into the wrong account's store. ContainerEngineDetection.DefaultEngine says why.
+                // wslc when it answers, then Docker, then none - the engine that is there for an unattended
+                // service after a reboot. ContainerEngineDetection.DefaultEngine says why, and why it was
+                // briefly the other way round.
                 var proposed = ContainerEngineDetection.DefaultEngine(engines);
                 if (proposed != null && string.IsNullOrWhiteSpace(Plan.AgentEngine))
                 {

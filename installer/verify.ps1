@@ -978,12 +978,43 @@ if ($haveImageFile) {
     $actual = "$((Get-FileHash $imageFile -Algorithm SHA256).Hash.ToLowerInvariant())  $(Split-Path -Leaf $imageFile)"
     Assert-That ($recorded -eq $actual) "its .sha256 matches the file, in the format sha256sum -c reads"
 
-    # The README goes wherever the file goes, and has to name THIS file in both load commands.
+    # The README goes wherever the file goes. It has to point at the agent's Images folder - the way that
+    # works for every engine and account - and name THIS file in both by-hand load commands.
     $imageName = Split-Path -Leaf $imageFile
     $readmeFile = Join-Path $OutDir "enlist-runner-$productVersion-README.md"
     $readmeText = if (Test-Path $readmeFile) { [IO.File]::ReadAllText($readmeFile) } else { '' }
-    Assert-That ($readmeText.Contains("docker load -i $imageName") -and $readmeText.Contains("wslc load -i $imageName")) "its README says how to load it with docker and with wslc"
+    Assert-That ($readmeText.Contains('C:\ProgramData\enList\Agent\Images') -and $readmeText.Contains("docker load -i $imageName") -and $readmeText.Contains("wslc load -i $imageName")) "its README points at the agent's Images folder and says how to load it by hand with docker and wslc"
 }
+
+# ---- The agent's Images folder is locked down --------------------------------------------------------
+<#
+  The agent loads every enlist/runner archive in <data>\Images into its container engine, as SYSTEM. So
+  whoever can write there chooses the runner image this machine's container applications run in, and
+  ProgramData's default ACL lets any signed-in user create files. Enlist.Agent.msi therefore sets a
+  PROTECTED DACL on that folder (MsiLockPermissionsEx) naming SYSTEM and Administrators, and nobody else -
+  checked here in the built package, because an ACL that quietly went back to inheriting would look
+  exactly the same in every other respect.
+#>
+Write-Host ""
+Write-Host "  The agent's Images folder is locked down"
+[string] $agentPackage = Join-Path $OutDir 'Enlist.Agent.msi'
+$installer = New-Object -ComObject WindowsInstaller.Installer
+$database = $null
+try {
+    $database = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installer, @($agentPackage, 0))
+    $imagesParent = [string] (Get-TableValue $database "SELECT Directory_Parent FROM Directory WHERE Directory = 'AGENTIMAGES'")
+    $imagesName = [string] (Get-TableValue $database "SELECT DefaultDir FROM Directory WHERE Directory = 'AGENTIMAGES'")
+    # SDDLText - the table's column is not called SDDL, and a wrong column name fails OpenView outright.
+    $imagesSddl = [string] (Get-TableValue $database "SELECT ``SDDLText`` FROM ``MsiLockPermissionsEx`` WHERE ``LockObject`` = 'AGENTIMAGES'")
+}
+finally {
+    if ($database) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($database) }
+    [void][Runtime.InteropServices.Marshal]::ReleaseComObject($installer)
+}
+Assert-That ($imagesParent -eq 'AGENTDATA' -and $imagesName -eq 'Images') "Enlist.Agent.msi creates <data>\Images (found parent '$imagesParent', name '$imagesName')"
+Assert-That ($imagesSddl -match '^D:P') "its DACL is protected, so it does not inherit ProgramData's (found '$imagesSddl')"
+Assert-That ($imagesSddl -match ';;;SY\)' -and $imagesSddl -match ';;;BA\)') "it grants SYSTEM and Administrators"
+Assert-That ($imagesSddl -notmatch ';;;(BU|AU|WD|IU)\)') "and not Users, Authenticated Users, Everyone or Interactive"
 
 # ---- Live -----------------------------------------------------------------------------------------
 <#
