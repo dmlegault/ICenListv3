@@ -11,8 +11,9 @@
          LocalSystem print nothing for three minutes. -Now and -Wslc then showed it working as
          LocalSystem in seconds - with a separate, empty image store per account, which is the real
          constraint (Installer-UI-Design section 12 item 11).
-      2. Does Docker Desktop's engine answer a service when NOBODY IS SIGNED IN? Docker Desktop runs
-         in a user's session, so after a reboot the engine may simply not be there yet.
+      2. Which engine answers a service when NOBODY IS SIGNED IN? Docker Desktop runs in a user's
+         session, so after a reboot its engine may simply not be there yet. wslc is said to run for
+         LocalSystem without anyone signed in; everything tried so far was with a user signed in.
 
     -Now answers the first, in about five minutes at most, by running the same two commands as three
     identities:
@@ -23,10 +24,13 @@
       service         with no desktop - the nearest thing to a service configured to log on as you,
                       without anyone typing your password into anything
 
-    -ArmStartupProbe sets up the second: a one-time task that runs as SYSTEM at the next boot and
-    samples `docker version` and who is signed in, every two minutes, eight times - then deletes
-    itself. Reboot, wait at the sign-in screen for at least four minutes, then sign in as normal. Once
-    the machine has been up for about twenty minutes, -ReadStartupProbe prints what it saw and cleans up.
+    -ArmStartupProbe sets up the second: a one-time task that runs as SYSTEM at the next boot and,
+    every two minutes, eight times, records who is signed in and asks BOTH engines, head to head -
+    `docker version`, `wslc list`, and `wslc run` of the runner image, which the first sample loads
+    into SYSTEM's own wslc store from a copy of the image download. Then it removes that image and
+    deletes itself. Reboot, wait at the sign-in screen for at least four minutes, then sign in as
+    normal. Once the machine has been up for about twenty-five minutes, -ReadStartupProbe prints what
+    it saw and cleans up.
 
     Needs an elevated PowerShell: creating a task that runs as SYSTEM or with an S4U logon requires it.
     Everything it creates it removes, including when a command hangs.
@@ -45,8 +49,13 @@ param(
     # answers SYSTEM, and that no other identity sees the containers running in the signed-in user's
     # normal session; this is the question that follows.
     [Parameter(ParameterSetName = 'Wslc')] [switch] $Wslc,
-    [Parameter(ParameterSetName = 'Wslc')] [string] $ImageFile = (Join-Path (Split-Path $PSScriptRoot -Parent) 'out\enlist-runner-3.0.0.tar'),
     [Parameter(ParameterSetName = 'Arm')] [switch] $ArmStartupProbe,
+
+    # The runner image download: loaded as SYSTEM by -Wslc, and by the startup probe's first sample.
+    [Parameter(ParameterSetName = 'Wslc')]
+    [Parameter(ParameterSetName = 'Arm')]
+    [string] $ImageFile = (Join-Path (Split-Path $PSScriptRoot -Parent) 'out\enlist-runner-3.0.0.tar'),
+
     [Parameter(ParameterSetName = 'Read')] [switch] $ReadStartupProbe,
 
     # Where -Now writes what it found, so it can be read without scrolling a console.
@@ -99,6 +108,70 @@ function Read-ProbeOutput([string] $text) {
     }
     $who = [regex]::Match([string] $text, '(?s)=== whoami[ \t]*\r?\n(.*?)\r?\n').Groups[1].Value.Trim()
     [pscustomobject]@{ Who = $who; Docker = Section 'docker'; Wslc = Section 'wslc'; Raw = [string] $text }
+}
+
+<#
+  The startup probe, as cmd lines: every sample records who is signed in, the WSL service's state, and
+  both engines head to head - Docker first (it fails fast when it is not there), then `wslc list`, then
+  `wslc run` of the runner image, which the first sample loads into SYSTEM's own store. Every step is
+  timestamped, so an engine that is slow before sign-in shows as slow rather than as a later sample.
+
+  ping, not timeout: timeout refuses to run without a console, which a startup task does not have, and
+  would let all eight samples fire in the same second. No parentheses in any echo text: inside a cmd
+  ( ) block a stray one ends the block.
+
+  A function so the exact script can be dry-run as an ordinary user (one sample, one second apart)
+  before anyone reboots on the strength of it.
+#>
+function Get-StartupProbeScript([string] $Output, [string] $WslcExe, [string] $ImageFile, [string] $ImageName, [string] $TaskName, [int] $Samples, [int] $IntervalSeconds) {
+    $o = "`"$Output`""
+    $lines = @(
+        '@echo off'
+        'setlocal EnableDelayedExpansion'
+        "echo === boot !date! !time! >> $o"
+        "for /L %%i in (1,1,$Samples) do ("
+        "  ping -n $($IntervalSeconds + 1) 127.0.0.1 > nul"
+        "  echo --- sample %%i at !time! >> $o"
+        # Who is signed in, told by explorer.exe: a desktop session has one. NOT quser - it does not
+        # exist on Windows Home, and the dry run of this very script said so.
+        "  echo signed in - explorer.exe per session: >> $o"
+        "  tasklist /fi `"imagename eq explorer.exe`" /fo csv /nh >> $o 2>&1"
+        "  echo Docker Desktop running: >> $o"
+        "  tasklist /fi `"imagename eq Docker Desktop.exe`" /fo csv /nh >> $o 2>&1"
+        "  echo WSLService: >> $o"
+        "  sc query WSLService | findstr STATE >> $o 2>&1"
+        "  echo docker as SYSTEM at !time!: >> $o"
+        "  docker version --format `"{{.Server.Version}}`" >> $o 2>&1"
+        "  echo exit=!errorlevel! >> $o"
+        "  echo wslc list as SYSTEM at !time!: >> $o"
+        "  `"$WslcExe`" list --quiet >> $o 2>&1"
+        "  echo exit=!errorlevel! >> $o"
+    )
+    if ($ImageFile) {
+        $lines += @(
+            "  if %%i==1 ("
+            "    echo wslc load as SYSTEM at !time!: >> $o"
+            "    `"$WslcExe`" load -i `"$ImageFile`" >> $o 2>&1"
+            "    echo exit=!errorlevel! >> $o"
+            "  )"
+            "  echo wslc run $ImageName as SYSTEM at !time!: >> $o"
+            "  `"$WslcExe`" run --pull never --rm $ImageName >> $o 2>&1"
+            "  echo exit=!errorlevel! - exit 2 after the runner's usage text means the image ran >> $o"
+        )
+    }
+    $lines += ')'
+    if ($ImageFile) {
+        $lines += @(
+            "echo wslc image remove at !time!: >> $o"
+            "`"$WslcExe`" image remove $ImageName >> $o 2>&1"
+            "del `"$ImageFile`" > nul 2>&1"
+        )
+    }
+    $lines += @(
+        "echo === finished !time! >> $o"
+        "schtasks /delete /tn $TaskName /f > nul 2>&1"
+    )
+    return $lines
 }
 
 function Invoke-AsTask([string] $name, $principal, [int] $seconds) {
@@ -242,38 +315,37 @@ if ($ArmStartupProbe) {
     $cmdFile = Join-Path $probeRoot 'startup.cmd'
     Remove-Item $output -Force -ErrorAction SilentlyContinue
 
-    # ping, not timeout: timeout refuses to run without a console, which a startup task does not have,
-    # and would let all eight samples fire in the same second.
-    $script = @(
-        '@echo off'
-        'setlocal EnableDelayedExpansion'
-        "echo === boot !date! !time! >> `"$output`""
-        'for /L %%i in (1,1,8) do ('
-        '  ping -n 121 127.0.0.1 > nul'
-        "  echo --- sample %%i at !time! >> `"$output`""
-        "  echo signed in: >> `"$output`""
-        "  quser >> `"$output`" 2>&1"
-        "  echo docker as SYSTEM: >> `"$output`""
-        "  docker version --format `"{{.Server.Version}}`" >> `"$output`" 2>&1"
-        "  echo exit=!errorlevel! >> `"$output`""
-        ')'
-        "echo === finished !time! >> `"$output`""
-        "schtasks /delete /tn $startupTask /f > nul 2>&1"
-    )
-    Set-Content -Path $cmdFile -Encoding ASCII -Value $script
+    # A COPY of the image download beside the script, not the path in the repository: at boot, with
+    # nobody signed in, the probe should depend on nothing under a user's profile.
+    $bootImage = ''
+    $imageName = ''
+    if (Test-Path $ImageFile) {
+        $bootImage = Join-Path $probeRoot (Split-Path -Leaf $ImageFile)
+        Copy-Item $ImageFile $bootImage -Force
+        $imageName = 'enlist/runner:' + [regex]::Match((Split-Path -Leaf $ImageFile), 'enlist-runner-(.+)\.tar$').Groups[1].Value
+    }
+    else {
+        Write-Host "No image download at $ImageFile - wslc will be asked to list, but not to run anything." -ForegroundColor Yellow
+    }
+
+    $cmdLines = Get-StartupProbeScript -Output $output -WslcExe $wslcExe -ImageFile $bootImage -ImageName $imageName -TaskName $startupTask -Samples 8 -IntervalSeconds 120
+    Set-Content -Path $cmdFile -Encoding ASCII -Value $cmdLines
 
     $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$cmdFile`""
     $trigger = New-ScheduledTaskTrigger -AtStartup
     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-    $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    # 45 minutes, not 30: eight two-minute waits plus an image load, and room for an engine that is slow
+    # to answer before anyone signs in - the thing being measured.
+    $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 45) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
     Register-ScheduledTask -TaskName $startupTask -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
 
-    Write-Host "Armed: '$startupTask' runs once at the next boot, as SYSTEM, and deletes itself after ~17 minutes."
+    Write-Host "Armed: '$startupTask' runs once at the next boot, as SYSTEM, asks Docker and wslc every two minutes"
+    Write-Host "eight times, then removes the image it loaded and deletes itself."
     Write-Host ""
     Write-Host "  1. Reboot."
     Write-Host "  2. Wait at the sign-in screen for AT LEAST 4 MINUTES - the first two samples need nobody signed in."
     Write-Host "  3. Sign in as normal, and let Docker Desktop start the way it always does."
-    Write-Host "  4. About 20 minutes after the reboot, run: .\probe-container-engines.ps1 -ReadStartupProbe"
+    Write-Host "  4. About 25 minutes after the reboot, run: .\probe-container-engines.ps1 -ReadStartupProbe"
 }
 
 if ($ReadStartupProbe) {

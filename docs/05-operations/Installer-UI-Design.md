@@ -379,7 +379,7 @@ These need a call before WiX is written. My recommendation is in bold.
 
     **Still open:**
     - **A full agent deploy through `wslc` as LocalSystem** - loading the image as SYSTEM, then the agent publishing the control port and connecting - has not been run. The probe proves the image loads and runs; `live-e2e.ps1` proves the agent path on Docker only.
-    - **Whether Docker Desktop answers a service before anyone signs in.** Docker Desktop runs in a user session, so after a reboot the engine may not exist until someone signs in. `probe-container-engines.ps1 -ArmStartupProbe` samples it as SYSTEM after a reboot, before and after sign-in.
+    - **Which engine answers a service before anyone signs in - and so which should be the default.** Docker Desktop runs in a user session, so after a reboot its engine may not exist until someone signs in; `wslc` is reported to work for LocalSystem with nobody signed in, but everything run here so far had a user signed in. If `wslc` does and Docker does not, `wslc` is the better default for an unattended agent (and it needs no Docker Desktop subscription), provided the image lands in the agent's own store - for instance by the agent loading images from a drop folder as itself. `probe-container-engines.ps1 -ArmStartupProbe` settles it with one reboot: every two minutes, as SYSTEM, it records whether a desktop session and Docker Desktop exist, asks Docker, lists `wslc`, and runs the runner image through `wslc` from SYSTEM's own store.
     - **Whether a named user account's service logon sees that user's `wslc` images.** It shares the account's `%LOCALAPPDATA%`, so probably, but `-Now`'s S4U probe listed containers rather than images, so it does not settle this.
 
 ---
