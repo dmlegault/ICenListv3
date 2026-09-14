@@ -5,7 +5,7 @@ Three projects. The split between them is one line: **what can be tested, and wh
 | Project | Target | What it is |
 |---|---|---|
 | `Enlist.Installer.Detection` | `netstandard2.0` + `net472` | Every decision the installer makes. No UI, no engine. |
-| `Enlist.Installer.Detection.Tests` | `net10.0` | 147 cases over the above, several against this machine. |
+| `Enlist.Installer.Detection.Tests` | `net10.0` | 157 cases over the above, several against this machine. |
 | `Enlist.Installer.Ba` | `net472` WPF, `WinExe` | The wizard Burn runs. Binding and navigation only. |
 
 A Burn bootstrapper cannot be exercised by a test — it is a process started by a native host inside an elevated install. So anything with a judgement in it lives in the detection library, where a test can reach it, and the wizard is left holding as close to nothing as it can be.
@@ -76,7 +76,7 @@ Four things it finds out about a machine, two it proves about what was typed, an
 
 `CheckNetFramework472` covers the legacy runner's requirement.
 
-**`ContainerEngineDetection`** probes `wslc` and `docker` with a 10 second timeout. Neither is required; the first available one becomes the Agent page's default, and none is a perfectly good answer.
+**`ContainerEngineDetection`** probes `wslc` and `docker` with a 10 second timeout. Neither is required, and none is a perfectly good answer. **`DefaultEngine` proposes Docker when it answers and otherwise nothing — never `wslc`.** It used to be "the first one found", `wslc` first, but detection runs as the operator, where `wslc` works, and the agent runs as a LocalSystem service, where it hangs (live-e2e, 2026-09-14). On a machine with both, the old default was the one engine the service could not use. `InstallPlan.AgentEngineWarning` is the other half: `wslc` typed in for a service account gets a red warning on the Agent and Finish pages.
 
 **`Probes`** is the two things that need a network. `VerifyControlPlaneAsync` reads `/health` — it takes an optional `HttpMessageHandler` purely so tests can hand it one. `TestDatabaseAsync` opens a connection and reports whether it opened. `BuildConnectionString` assembles what both sides use.
 
@@ -101,7 +101,7 @@ cd installer
 .\verify.ps1
 ```
 
-101 methods, 147 cases. `InstallPlanTests` is the bulk of it — page flow, blocking reasons, and the variable dictionary. `ProbeTests` uses a stub `HttpMessageHandler` for `/health` and `SkippableFact` for anything needing a real SQL Server. `RuntimeDetectionTests` and `ContainerEngineDetectionTests` run against this machine and skip rather than fail where it cannot answer.
+104 methods, 157 cases. `InstallPlanTests` is the bulk of it — page flow, blocking reasons, and the variable dictionary. `ProbeTests` uses a stub `HttpMessageHandler` for `/health` and `SkippableFact` for anything needing a real SQL Server. `RuntimeDetectionTests` and `ContainerEngineDetectionTests` run against this machine and skip rather than fail where it cannot answer.
 
 Not in `enList_v3.slnx`, for the same reason the rest of `installer\` is not: it belongs to an artifact built deliberately, not on every inner loop.
 

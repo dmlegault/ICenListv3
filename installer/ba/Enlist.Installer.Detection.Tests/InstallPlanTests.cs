@@ -261,6 +261,45 @@ public sealed class InstallPlanTests
     }
 
     [Theory]
+    [InlineData("LocalSystem")]
+    [InlineData(@"NT AUTHORITY\SYSTEM")]
+    [InlineData(@"NT AUTHORITY\NetworkService")]
+    [InlineData(@"NT AUTHORITY\LocalService")]
+    [InlineData(@"CORP\svc-enlist$")]   // a group-managed service account: also nobody's session
+    public void Wslc_under_a_service_account_is_warned_about_and_the_image_note_is_not_what_it_says(string account)
+    {
+        var plan = new InstallPlan { Type = InstallType.AgentOnly, AgentEngine = "WSLC ", AgentImage = "enlist/runner:3.0.0", AgentAccount = account };
+
+        var warning = plan.AgentEngineWarning();
+
+        Assert.NotNull(warning);
+        Assert.Contains("will not work", warning);
+        Assert.Contains(account, warning);
+        Assert.Contains("docker", warning);
+    }
+
+    [Fact]
+    public void There_is_no_engine_warning_for_docker_for_no_engine_for_no_agent_or_for_a_named_user()
+    {
+        var plan = new InstallPlan { Type = InstallType.AgentOnly, AgentEngine = "docker", AgentAccount = "LocalSystem" };
+        Assert.Null(plan.AgentEngineWarning());   // docker works for a LocalSystem service - live-e2e deploys through it
+
+        plan.AgentEngine = "";
+        Assert.Null(plan.AgentEngineWarning());
+
+        plan.AgentEngine = "wslc";
+        plan.Type = InstallType.Server;
+        plan.Agent = false;
+        Assert.Null(plan.AgentEngineWarning());   // no agent is being installed
+
+        // A real user account is not warned about, because whether wslc works for a service running as
+        // a user has not been established - and a warning that is a guess teaches people to ignore it.
+        plan.Type = InstallType.AgentOnly;
+        plan.AgentAccount = @"CORP\alice";
+        Assert.Null(plan.AgentEngineWarning());
+    }
+
+    [Theory]
     [InlineData("enlist/runner:3.0.0", "enlist-runner-3.0.0.tar")]
     [InlineData("enlist/runner:3.1.0-beta", "enlist-runner-3.1.0-beta.tar")]
     [InlineData("enlist/runner:", null)]

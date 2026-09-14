@@ -368,9 +368,14 @@ These need a call before WiX is written. My recommendation is in bold.
 
     **`wslc` is a different story.** The same run executed `wslc list --quiet` as LocalSystem through a scheduled task - after proving the task really runs as SYSTEM with `whoami` - and it **hung for three minutes without printing anything**, while the same command as the logged-in user answered at once. WSL is per-user, and a service account has no WSL of its own to talk to. The agent would not hang with it (every engine command has a 60 second limit), but every container application would fail to start, and its capability report would say the engine is not answering.
 
-    That matters here because **the wizard currently prefers `wslc`**: the Prerequisites page probes `wslc` then `docker`, *as the operator*, where `wslc` works, and makes the first one found the Agent page's default (`WizardViewModel`). On a machine with both - this one - the default is the engine the installed service cannot use.
+    That mattered because **the wizard preferred `wslc`**: the Prerequisites page probed `wslc` then `docker`, *as the operator*, where `wslc` works, and made the first one found the Agent page's default. On a machine with both, the default was the engine the installed service could not use.
 
-    Two things are still unknown, and the decision depends on them: whether `wslc` works for an agent run as a named user account (*This account*, §6.7) rather than LocalSystem, and whether Docker Desktop's engine answers a service when nobody is logged in, since Docker Desktop itself runs in a user session. Until then the options are to prefer Docker as the default, to warn on the Agent page when `wslc` is chosen for a LocalSystem agent, or to stop offering `wslc` for an installed agent at all.
+    **Changed the same day:**
+    - **The default engine is Docker when it answers, otherwise none** - never `wslc`, even when it is the only engine found (`ContainerEngineDetection.DefaultEngine`).
+    - **Choosing `wslc` for an agent under a built-in or group-managed service account shows a red warning** on the Agent page, in place of the image note, and again on the Finish page (`InstallPlan.AgentEngineWarning`). A warning rather than a block. A named user account is not warned about, because whether `wslc` works for one is not yet known.
+    - The Prerequisites page still lists `wslc`, marked *not usable by the agent service*.
+
+    **Still unknown, and `installer\tools\probe-container-engines.ps1` exists to answer both:** whether `wslc` works for an agent run as a named user account (`-Now` tries it as an S4U logon of the operator's account - a non-interactive session, the nearest thing to a service logged on as that user), and whether Docker Desktop's engine answers a service when nobody is signed in, since Docker Desktop runs in a user session (`-ArmStartupProbe` samples it as SYSTEM after a reboot, before and after sign-in).
 
 ---
 

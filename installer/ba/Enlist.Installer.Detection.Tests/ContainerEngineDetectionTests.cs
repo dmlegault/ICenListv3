@@ -82,4 +82,25 @@ public sealed class ContainerEngineDetectionTests
         var path = ContainerEngineDetection.WslcPath();
         Assert.True(path == "wslc" || path.EndsWith("wslc.exe", StringComparison.OrdinalIgnoreCase), path);
     }
+
+    /// <summary>
+    /// The Agent page's default engine: Docker when it answers, otherwise none - never wslc. Detection
+    /// runs as the operator, where wslc works; the agent runs as a LocalSystem service, where wslc hangs.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true, "docker")]    // both: this machine, where "first found" used to pick wslc
+    [InlineData(false, true, "docker")]
+    [InlineData(true, false, null)]       // wslc alone is still not proposed: the service cannot use it
+    [InlineData(false, false, null)]
+    public void The_default_engine_is_docker_when_it_answers_and_never_wslc(bool wslcUp, bool dockerUp, string? expected)
+    {
+        // wslc first, as the wizard probes them, so an order-based default would pick it.
+        var engines = new[]
+        {
+            new EngineResult("wslc", wslcUp, wslcUp ? "wslc 2.9.11.0" : "not installed"),
+            new EngineResult("docker", dockerUp, dockerUp ? "29.7.2" : "not running"),
+        };
+
+        Assert.Equal(expected, ContainerEngineDetection.DefaultEngine(engines));
+    }
 }

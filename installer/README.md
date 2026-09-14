@@ -18,7 +18,7 @@ Four directories are source and four are build output. Nothing under the second 
 |---|---|---|
 | `src\` | **source** | The WiX. Three `.wxs` packages, `Bundle.wxs` for the Burn bundle, `Prerequisites.wxs` for the two .NET runtimes it chains, and `Common.wxi` for what all of them share (manufacturer, the three service names). |
 | `ba\` | **source** | The bootstrapper application: the wizard, the detection library behind it, and that library's tests. Three projects and a hosting contract with sharp edges — [`ba\README.md`](ba/README.md) covers it. `build.ps1` builds it first and hands the bundle its output folder. |
-| `tools\` | **source** | `refresh-prerequisites.ps1`, which regenerates the download URLs, SHA-512 hashes and sizes in `Prerequisites.wxs` when the required .NET patch changes — run it on purpose, then commit what it wrote. And `RunnerSourceHash.ps1`, the one definition of "what the runner image is built from", shared by `build.ps1` and `verify.ps1`. |
+| `tools\` | **source** | `refresh-prerequisites.ps1`, which regenerates the download URLs, SHA-512 hashes and sizes in `Prerequisites.wxs` when the required .NET patch changes — run it on purpose, then commit what it wrote. `RunnerSourceHash.ps1` is the one definition of "what the runner image is built from", shared by `build.ps1` and `verify.ps1`. `probe-container-engines.ps1` (elevated) is a diagnostic, which asks Docker and `wslc` whether they answer the identities an installed agent can run as - LocalSystem, a user account in a non-interactive session, and SYSTEM after a reboot before anyone signs in. |
 | `.config\` | **source** | `dotnet-tools.json`, which pins WiX 5. This is what makes the build reproducible rather than dependent on whatever `wix` happens to be on the machine. |
 | `publish\` | *output* | `dotnet publish` of each component, one folder per component, including both runners. The input to harvesting. Each folder is emptied before its publish, because the packages harvest everything in it and `dotnet publish` never removes a file. |
 | `staging\` | *output* | A copy of each publish folder **with the service executable removed**, rebuilt from scratch every run. It exists only because WiX 5's `Files` element has no exclude — see below. |
@@ -35,7 +35,7 @@ And three scripts at the root, which is the whole of the tooling: **`build.ps1`*
 .\build.ps1              # publish everything, build the runner image, the MSIs, then the bundle
 .\build.ps1 -SkipPublish # reuse publish\, for when only the WiX changed
 .\build.ps1 -SkipRunnerImage  # no Docker here: build the MSIs without the runner image
-.\verify.ps1             # 147 detection tests + 97 installer checks
+.\verify.ps1             # 157 detection tests + 97 installer checks
 .\verify.ps1 -Live       # really install, upgrade and uninstall (elevated shell)
 .\live-e2e.ps1           # a real install that RUNS (elevated shell) - see below
 ```
@@ -127,7 +127,7 @@ Section 4 names the ASP.NET Core **Hosting Bundle** as the prerequisite for the 
 
 ## The wizard, in `ba\`
 
-Three projects, split on one line: what can be tested, and what cannot. `Enlist.Installer.Detection` holds every decision and has 147 tests over it; `Enlist.Installer.Ba` is the WPF shell and holds none, because a bootstrapper's pages cannot be exercised by a test.
+Three projects, split on one line: what can be tested, and what cannot. `Enlist.Installer.Detection` holds every decision and has 157 tests over it; `Enlist.Installer.Ba` is the WPF shell and holds none, because a bootstrapper's pages cannot be exercised by a test.
 
 **It is what the bundle chains.** Eight pages, styled to the portal's own palette, with `build.ps1 -StandardBootstrapper` as the way back to the stock WixStdBA if it ever regresses. A silent install reaches no window under either one, so the surface in section 10 is unaffected by the choice.
 
@@ -137,4 +137,4 @@ Three projects, split on one line: what can be tested, and what cannot. `Enlist.
 
 Nothing blocking an install. `live-e2e.ps1` passes end to end: schema, portal key, TLS, agent enrollment, and uninstall.
 
-Still outstanding: `verify.ps1 -Live` proves upgrade and uninstall for the agent package only, not all three; nothing is code-signed (section 12 item 7, which needs a certificate purchase rather than a design); and **`wslc` does not work for the installed agent** (section 12 item 11). Run as LocalSystem, `wslc list` hung for three minutes, and the wizard currently makes `wslc` the default engine when it finds it, which on a machine with both engines is the one the service cannot use. Docker works and is proven by `live-e2e.ps1`.
+Still outstanding: `verify.ps1 -Live` proves upgrade and uninstall for the agent package only, not all three; nothing is code-signed (section 12 item 7, which needs a certificate purchase rather than a design); and **`wslc` does not work for the installed agent** (section 12 item 11). Run as LocalSystem, `wslc list` hung for three minutes. Docker works and is proven by `live-e2e.ps1`, so the wizard now proposes Docker, never `wslc`, and warns in red when `wslc` is chosen for a service account. Whether `wslc` works under a named user account, and whether Docker answers a service before anyone signs in after a reboot, are still open; `tools\probe-container-engines.ps1` answers both.

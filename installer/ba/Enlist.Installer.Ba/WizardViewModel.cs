@@ -355,27 +355,37 @@ namespace Enlist.Installer.Ba
             Raise(nameof(NextBlockedBecause));
             Raise(nameof(Summary));
             Raise(nameof(StepLabel));
-            Raise(nameof(RunnerImageNote));
-            Raise(nameof(HasRunnerImageNote));
+            Raise(nameof(AgentEngineNote));
+            Raise(nameof(HasAgentEngineNote));
+            Raise(nameof(AgentEngineNoteIsWarning));
         }
 
         /// <summary>
-        /// On the Agent page, under the engine: the runner image is a separate download this installer
-        /// does not carry, and has to be loaded before a container application can run. The words are the
-        /// plan's (InstallPlan.RunnerImageNote), so they are tested and follow the engine and image as typed.
+        /// On the Agent page, under the engine, one of two things - both the plan's words, so they are
+        /// tested and follow what was typed:
+        ///
+        ///   - the engine will not work for this agent at all (InstallPlan.AgentEngineWarning: wslc under
+        ///     a service account). Shown in red, and INSTEAD of the image note, because telling someone
+        ///     how to load an image into an engine the service cannot use would send them the wrong way;
+        ///   - otherwise, that the runner image is a separate download to load first
+        ///     (InstallPlan.RunnerImageNote), in amber.
         /// </summary>
-        public string RunnerImageNote => Plan.RunnerImageNote(brief: true) ?? "";
+        public string AgentEngineNote => Plan.AgentEngineWarning() ?? Plan.RunnerImageNote(brief: true) ?? "";
 
-        public bool HasRunnerImageNote => Plan.RunnerImageNote() != null;
+        public bool HasAgentEngineNote => AgentEngineNote.Length > 0;
 
-        /// <summary>The same note on the Finish page, set once the install has succeeded - the last thing the operator reads.</summary>
+        public bool AgentEngineNoteIsWarning => Plan.AgentEngineWarning() != null;
+
+        /// <summary>The same choice of note on the Finish page, set once the install has succeeded - the last thing the operator reads.</summary>
         public string FinishNote
         {
             get => _finishNote;
-            private set { _finishNote = value; Raise(); Raise(nameof(HasFinishNote)); }
+            private set { _finishNote = value; Raise(); Raise(nameof(HasFinishNote)); Raise(nameof(FinishNoteIsWarning)); }
         }
 
         public bool HasFinishNote => !string.IsNullOrEmpty(_finishNote);
+
+        public bool FinishNoteIsWarning => Plan.AgentEngineWarning() != null;
 
         /// <summary>Welcome first, then whatever the plan says, then the progress and finish pages.</summary>
         public WizardPage? CurrentPage => _index >= 0 && _index < _pages.Count ? _pages[_index] : (WizardPage?)null;
@@ -609,7 +619,7 @@ namespace Enlist.Installer.Ba
 
             // Only on an install that worked: on a failed one it would be one more thing to read in front
             // of the thing that actually needs doing.
-            FinishNote = Plan.RunnerImageNote() ?? "";
+            FinishNote = Plan.AgentEngineWarning() ?? Plan.RunnerImageNote() ?? "";
 
             if (failures.Count > 0)
             {
@@ -758,17 +768,23 @@ namespace Enlist.Installer.Ba
 
                 foreach (var engine in engines)
                 {
+                    // wslc is reported, because it is on the machine - but found here, as the operator,
+                    // it says nothing about the agent service, which cannot use it (see DefaultEngine).
+                    var neededBy = engine.Engine == "wslc" ? "not usable by the agent service" : "container isolation (optional)";
                     Prerequisites.Add(new PrerequisiteRow(
-                        engine.Engine, "container isolation (optional)", engine.Available, engine.Detail,
+                        engine.Engine, neededBy, engine.Available, engine.Detail,
                         blocking: false, whenMissing: "not available"));
                 }
 
-                // The first available engine becomes the default on the Agent page, which is what
-                // section 6.7 specifies. None is a perfectly good answer.
-                var usable = engines.FirstOrDefault(e => e.Available);
-                if (usable != null && string.IsNullOrWhiteSpace(Plan.AgentEngine))
+                // Docker when it answers, otherwise none - never wslc. This was "the first engine that
+                // answers", wslc first, which on a machine with both proposed the one engine an agent
+                // running as a service cannot use. ContainerEngineDetection.DefaultEngine says why.
+                var proposed = ContainerEngineDetection.DefaultEngine(engines);
+                if (proposed != null && string.IsNullOrWhiteSpace(Plan.AgentEngine))
                 {
-                    Plan.AgentEngine = usable.Engine;
+                    // Through the wrapper, not Plan.AgentEngine: the Agent page's field is already bound,
+                    // and a value written straight onto the plan would be right and invisible.
+                    AgentEngine = proposed;
                 }
             }
             finally

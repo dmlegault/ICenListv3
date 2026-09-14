@@ -250,6 +250,38 @@ namespace Enlist.Installer.Detection
                   "The agent never downloads images itself.";
         }
 
+        /// <summary>
+        /// Why the engine as chosen will not work for this agent, or null when there is nothing to warn
+        /// about. Today that is one case: wslc, for an agent running under a built-in service account or
+        /// a group-managed one.
+        ///
+        /// WSL belongs to a signed-in user. Run as LocalSystem, `wslc list` hung for three minutes
+        /// without printing anything, while the same command as the operator answered at once
+        /// (installer\live-e2e.ps1, 2026-09-14). The agent would not hang with it - every engine command
+        /// has a time limit - but no container application would ever start. A warning rather than a
+        /// block: an operator may know something this does not, and "leave the engine empty" and
+        /// "use docker" are both one edit away.
+        ///
+        /// A named user account is not warned about, because whether wslc works for a service running
+        /// as a real user has not been established. Until it is, saying either way would be a guess.
+        /// </summary>
+        public string? AgentEngineWarning()
+        {
+            if (!InstallsAgent || !string.Equals(AgentEngine?.Trim(), "wslc", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var account = string.IsNullOrWhiteSpace(AgentAccount) ? "LocalSystem" : AgentAccount.Trim();
+            if (!IsServiceIdentity(account))
+            {
+                return null;
+            }
+
+            return "wslc will not work for this agent: it runs as a Windows service under " + account +
+                   ", and wslc needs a signed-in user's WSL - as a service it hangs. Use docker, or leave the engine empty to run applications as processes.";
+        }
+
         /// <summary>The download file an enList runner image is loaded from, or null for an image that is not enList's.</summary>
         public static string? RunnerImageDownloadFor(string image)
         {
@@ -513,6 +545,25 @@ namespace Enlist.Installer.Detection
                 .Any(u => u.Trim().StartsWith("https://", StringComparison.OrdinalIgnoreCase));
         }
 
+        private static readonly string[] BuiltInServiceAccounts =
+        {
+            "LocalSystem",
+            @"NT AUTHORITY\NetworkService",
+            @"NT AUTHORITY\LocalService",
+            @"NT AUTHORITY\SYSTEM",
+        };
+
+        /// <summary>
+        /// A built-in service account, or a group-managed one (a name ending in $): an identity that
+        /// authenticates without a password and is nobody's signed-in session.
+        /// </summary>
+        private static bool IsServiceIdentity(string account)
+        {
+            var trimmed = account.Trim();
+            return trimmed.EndsWith("$", StringComparison.Ordinal)
+                || BuiltInServiceAccounts.Any(b => string.Equals(b, trimmed, StringComparison.OrdinalIgnoreCase));
+        }
+
         private static bool NeedsPassword(string account, string password)
         {
             if (string.IsNullOrWhiteSpace(account))
@@ -520,22 +571,7 @@ namespace Enlist.Installer.Detection
                 return false;
             }
 
-            var builtIn = new[]
-            {
-                "LocalSystem",
-                @"NT AUTHORITY\NetworkService",
-                @"NT AUTHORITY\LocalService",
-                @"NT AUTHORITY\SYSTEM",
-            };
-
-            // A group-managed service account ends in $ and authenticates without a password too.
-            if (account.Trim().EndsWith("$", StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            return !builtIn.Any(b => string.Equals(b, account.Trim(), StringComparison.OrdinalIgnoreCase))
-                && string.IsNullOrEmpty(password);
+            return !IsServiceIdentity(account) && string.IsNullOrEmpty(password);
         }
 
         private static void Set(IDictionary<string, string> variables, string name, string value)

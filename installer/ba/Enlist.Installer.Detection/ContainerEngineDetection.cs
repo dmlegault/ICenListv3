@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -56,6 +58,24 @@ namespace Enlist.Installer.Detection
                 Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "WSL", "wslc.exe");
             return File.Exists(installed) ? installed : "wslc";
         }
+
+        /// <summary>
+        /// The engine the Agent page proposes: Docker when it answers, and otherwise none - never wslc,
+        /// even when wslc is the only engine found.
+        ///
+        /// This used to be "the first engine that answers", probed wslc first, and that was wrong in a
+        /// way only an installed agent could show. Detection runs as the OPERATOR, where wslc works; the
+        /// agent runs as a Windows service under LocalSystem, where it does not - WSL belongs to a
+        /// signed-in user, and `wslc list` run as SYSTEM hung for three minutes without a word
+        /// (installer\live-e2e.ps1, 2026-09-14). Docker Desktop's engine grants SYSTEM access and the
+        /// same run deployed a container through it. So on a machine with both, the old default was
+        /// the one engine the service could not use.
+        ///
+        /// wslc is still reported on the Prerequisites page and can still be typed on the Agent page,
+        /// which then says why it will not work for a service (InstallPlan.AgentEngineWarning).
+        /// </summary>
+        public static string? DefaultEngine(IEnumerable<EngineResult> engines) =>
+            engines.Any(e => e.Available && string.Equals(e.Engine, "docker", StringComparison.OrdinalIgnoreCase)) ? "docker" : null;
 
         public static Task<EngineResult> ProbeWslcAsync()
         {

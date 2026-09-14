@@ -30,6 +30,7 @@
         <SolidColorBrush x:Key="TextSecondary" Color="#9a9ab0" />
         <SolidColorBrush x:Key="Line" Color="#33334a" />
         <SolidColorBrush x:Key="Warn" Color="#e4a03a" />
+        <SolidColorBrush x:Key="Bad" Color="#e5534b" />
         <SolidColorBrush x:Key="Good" Color="#3fb27f" />
 
         <Style TargetType="TextBlock" x:Key="Heading">
@@ -652,7 +653,7 @@
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock" BasedOn="{StaticResource Note}">
                                         <Style.Triggers>
-                                            <DataTrigger Binding="{Binding HasRunnerImageNote}" Value="True">
+                                            <DataTrigger Binding="{Binding HasAgentEngineNote}" Value="True">
                                                 <Setter Property="Visibility" Value="Collapsed" />
                                             </DataTrigger>
                                         </Style.Triggers>
@@ -671,10 +672,21 @@
                                 620 for it: the full sentence ran past the bottom of this page and was cut off,
                                 with nothing to scroll. The Finish page has the room for the full one.
                             -->
+                            <!-- Red instead of amber when the engine will not work for this agent at all (wslc under a service account). -->
                             <Border Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,8,0,0" Padding="12,8"
-                                    CornerRadius="8" Background="#1e1e2c" BorderBrush="{StaticResource Warn}" BorderThickness="1"
-                                    Visibility="{Binding HasRunnerImageNote, Converter={StaticResource Visible}}">
-                                <TextBlock Text="{Binding RunnerImageNote}" TextWrapping="Wrap" Foreground="{StaticResource TextPrimary}" />
+                                    CornerRadius="8" Background="#1e1e2c" BorderThickness="1"
+                                    Visibility="{Binding HasAgentEngineNote, Converter={StaticResource Visible}}">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="BorderBrush" Value="{StaticResource Warn}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding AgentEngineNoteIsWarning}" Value="True">
+                                                <Setter Property="BorderBrush" Value="{StaticResource Bad}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock Text="{Binding AgentEngineNote}" TextWrapping="Wrap" Foreground="{StaticResource TextPrimary}" />
                             </Border>
                         </Grid>
                     </StackPanel>
@@ -736,8 +748,18 @@
 
                         <!-- The runner image download, again: the last thing read before the window closes. -->
                         <Border Margin="40,4,40,0" Padding="12,10" CornerRadius="8" Background="#1e1e2c"
-                                BorderBrush="{StaticResource Warn}" BorderThickness="1"
+                                BorderThickness="1"
                                 Visibility="{Binding HasFinishNote, Converter={StaticResource Visible}}">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="BorderBrush" Value="{StaticResource Warn}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding FinishNoteIsWarning}" Value="True">
+                                            <Setter Property="BorderBrush" Value="{StaticResource Bad}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
                             <TextBlock Text="{Binding FinishNote}" TextWrapping="Wrap" Foreground="{StaticResource TextPrimary}" />
                         </Border>
                     </StackPanel>
