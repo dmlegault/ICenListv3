@@ -97,12 +97,22 @@ namespace Enlist.Installer.Ba
                 // checks it against) goes into the agent's Images folder, which Enlist.Agent.msi has
                 // already created with its ACL - this elevated bootstrapper is an Administrator, which
                 // that ACL names.
+                //
+                // The folder is NEVER created here. A folder this process made would inherit
+                // ProgramData's "Users may create files" - which is exactly what the first live run
+                // through wslc found, when the package had skipped creating it. No folder means the
+                // package did not do its part, and that is reported rather than papered over.
                 if (step.Kind == PostInstallStepKind.StageRunnerImage)
                 {
                     try
                     {
                         var destination = step.Arguments[0];
-                        System.IO.Directory.CreateDirectory(destination);
+                        if (!System.IO.Directory.Exists(destination))
+                        {
+                            results.Add(Failed(step, destination + " does not exist. Enlist.Agent.msi creates it, locked to SYSTEM and Administrators; the runner image was not copied into a folder with any other ACL."));
+                            continue;
+                        }
+
                         var name = System.IO.Path.GetFileName(step.Executable);
                         System.IO.File.Copy(step.Executable, System.IO.Path.Combine(destination, name), overwrite: true);
                         var checksum = step.Executable + ".sha256";

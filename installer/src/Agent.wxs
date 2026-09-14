@@ -128,6 +128,7 @@
       <ComponentGroupRef Id="RunnerLegacyFiles" />
       <ComponentRef Id="AgentService" />
       <ComponentRef Id="AgentDataFolder" />
+      <ComponentRef Id="AgentImagesFolder" />
       <ComponentRef Id="AgentImagesFolderAccount" />
     </Feature>
 
@@ -203,32 +204,43 @@
     -->
     <Component Id="AgentDataFolder" Directory="AGENTDATA" Guid="C7E9A1D3-4B62-4F08-8E5A-16C4D9B7F320" NeverOverwrite="yes" Permanent="yes">
       <CreateFolder />
+      <RegistryValue Root="HKLM" Key="SOFTWARE\enList\Agent" Name="DataDirectory" Type="string" Value="[AGENTDATA]" KeyPath="yes" />
+    </Component>
 
-      <!--
-        THE IMAGES FOLDER, and its ACL is the point of it. The agent loads every enList runner image
-        archive put here into its container engine, as the account it runs as - the one way to get the
-        image into the store a LocalSystem agent uses, because wslc keeps a separate store per account
-        (RunnerImageDropFolder). Whoever can write here decides which runner image this machine's
-        container applications run in. So it is NOT left to inherit ProgramData's ACL, which lets any
-        signed-in user create files: the DACL is protected (P) and names SYSTEM and Administrators only.
-        The agent itself refuses any archive not tagged enlist/runner, but that narrows a mistake; this
-        is the control.
-      -->
-      <CreateFolder Directory="AGENTIMAGES">
+    <!--
+      THE IMAGES FOLDER, and its ACL is the point of it. The agent loads every enList runner image
+      archive put here into its container engine, as the account it runs as - the one way to get the
+      image into the store a LocalSystem agent uses, because wslc keeps a separate store per account
+      (RunnerImageDropFolder). Whoever can write here decides which runner image this machine's
+      container applications run in. So it is NOT left to inherit ProgramData's ACL, which lets any
+      signed-in user create files: the DACL is protected (P) and names SYSTEM and Administrators only.
+      The agent itself refuses any archive not tagged enlist/runner, but that narrows a mistake; this
+      is the control.
+
+      NOT inside AgentDataFolder, and NOT NeverOverwrite or Permanent, which is where it first lived.
+      That component's registry key path outlives an uninstall, so on every later install - a reinstall,
+      an upgrade - MSI logs "Disallowing installation of component: AgentDataFolder since the registry
+      keypath exists" and skips it, CreateFolder rows and all. The first live run through wslc found the
+      folder created by the bootstrapper's copy instead, inheriting "Users may create files". This
+      component has the folder itself as its key path and installs every time, so the lock is applied
+      every time; RemoveFolders on uninstall only removes it if it is empty.
+    -->
+    <Component Id="AgentImagesFolder" Directory="AGENTIMAGES" Guid="9E4C2A71-6B3D-4F85-A1C7-3D58E09B6F24">
+      <CreateFolder>
         <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" />
       </CreateFolder>
-
-      <RegistryValue Root="HKLM" Key="SOFTWARE\enList\Agent" Name="DataDirectory" Type="string" Value="[AGENTDATA]" KeyPath="yes" />
     </Component>
 
     <!--
       An agent running as a NAMED account also has to read the archives and write its record of what it
       loaded. A component of its own so the grant can be conditioned: LocalSystem is SYSTEM, which the
       folder's ACL already names, and it is not a name util:PermissionEx should be asked to resolve.
+      Installed every time for the same reason as AgentImagesFolder - and it has to be, because that
+      component's lock replaces the whole DACL on every install, and a skipped grant would leave the
+      agent's own account locked out of its images.
     -->
     <Component Id="AgentImagesFolderAccount" Directory="AGENTIMAGES" Guid="5D2B7E91-3C48-4A6F-B0E2-8F14C69A7D35"
-               Condition="AGENT_ACCOUNT ~&lt;&gt; &quot;LocalSystem&quot; AND AGENT_ACCOUNT ~&lt;&gt; &quot;NT AUTHORITY\SYSTEM&quot;"
-               NeverOverwrite="yes" Permanent="yes">
+               Condition="AGENT_ACCOUNT ~&lt;&gt; &quot;LocalSystem&quot; AND AGENT_ACCOUNT ~&lt;&gt; &quot;NT AUTHORITY\SYSTEM&quot;">
       <CreateFolder>
         <util:PermissionEx User="[AGENT_ACCOUNT]" GenericAll="yes" />
       </CreateFolder>

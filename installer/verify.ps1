@@ -1006,6 +1006,26 @@ try {
     $imagesName = [string] (Get-TableValue $database "SELECT DefaultDir FROM Directory WHERE Directory = 'AGENTIMAGES'")
     # SDDLText - the table's column is not called SDDL, and a wrong column name fails OpenView outright.
     $imagesSddl = [string] (Get-TableValue $database "SELECT ``SDDLText`` FROM ``MsiLockPermissionsEx`` WHERE ``LockObject`` = 'AGENTIMAGES'")
+
+    # Every component that creates the folder, with the Permanent (16) and NeverOverwrite (128) bits.
+    $imagesComponents = @()
+    $view = $database.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $database,
+        @("SELECT ``Component``.``Component``, ``Component``.``Attributes`` FROM ``CreateFolder``, ``Component`` WHERE ``CreateFolder``.``Component_`` = ``Component``.``Component`` AND ``CreateFolder``.``Directory_`` = 'AGENTIMAGES'"))
+    try {
+        $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null) | Out-Null
+        while ($true) {
+            $record = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
+            if (-not $record) { break }
+            $imagesComponents += [pscustomobject] @{
+                Name       = [string] $record.GetType().InvokeMember('StringData', 'GetProperty', $null, $record, [object[]] @([int] 1))
+                Attributes = [int] $record.GetType().InvokeMember('IntegerData', 'GetProperty', $null, $record, [object[]] @([int] 2))
+            }
+        }
+    }
+    finally {
+        $view.GetType().InvokeMember('Close', 'InvokeMethod', $null, $view, $null) | Out-Null
+        [void][Runtime.InteropServices.Marshal]::ReleaseComObject($view)
+    }
 }
 finally {
     if ($database) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($database) }
@@ -1015,6 +1035,15 @@ Assert-That ($imagesParent -eq 'AGENTDATA' -and $imagesName -eq 'Images') "Enlis
 Assert-That ($imagesSddl -match '^D:P') "its DACL is protected, so it does not inherit ProgramData's (found '$imagesSddl')"
 Assert-That ($imagesSddl -match ';;;SY\)' -and $imagesSddl -match ';;;BA\)') "it grants SYSTEM and Administrators"
 Assert-That ($imagesSddl -notmatch ';;;(BU|AU|WD|IU)\)') "and not Users, Authenticated Users, Everyone or Interactive"
+<#
+  And the lock is applied on EVERY install, not just the first. It first lived in the data folder's
+  component, which is Permanent and NeverOverwrite with a registry key path: that key outlives an
+  uninstall, so every later install - reinstall or upgrade - skipped the component and its CreateFolder
+  rows, and the bootstrapper's copy created the folder with ProgramData's ACL instead. Found by the first
+  live run through wslc; no reading of the SDDL above could have seen it.
+#>
+$stuck = @($imagesComponents | Where-Object { $_.Attributes -band (16 -bor 128) })
+Assert-That ($imagesComponents.Count -gt 0 -and $stuck.Count -eq 0) "the components that create it are neither Permanent nor NeverOverwrite, so every install - reinstall and upgrade too - applies the lock (found $(($imagesComponents | ForEach-Object { "$($_.Name)=$($_.Attributes)" }) -join ', '))"
 
 # ---- Live -----------------------------------------------------------------------------------------
 <#
