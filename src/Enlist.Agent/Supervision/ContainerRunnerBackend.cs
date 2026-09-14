@@ -36,13 +36,15 @@ public sealed class ContainerRunnerBackend : IRunnerBackend
     private readonly string _agentName;
 
     /// <param name="agentName">Stamped on every container as an ownership label. It must be STABLE across restarts — that is the whole basis of orphan reaping — which is why it is the agent's registered name and not something generated at boot.</param>
-    public ContainerRunnerBackend(IContainerEngine engine, string image, TimeSpan connectTimeout, AgentFileLogSink logSink, string agentName, string? hostAddress = null)
+    /// <param name="images">The agent's Images folder, loaded into the engine before each container start - see <see cref="RunnerImageDropFolder"/>. Null means none: images are put in the engine some other way.</param>
+    public ContainerRunnerBackend(IContainerEngine engine, string image, TimeSpan connectTimeout, AgentFileLogSink logSink, string agentName, string? hostAddress = null, RunnerImageDropFolder? images = null)
     {
         _engine = engine;
         _image = image;
         _connectTimeout = connectTimeout;
         _logSink = logSink;
         _agentName = agentName;
+        _images = images;
 
         // Reported alongside every resolved port so an operator gets somewhere they can actually reach.
         // The machine name rather than an IP: a host commonly has several addresses (and on Docker
@@ -51,6 +53,8 @@ public sealed class ContainerRunnerBackend : IRunnerBackend
     }
 
     private readonly string _hostAddress;
+
+    private readonly RunnerImageDropFolder? _images;
 
     /// <param name="runnerBinDirectory">Ignored — the runner lives in the image, so there is nothing to stage. This is why staging moved behind the seam in C3: leaving it in AgentHost meant every containerized application still paid for a runner copy nobody reads, and skipping it there would have required the one thing the seam forbids, an "if (isContainer)" in AgentHost.</param>
     public async Task<IRunnerInstance> StartAsync(RunnerStartRequest request)
@@ -79,7 +83,28 @@ public sealed class ContainerRunnerBackend : IRunnerBackend
             isolation.Networks,
             isolation.Env);
 
-        var containerId = await _engine.RunAsync(spec).ConfigureAwait(false);
+        // Whatever is waiting in the Images folder goes into the engine first, as this agent's account -
+        // the only store this agent's containers run from. Before EVERY start, not once at boot: that
+        // is what lets an image copied in after the install reach the retry of an application that
+        // failed for want of it. Costs a directory listing when there is nothing new.
+        if (_images is not null)
+        {
+            await _images.LoadNewImagesAsync().ConfigureAwait(false);
+        }
+
+        string containerId;
+        try
+        {
+            containerId = await _engine.RunAsync(spec).ConfigureAwait(false);
+        }
+        catch (ContainerImageMissingException) when (_images is not null)
+        {
+            // The folder's record said the image was loaded; the engine says it is not there - removed
+            // by hand, or an engine reset. The engine is right, so the record goes, and the retry this
+            // failure schedules loads the archive again.
+            await _images.ForgetAsync().ConfigureAwait(false);
+            throw;
+        }
 
         Stream transport;
         int hostPort;

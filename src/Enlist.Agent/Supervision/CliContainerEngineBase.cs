@@ -37,14 +37,34 @@ public abstract class CliContainerEngineBase
     /// <summary>
     /// The error for a run refused because the image is not on this machine, saying what the operator
     /// can do about it. The enList runner image is handed out as a download beside the installer,
-    /// enlist-runner-&lt;version&gt;.tar, which is loaded into the engine by hand - so that is what this
-    /// points at first, and building from source second.
+    /// enlist-runner-&lt;version&gt;.tar, and the way to give it to an agent is its Images folder: the
+    /// agent loads it from there itself, into the store of the account it runs as - which matters,
+    /// because wslc's store is per account and an image loaded in an operator's own shell is not one a
+    /// LocalSystem agent can see. See RunnerImageDropFolder.
     /// </summary>
-    protected static InvalidOperationException MissingImage(string engine, string image, string detail) =>
+    protected static ContainerImageMissingException MissingImage(string engine, string image, string detail) =>
         new($"{engine} run failed: the image '{image}' is not on this machine ({detail}). " +
-            $"The agent never pulls images. Load the enList runner image download into {engine} " +
-            $"({engine} load -i enlist-runner-<version>.tar), or point the application at an image that is present. " +
-            $"From source: {engine} build -f src/Enlist.Runner/Dockerfile -t {image} .");
+            $"The agent never pulls images. Put the enList runner image download (enlist-runner-<version>.tar) in the Images folder " +
+            $"under the agent's data directory - the agent loads it into {engine} itself - or point the application at an image that is present.");
+
+    /// <summary>
+    /// How long loading an image archive may take. Minutes, not the ordinary command budget: an 80 MB
+    /// runner image loads in a couple of seconds, but a larger one onto a busy disk can take much longer,
+    /// and a load cut short would be reported as a failure that was really just slow.
+    /// </summary>
+    protected static readonly TimeSpan LoadTimeout = TimeSpan.FromMinutes(10);
+
+    /// <summary>`load -i &lt;archive&gt;`, which both engines spell the same way.</summary>
+    protected async Task LoadArchiveAsync(string engine, string archivePath, CancellationToken ct)
+    {
+        var result = await RunCliAsync(["load", "-i", archivePath], ct, LoadTimeout).ConfigureAwait(false);
+        if (result.ExitCode != 0)
+        {
+            var reason = result.Stderr.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault()
+                ?? $"exit code {result.ExitCode}";
+            throw new InvalidOperationException($"{engine} load failed ({result.ExitCode}): {reason}");
+        }
+    }
 
     protected async Task<(int ExitCode, string Stdout, string Stderr)> RunCliAsync(IReadOnlyList<string> args, CancellationToken ct, TimeSpan? timeout = null)
     {

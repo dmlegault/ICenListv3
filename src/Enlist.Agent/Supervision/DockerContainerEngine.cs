@@ -215,6 +215,9 @@ public sealed class DockerContainerEngine : CliContainerEngineBase, IContainerEn
         }
     }
 
+    public Task LoadImageAsync(string archivePath, CancellationToken ct = default) =>
+        LoadArchiveAsync("docker", archivePath, ct);
+
     public async Task<IReadOnlyList<string>> ListByLabelsAsync(IReadOnlyDictionary<string, string> labels, CancellationToken ct = default)
     {
         // -a: stopped containers count. An exited container still holds its name and its disk, so it is

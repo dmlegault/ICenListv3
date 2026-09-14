@@ -160,6 +160,11 @@ internal static class Program
         var stagingRoot = Path.Combine(dataRoot, "Runners");
         var logRoot = Path.Combine(dataRoot, "Logs");
 
+        // Runner image archives put here are loaded into the container engine by this agent, as the
+        // account it runs as - see RunnerImageDropFolder. Enlist.Agent.msi creates it, locked to
+        // Administrators and SYSTEM; an agent run by hand without it simply finds nothing to load.
+        var imageDropFolder = Path.Combine(dataRoot, "Images");
+
         IReadOnlyDictionary<string, string>? additionalRunnerBinDirectories = legacyRunnerBinDirectory is null
             ? null
             : new Dictionary<string, string> { [RuntimeFlavors.NetFramework472] = legacyRunnerBinDirectory };
@@ -212,7 +217,7 @@ internal static class Program
             var logHttp = new HttpClient(credential.CreateHandler()) { BaseAddress = baseUri };
             var logForwarder = new ControlPlaneLogForwarder(logHttp, effectiveAgentName);
 
-            agentHost = new AgentHost(assignmentSource, runnerBinDirectory, stagingRoot, logRoot, statusReporter: statusReporter, logForwarder: logForwarder, additionalRunnerBinDirectories: additionalRunnerBinDirectories, containerImage: containerImage, agentName: effectiveAgentName, containerEngine: containerEngine);
+            agentHost = new AgentHost(assignmentSource, runnerBinDirectory, stagingRoot, logRoot, statusReporter: statusReporter, logForwarder: logForwarder, additionalRunnerBinDirectories: additionalRunnerBinDirectories, containerImage: containerImage, agentName: effectiveAgentName, containerEngine: containerEngine, imageDropFolder: imageDropFolder);
 
             // Wired before ConnectAsync so a command pushed the instant the hub connects (unlikely,
             // but possible on a reconnect) is never missed between connecting and subscribing.
@@ -238,7 +243,7 @@ internal static class Program
                 return 2;
             }
 
-            agentHost = new AgentHost(assignments, runnerBinDirectory, stagingRoot, logRoot, additionalRunnerBinDirectories: additionalRunnerBinDirectories, containerImage: containerImage, containerEngine: containerEngine);
+            agentHost = new AgentHost(assignments, runnerBinDirectory, stagingRoot, logRoot, additionalRunnerBinDirectories: additionalRunnerBinDirectories, containerImage: containerImage, containerEngine: containerEngine, imageDropFolder: imageDropFolder);
             startupDescription = $"{assignments.Applications.Count} assignment(s) from {assignmentsPath}";
         }
 

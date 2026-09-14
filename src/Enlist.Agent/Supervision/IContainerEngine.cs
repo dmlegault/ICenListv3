@@ -54,7 +54,22 @@ public interface IContainerEngine
 
     /// <summary>Ids of every container — running or stopped — carrying all of the given labels. Used to find containers a previous life of this agent left behind.</summary>
     Task<IReadOnlyList<string>> ListByLabelsAsync(IReadOnlyDictionary<string, string> labels, CancellationToken ct = default);
+
+    /// <summary>
+    /// Loads an image archive (`docker save` output) into this engine's image store, AS THE ACCOUNT THE
+    /// AGENT RUNS AS. That last part is the point: wslc keeps a separate store per account, so an image an
+    /// operator loads in their own session is not one a LocalSystem agent can see. Loading it from inside
+    /// the agent puts it in the store the agent will run it from. See <see cref="RunnerImageDropFolder"/>.
+    /// </summary>
+    Task LoadImageAsync(string archivePath, CancellationToken ct = default);
 }
+
+/// <summary>
+/// A container could not start because its image is not in the engine's store on this machine. A type of
+/// its own, rather than a message to match, so <see cref="ContainerRunnerBackend"/> can react to it - the
+/// image drop folder's record of what it loaded is then out of date, and the next start reloads.
+/// </summary>
+public sealed class ContainerImageMissingException(string message) : InvalidOperationException(message);
 
 /// <summary>The result of asking a container engine whether it is usable. Error is non-null only when Available is false, and carries the engine's own message — an operator needs to know WHY, not just that something is wrong.</summary>
 public sealed record ContainerEngineProbe(bool Available, string? Version = null, string? Error = null);

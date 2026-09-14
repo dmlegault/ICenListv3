@@ -105,6 +105,8 @@ public sealed class ContainerControlChannelTests : IAsyncLifetime
         public Task<ContainerEngineProbe> ProbeAsync(CancellationToken ct = default) => Task.FromResult(new ContainerEngineProbe(true));
 
         public Task<IReadOnlyList<string>> ListByLabelsAsync(IReadOnlyDictionary<string, string> labels, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<string>>([]);
+
+        public Task LoadImageAsync(string archivePath, CancellationToken ct = default) => Task.CompletedTask;
     }
 
     /// <summary>The published port's far end: the proxy for the first <c>closeFirst</c> connections, the runner for any after.</summary>

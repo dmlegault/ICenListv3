@@ -274,6 +274,10 @@ public sealed class WslContainerEngine : CliContainerEngineBase, IContainerEngin
         }
     }
 
+    /// <summary>`wslc load -i`, into the store of whoever this process runs as - verified as LocalSystem with the runner image download (probe-container-engines.ps1 -Wslc, 2026-09-14).</summary>
+    public Task LoadImageAsync(string archivePath, CancellationToken ct = default) =>
+        LoadArchiveAsync("wslc", archivePath, ct);
+
     public async Task<IReadOnlyList<string>> ListByLabelsAsync(IReadOnlyDictionary<string, string> labels, CancellationToken ct = default)
     {
         // --all: stopped containers count, for the same reason as under Docker.

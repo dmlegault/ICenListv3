@@ -42,7 +42,7 @@ public sealed class ContainerImageNeverPulledTests : IDisposable
 
         var stub = StandIn("docker.cmd", "Error response from daemon: No such image: " + MissingImage, exitCode: 125);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var ex = await Assert.ThrowsAsync<ContainerImageMissingException>(() =>
             new DockerContainerEngine(stub).RunAsync(Spec()));
 
         AssertNeverPulled(RecordedArguments());
@@ -58,7 +58,7 @@ public sealed class ContainerImageNeverPulledTests : IDisposable
         // What wslc 2.9.11 prints, first line and error code, for an image it does not have.
         var stub = StandIn("wslc.cmd", "No such image: " + MissingImage + "\r\necho Error code: WSLC_E_IMAGE_NOT_FOUND", exitCode: 1);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var ex = await Assert.ThrowsAsync<ContainerImageMissingException>(() =>
             new WslContainerEngine(stub).RunAsync(Spec()));
 
         AssertNeverPulled(RecordedArguments());
@@ -74,7 +74,7 @@ public sealed class ContainerImageNeverPulledTests : IDisposable
         // A tag nobody has published anywhere, so the only way this image could appear is a pull.
         var image = "enlist/runner:never-pulled-" + Guid.NewGuid().ToString("N")[..8];
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var ex = await Assert.ThrowsAsync<ContainerImageMissingException>(() =>
             new DockerContainerEngine().RunAsync(Spec(image)));
 
         // With the default policy Docker would have gone to the registry and reported "pull access

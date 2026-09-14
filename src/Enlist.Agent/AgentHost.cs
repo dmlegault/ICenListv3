@@ -139,8 +139,9 @@ public sealed class AgentHost : IAsyncDisposable
         IReadOnlyDictionary<string, string>? additionalRunnerBinDirectories = null,
         string? containerImage = null,
         string? agentName = null,
-        IContainerEngine? containerEngine = null)
-        : this(new StaticAssignmentSource(assignments), runnerBinDirectory, stagingRoot, logRoot, options, null, null, additionalRunnerBinDirectories, null, containerImage, agentName, containerEngine)
+        IContainerEngine? containerEngine = null,
+        string? imageDropFolder = null)
+        : this(new StaticAssignmentSource(assignments), runnerBinDirectory, stagingRoot, logRoot, options, null, null, additionalRunnerBinDirectories, null, containerImage, agentName, containerEngine, imageDropFolder)
     {
     }
 
@@ -163,7 +164,11 @@ public sealed class AgentHost : IAsyncDisposable
 
         // Which engine drives containers when containerImage is set — Docker unless told otherwise. Chosen
         // by Program.cs from --container-engine; nothing here ever asks which one it got.
-        IContainerEngine? containerEngine = null)
+        IContainerEngine? containerEngine = null,
+
+        // The folder the container backend loads runner image archives from, as this agent's account
+        // (RunnerImageDropFolder). Program.cs passes <data>\Images; null means no such folder.
+        string? imageDropFolder = null)
     {
         _assignmentSource = assignmentSource;
         _statusReporter = statusReporter ?? NullStatusReporter.Instance;
@@ -208,12 +213,14 @@ public sealed class AgentHost : IAsyncDisposable
 
         if (containerImage is not null)
         {
+            _containerEngine = containerEngine ?? new DockerContainerEngine();
             backends[IsolationModes.Container] = new ContainerRunnerBackend(
-                _containerEngine = containerEngine ?? new DockerContainerEngine(), containerImage, _options.ConnectTimeout, _logSink,
+                _containerEngine, containerImage, _options.ConnectTimeout, _logSink,
 
                 // Defaults to the machine name, matching what --agent itself defaults to, so the
                 // ownership label is stable across restarts even when no name was passed explicitly.
-                agentName ?? Environment.MachineName);
+                agentName ?? Environment.MachineName,
+                images: imageDropFolder is null ? null : new RunnerImageDropFolder(imageDropFolder, _containerEngine, _logSink.WriteAgentLogAsync));
         }
 
         // Last word, and the seam tests use it — an explicitly supplied backend beats anything built above.
