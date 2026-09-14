@@ -37,6 +37,13 @@
 [CmdletBinding(DefaultParameterSetName = 'Now')]
 param(
     [Parameter(ParameterSetName = 'Now')] [switch] $Now,
+
+    # wslc as LocalSystem, all the way: does SYSTEM see any images, can the runner image download be
+    # loaded into SYSTEM's store, and does it run from there - each step timed. -Now showed that wslc
+    # answers SYSTEM (and that every identity, even an elevated token, gets its own empty store); this
+    # is the question that follows.
+    [Parameter(ParameterSetName = 'Wslc')] [switch] $Wslc,
+    [Parameter(ParameterSetName = 'Wslc')] [string] $ImageFile = (Join-Path (Split-Path $PSScriptRoot -Parent) 'out\enlist-runner-3.0.0.tar'),
     [Parameter(ParameterSetName = 'Arm')] [switch] $ArmStartupProbe,
     [Parameter(ParameterSetName = 'Read')] [switch] $ReadStartupProbe,
 
@@ -163,6 +170,64 @@ if ($Now) {
 
     Remove-Item $probeRoot -Recurse -Force -ErrorAction SilentlyContinue
     [IO.File]::WriteAllLines($Transcript, $lines)
+    Write-Host ""
+    Write-Host "Written to $Transcript"
+}
+
+if ($Wslc) {
+    if (-not (Test-Path $ImageFile)) { throw "No image download at $ImageFile. Run build.ps1 first, or pass -ImageFile." }
+    $image = 'enlist/runner:' + [regex]::Match((Split-Path -Leaf $ImageFile), 'enlist-runner-(.+)\.tar$').Groups[1].Value
+
+    New-Item -ItemType Directory -Force -Path $probeRoot | Out-Null
+    $output = Join-Path $probeRoot 'wslc-deep.txt'
+    $cmdFile = Join-Path $probeRoot 'wslc-deep.cmd'
+    Set-Content -Path $output -Value '' -Encoding ASCII
+    & icacls.exe $output /grant '*S-1-1-0:(M)' *>$null
+
+    # Each step: a marker with the clock, the command, its exit code. !time! needs delayed expansion.
+    function Step([string] $label, [string] $command) {
+        @(
+            "echo === $label at !time!>> `"$output`""
+            "$command >> `"$output`" 2>&1"
+            "echo exit=!errorlevel!>> `"$output`""
+        )
+    }
+    $lines = @('@echo off', 'setlocal EnableDelayedExpansion', "echo === whoami>> `"$output`"", "whoami >> `"$output`" 2>&1")
+    $lines += Step 'version (starts the session)' "`"$wslc`" version"
+    $lines += Step 'images before' "`"$wslc`" image list"
+    $lines += Step "load $ImageFile" "`"$wslc`" load -i `"$ImageFile`""
+    $lines += Step 'images after' "`"$wslc`" image list"
+    $lines += Step "run $image (prints the runner's usage and exits)" "`"$wslc`" run --pull never --rm $image"
+    $lines += Step "remove $image again" "`"$wslc`" image remove $image"
+    $lines += "echo === DONE at !time!>> `"$output`""
+    Set-Content -Path $cmdFile -Encoding ASCII -Value $lines
+
+    $task = 'enlist-engine-probe-wslc-deep'
+    $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$cmdFile`""
+    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+    Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Force | Out-Null
+    Start-ScheduledTask -TaskName $task
+    Write-Host "Running wslc as LocalSystem: version, image list, load, run, remove. Up to 10 minutes..."
+
+    $deadline = (Get-Date).AddMinutes(10)
+    $text = ''
+    while ((Get-Date) -lt $deadline) {
+        $text = Get-Content $output -Raw -ErrorAction SilentlyContinue
+        if ($text -match '=== DONE') { break }
+        Start-Sleep -Seconds 3
+    }
+    $text = Get-Content $output -Raw -ErrorAction SilentlyContinue
+    if ($text -notmatch '=== DONE') { $text += "`r`n(NOT FINISHED within 10 minutes - the last step shown is the one that did not return)" }
+
+    Stop-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
+    Get-CimInstance Win32_Process -Filter "Name='wslc.exe' AND SessionId=0" -ErrorAction SilentlyContinue |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Remove-Item $probeRoot -Recurse -Force -ErrorAction SilentlyContinue
+
+    $report = "wslc as LocalSystem, all the way - $(Get-Date -Format s)`r`n`r`n$($text.Trim())"
+    Write-Host $report
+    [IO.File]::WriteAllText($Transcript, $report)
     Write-Host ""
     Write-Host "Written to $Transcript"
 }
