@@ -68,7 +68,7 @@ enList-3.0.0-Setup.exe /quiet INSTALLTYPE=Custom InstallPortal=1    # the portal
 
 ## What these packages do, and deliberately do not
 
-They lay down files, create the data directories, and install a service whose command line is assembled from properties. That is all. **No migrations, no HTTP calls, no enrollment, no secrets** — those belong to the bootstrapper that will chain these, which is why the design calls the MSIs dumb.
+They lay down files, create the data directories, and install a service whose command line is assembled from properties. That is all. **No migrations, no HTTP calls, no enrollment, no secrets** — those belong to the bootstrapper that chains them (its post-install steps are in [`ba\README.md`](ba/README.md)), which is why the design calls the MSIs dumb.
 
 Three consequences worth knowing before wondering whether something is broken:
 
@@ -94,6 +94,11 @@ So the offline half opens each package as a real Windows Installer session, sets
 
 `-Live` is the other half, and it drives the **bundle** rather than `msiexec`, because the bundle is what an operator runs and it is the layer that passes the variables. It installs, upgrades to a higher version built from the same source, and uninstalls, asserting at each step: the service's account, start type and parsed command line; that an upgrade leaves exactly one registration and does not touch `%ProgramData%`; and that an uninstall removes the service and the binaries while correctly leaving `%ProgramData%` and the shared .NET runtime behind. It needs an elevated shell and it really does install — currently the agent only.
 
+Two more groups check what the packages *contain* rather than what they do, and both read the built artifacts rather than the source, because the source is not what ships:
+
+- **Every installer and every enList executable carries the iC icon** — the bundle, the wizard, each MSI, and the three services and both runners as they sit inside their MSIs. Each executable is read out of its package's embedded cabinet through `msi.dll` and compared with `enlist.ico` byte for byte, with an unbranded executable as a control. Comparing rendered pixels, the first attempt, could not tell the generic icon from the real one.
+- **Nothing design-time ships.** The control plane's `Microsoft.EntityFrameworkCore.Design` reference exists for `dotnet ef`, and Roslyn's build host — `Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.exe` and about 4 MB beside it — used to reach the control plane MSI as NuGet content files. The project now leaves it out of publish, `build.ps1` empties each publish folder so a stale copy cannot linger, and this check reads every package's File table to hold it that way.
+
 One defect it found is worth knowing about before editing any `.wxs` here: **a bundle variable that is empty replaces an MSI's default rather than falling back to it.** A `Property` element's value is the Property-table default, and the bundle passes every variable to every package unconditionally. `DB_SERVER` empty produced `Server=;` in a connection string — a control plane that installs perfectly and never starts. Every default in the three packages is therefore a conditional `SetProperty`, not a `Property` value, and there is a group of checks that holds it that way.
 
 ## One correction to the design
@@ -110,6 +115,6 @@ Three projects, split on one line: what can be tested, and what cannot. `Enlist.
 
 ## What is not here yet
 
-The parts that need the bootstrapper to exist at all, now that one does: minting a join token and exchanging it before the agent service is created, and minting the portal's key with `create-api-key` and storing it with `protect`. Until those land, the wizard collects a join token and a portal password but the install does not yet act on them.
+Nothing blocking an install. `live-e2e.ps1` passes end to end: schema, portal key, TLS, agent enrollment, and uninstall.
 
-Also outstanding: upgrade and repair verification across all three packages rather than the agent alone, and the open decisions in section 12, including code signing, which nothing here does.
+Still outstanding: `verify.ps1 -Live` proves upgrade and uninstall for the agent package only, not all three; nothing is code-signed (section 12 item 7, which needs a certificate purchase rather than a design); and the released runner image has no tag yet (section 12 item 8) — this repository builds `enlist/runner:dev` only.

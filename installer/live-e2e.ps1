@@ -24,11 +24,12 @@ param(
 
     # NOT LocalDB, and that is the whole point of running this rather than reading it.
     #
-    # The installer's own default is (localdb)\MSSQLLocalDB, and a LocalDB instance is PER USER. The
-    # schema is applied by the installer, running as the elevated operator; the service then runs as a
-    # service account and looks for an instance belonging to somebody else. It finds nothing, and the
-    # control plane refuses to start with "Cannot connect to the control plane database" - which is
-    # exactly what happened the first time this was run for real.
+    # A LocalDB instance is PER USER. The schema is applied by the installer, running as the elevated
+    # operator; the service then runs as a service account and looks for an instance belonging to
+    # somebody else. It finds nothing, and the control plane refuses to start with "Cannot connect to
+    # the control plane database" - which is exactly what happened the first time this was run for
+    # real, when LocalDB was still the installer's default. It no longer is: the packages have no
+    # default server, the wizard blocks LocalDB, and the control plane refuses it as a service.
     [string] $DatabaseServer = '.\SQLEXPRESS',
 
     # LocalSystem rather than the NETWORK SERVICE default, because SYSTEM is the service account that

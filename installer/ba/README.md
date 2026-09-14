@@ -58,7 +58,8 @@ So `Run()` builds the window, captures `Dispatcher.CurrentDispatcher`, calls `Di
 | `OnPlanComplete` | `Apply()` on success, finish on failure. |
 | `OnCacheAcquireProgress` | Download progress. Most of the wait on a machine without .NET is here; a bar that only moves during execution looks stuck for all of it. |
 | `OnExecuteProgress` | Install progress. |
-| `OnApplyComplete` | Result to the wizard, then finish. |
+| `OnExecutePackageBegin` / `OnExecutePackageComplete` | Records which packages this apply actually executed. The post-install steps key on that, not on the plan — see "After the packages" below. |
+| `OnApplyComplete` | Runs the post-install steps on a successful install, reports the result to the wizard, then finishes. |
 | `OnError` | Shows the message and returns `Result.Ok` — **never retries silently.** An error the operator cannot see, recovered from in a way they did not choose, is how an install ends up in a state nobody can explain. |
 
 **A silent install never reaches the window.** `Display.Full` and `Display.Passive` get a wizard; everything else plans and applies straight through. That is what makes the silent surface in Installer-UI-Design section 10 behave identically with or without a wizard — the window is one way of filling in variables, not a second way of installing.
@@ -100,7 +101,7 @@ cd installer
 .\verify.ps1
 ```
 
-86 methods, 138 cases. `InstallPlanTests` is the bulk of it — page flow, blocking reasons, and the variable dictionary. `ProbeTests` uses a stub `HttpMessageHandler` for `/health` and `SkippableFact` for anything needing a real SQL Server. `RuntimeDetectionTests` and `ContainerEngineDetectionTests` run against this machine and skip rather than fail where it cannot answer.
+97 methods, 138 cases. `InstallPlanTests` is the bulk of it — page flow, blocking reasons, and the variable dictionary. `ProbeTests` uses a stub `HttpMessageHandler` for `/health` and `SkippableFact` for anything needing a real SQL Server. `RuntimeDetectionTests` and `ContainerEngineDetectionTests` run against this machine and skip rather than fail where it cannot answer.
 
 Not in `enList_v3.slnx`, for the same reason the rest of `installer\` is not: it belongs to an artifact built deliberately, not on every inner loop.
 
@@ -140,7 +141,7 @@ The Iron Canary mark is the banner and, as a generated multi-size `.ico`, the wi
 | Each MSI's entry in Installed apps, when installed on its own with `msiexec` | `<Icon>` plus `ARPPRODUCTICON` in each package's `.wxs` |
 | The running services and runners in Task Manager — `Enlist.ControlPlane.exe`, `Enlist.Portal.exe`, `enlist-agent.exe`, and both `enlist-runner.exe` | `<ApplicationIcon>` in each project, from a second copy in `src\branding` (its README says why there are two) |
 
-`build.ps1` passes the file to every WiX build as `IconFile`. The check compares the icon's image bytes, not how it looks: rendering an icon and comparing pixels could not tell the generic application icon from this one. If Task Manager or Explorer still shows the old icon after a rebuild, that is the shell's icon cache, which is keyed by path — copy the file somewhere new to see what it really carries.
+`build.ps1` passes the file to every WiX build as `IconFile`. The check compares the icon's image bytes, not how it looks: rendering an icon and comparing pixels could not tell the generic application icon from this one. If Explorer still shows the old icon after a rebuild, that is the shell's icon cache, which is keyed by path — copy the file somewhere new to see what it really carries. Task Manager keeps a copy of its own on top of that, for as long as it is open, so close and reopen it before believing it.
 
 Note that a dark theme is not a background colour: every input, button, grid and header needs its own template, or it stays Windows-default white on a dark page.
 
