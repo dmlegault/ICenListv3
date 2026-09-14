@@ -57,6 +57,15 @@ wslc load -i enlist-runner-3.0.0.tar
 
 Beside them, `enlist-runner-<version>-README.md` says exactly that, so the instructions travel with the file. It is a plain tar, about 80 MB — `docker save` already compresses the layers, and gzip saved half a megabyte. The wizard says it too: choosing a container engine on the Agent page shows the load command in place of the "leave it empty" hint, and the Finish page repeats it. Agents never pull, so until this is loaded a container-mode agent reports the image missing by name. Docker not running stops the build with a message rather than skipping quietly; `-SkipRunnerImage` is the deliberate way past it, and removes any earlier download from `out\` so a stale one cannot be handed out.
 
+### What to hand out
+
+Everything a recipient needs is in `out\`, and it is two things, not one:
+
+| Give to | Files | Notes |
+|---|---|---|
+| everyone installing enList | `enList-<version>-Setup.exe` | The only installer. The three MSIs are embedded in it; the `.msi` and `.wixpdb` files beside it are build by-products. The .NET runtimes are **downloaded** at install time if missing, so a machine with no internet access needs them installed first. |
+| machines that run applications in containers | `enlist-runner-<version>.tar`, `.tar.sha256`, `enlist-runner-<version>-README.md` | The runner image, side-loaded with `docker load -i` or `wslc load -i` as the README says. Not needed by agents that run applications as processes, or by the control plane and portal. |
+
 `build.ps1` also takes `-Version` and `-OutputDirectory`, which exist for one purpose: building a higher version of the same source, somewhere else, so an upgrade can be tested without replacing the real output. `verify.ps1 -Live` uses both.
 
 ## What the bundle decides

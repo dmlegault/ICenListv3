@@ -96,7 +96,7 @@ The isolation block carries three more fields, all honoured:
 ```json
 "isolation": {
   "mode": "container",
-  "image": "enlist/runner:dev",         // pin THIS application to one runner release (":dev" and ":wslc" are what this repo builds; a version tag is an open release decision)
+  "image": "enlist/runner:dev",         // pin THIS application to one runner release (":dev" and ":wslc" are local builds; a release is enlist/runner:<version>, loaded from its download - the agent never pulls)
   "networks": ["shared-net"],           // named networks to attach to
   "env": {"ASPNETCORE_ENVIRONMENT": "Staging"},   // non-secret only
   "ports": [{"containerPort": 8080}]
