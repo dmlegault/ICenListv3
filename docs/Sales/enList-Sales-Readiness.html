@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>enList Sales Readiness</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+  body { margin: 0; }
+  :root {
+    --ground: #F5F7FA;
+    --surface: #FFFFFF;
+    --ink: #171A2B;
+    --muted: #586076;
+    --rule: #D8DEE8;
+    --accent: #0088D0;
+    --accent-ink: #00679F;
+    --accent-tint: #E7F3FA;
+    --accent-line: #9CCFEA;
+    --crit: #B3372F;
+    --crit-tint: #FBEAE8;
+    --warn: #8F5B00;
+    --warn-tint: #FBF0DC;
+    --idle: #5F667C;
+    --idle-tint: #ECEFF4;
+
+    --display: "Archivo", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #1A1A27;
+      --surface: #242435;
+      --ink: #F2F2F6;
+      --muted: #A3A3B9;
+      --rule: #37374D;
+      --accent: #2FA6E8;
+      --accent-ink: #72C5F2;
+      --accent-tint: #1C2F42;
+      --accent-line: #2C5A7A;
+      --crit: #F2857B;
+      --crit-tint: #3A2329;
+      --warn: #E8B75E;
+      --warn-tint: #3A3023;
+      --idle: #A3A3B9;
+      --idle-tint: #2E2E43;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #1A1A27;
+    --surface: #242435;
+    --ink: #F2F2F6;
+    --muted: #A3A3B9;
+    --rule: #37374D;
+    --accent: #2FA6E8;
+    --accent-ink: #72C5F2;
+    --accent-tint: #1C2F42;
+    --accent-line: #2C5A7A;
+    --crit: #F2857B;
+    --crit-tint: #3A2329;
+    --warn: #E8B75E;
+    --warn-tint: #3A3023;
+    --idle: #A3A3B9;
+    --idle-tint: #2E2E43;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.55;
+    padding: 40px 20px 56px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .sheet {
+    max-width: 980px;
+    margin: 0 auto;
+    display: grid;
+    gap: 44px;
+  }
+
+  h1, h2, h3 {
+    font-family: var(--display);
+    font-stretch: 82%;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  p { margin: 0; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    color: var(--accent-ink);
+    white-space: nowrap;
+  }
+
+  .label {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* ---- Header ---- */
+  .masthead {
+    display: grid;
+    gap: 18px;
+  }
+
+  .memo-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 22px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .memo-line span strong {
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  h1 {
+    font-size: clamp(34px, 5.4vw, 54px);
+    font-weight: 750;
+    line-height: 1.02;
+    letter-spacing: -0.012em;
+    max-width: 18ch;
+  }
+
+  h1 .quiet { color: var(--muted); }
+
+  .lead {
+    font-size: 19px;
+    line-height: 1.55;
+    max-width: 64ch;
+  }
+
+  /* ---- Section heads ---- */
+  .section { display: grid; gap: 20px; }
+
+  .section-head {
+    display: grid;
+    gap: 6px;
+  }
+
+  h2 {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+
+  .section-head p {
+    color: var(--muted);
+    max-width: 64ch;
+  }
+
+  /* ---- Strengths ---- */
+  .wins {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0 28px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .wins li {
+    display: grid;
+    gap: 4px;
+    align-content: start;
+    padding: 14px 0 16px;
+    border-top: 1px solid var(--rule);
+  }
+
+  .wins strong {
+    font-weight: 600;
+  }
+
+  .wins span { color: var(--muted); font-size: 15px; }
+
+  .rival {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 18px;
+    align-items: baseline;
+    padding: 14px 18px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+  }
+
+  .rival p { max-width: 78ch; }
+
+  /* ---- Buyer's path ---- */
+  .track {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0 26px;
+    position: relative;
+  }
+
+  .track::before {
+    content: "";
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    top: 7px;
+    height: 2px;
+    background: var(--rule);
+  }
+
+  .stage {
+    position: relative;
+    display: grid;
+    gap: 8px;
+    align-content: start;
+  }
+
+  .stage[data-status="blocked"] { --status: var(--crit); --status-tint: var(--crit-tint); }
+  .stage[data-status="fails"]   { --status: var(--crit); --status-tint: var(--crit-tint); }
+  .stage[data-status="risk"]    { --status: var(--warn); --status-tint: var(--warn-tint); }
+  .stage[data-status="absent"]  { --status: var(--idle); --status-tint: var(--idle-tint); }
+
+  .node {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--ground);
+    border: 3px solid var(--status);
+    margin-bottom: 8px;
+  }
+
+  .stage-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  h3 {
+    font-size: 21px;
+    font-weight: 700;
+    line-height: 1.15;
+  }
+
+  .chip {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--status);
+    background: var(--status-tint);
+    padding: 3px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .stage > p { font-size: 15px; }
+
+  .gaps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 5px;
+    font-size: 15px;
+  }
+
+  .gaps li {
+    display: grid;
+    grid-template-columns: 10px 1fr;
+    gap: 8px;
+  }
+
+  .gaps li::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    margin-top: 9px;
+    border-radius: 50%;
+    background: var(--status);
+  }
+
+  /* ---- The recommendation ---- */
+  .next {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: 28px 40px;
+    padding: 30px 32px;
+    background: var(--accent-tint);
+    border: 1px solid var(--accent-line);
+    border-radius: 8px;
+  }
+
+  .next .label { color: var(--accent-ink); }
+
+  .next h2 {
+    font-size: clamp(28px, 3.8vw, 38px);
+    font-weight: 780;
+    margin: 6px 0 12px;
+  }
+
+  .next .pitch {
+    font-size: 18px;
+    max-width: 52ch;
+  }
+
+  .next-side {
+    display: grid;
+    gap: 18px;
+    align-content: start;
+  }
+
+  .shift {
+    display: grid;
+    gap: 6px;
+    padding-left: 14px;
+    border-left: 2px solid var(--accent);
+  }
+
+  .shift .from { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--accent-line); }
+  .shift .to { font-weight: 600; }
+
+  .reuse {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .reuse li {
+    font-size: 13.5px;
+    padding: 3px 10px;
+    background: var(--surface);
+    border: 1px solid var(--accent-line);
+    border-radius: 999px;
+  }
+
+  .next-note {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 40px;
+    padding-top: 18px;
+    border-top: 1px solid var(--accent-line);
+    font-size: 15px;
+  }
+
+  /* ---- Alongside ---- */
+  .alongside {
+    display: grid;
+    grid-template-columns: 1fr 1.35fr 1fr;
+    gap: 0 32px;
+  }
+
+  .alongside > div {
+    display: grid;
+    gap: 8px;
+    align-content: start;
+    padding-top: 14px;
+    border-top: 2px solid var(--ink);
+  }
+
+  .alongside h3 { font-size: 19px; }
+
+  .alongside p, .order { font-size: 15px; }
+
+  .order {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: step;
+    display: grid;
+    gap: 6px;
+  }
+
+  .order li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    gap: 6px;
+  }
+
+  .order li::before {
+    content: counter(step);
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--accent-ink);
+    padding-top: 1px;
+  }
+
+  .tbc {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  /* ---- Close ---- */
+  .close {
+    display: grid;
+    gap: 18px;
+    padding-top: 26px;
+    border-top: 1px solid var(--rule);
+  }
+
+  .close blockquote {
+    margin: 0;
+    font-family: var(--display);
+    font-stretch: 88%;
+    font-size: clamp(22px, 2.8vw, 28px);
+    font-weight: 600;
+    line-height: 1.25;
+    max-width: 44ch;
+    text-wrap: balance;
+  }
+
+  .close blockquote em {
+    font-style: normal;
+    color: var(--accent-ink);
+  }
+
+  .basis {
+    font-size: 13px;
+    color: var(--muted);
+    max-width: 96ch;
+  }
+
+  /* ---- Narrow ---- */
+  @media (max-width: 860px) {
+    .wins { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .track { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 30px 26px; }
+    .track::before { display: none; }
+    .next { grid-template-columns: 1fr; padding: 24px 22px; }
+    .alongside { grid-template-columns: 1fr; gap: 26px; }
+  }
+
+  @media (max-width: 560px) {
+    body { padding-block: 28px 44px; }
+    .sheet { gap: 36px; }
+    .wins { grid-template-columns: 1fr; }
+    .track { grid-template-columns: 1fr; }
+    .rival { grid-template-columns: 1fr; }
+    .next-note { grid-template-columns: 1fr; }
+    .lead { font-size: 17px; }
+  }
+
+  @media print {
+    :root, :root[data-theme="dark"] {
+      --ground: #FFFFFF; --surface: #FFFFFF; --ink: #171A2B; --muted: #586076; --rule: #D8DEE8;
+      --accent: #0088D0; --accent-ink: #00679F; --accent-tint: #EEF7FC; --accent-line: #9CCFEA;
+      --crit: #B3372F; --crit-tint: #FBEAE8; --warn: #8F5B00; --warn-tint: #FBF0DC; --idle: #5F667C; --idle-tint: #ECEFF4;
+    }
+    @page { margin: 12mm; }
+    body { padding: 0; font-size: 12.5px; }
+    .sheet { gap: 20px; }
+    h1 { font-size: 34px; }
+    .lead { font-size: 14px; }
+    h2 { font-size: 20px; }
+    .next { padding: 16px 18px; }
+    .next .pitch { font-size: 14px; }
+    .stage > p, .gaps, .wins span, .alongside p, .order, .next-note { font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<main class="sheet">
+
+  <header class="masthead">
+    <div class="memo-line label">
+      <span><strong>enList v3</strong></span>
+      <span>Sales brief</span>
+      <span>To <strong>the enList team</strong></span>
+      <span>15 Sep 2026</span>
+    </div>
+    <h1>The engine is ready to sell. <span class="quiet">The product isn't yet.</span></h1>
+    <p class="lead">We could sign a pilot with a friendly customer today, but we couldn't sell licenses at scale. That's not about code quality: the core is solid, with 348 test methods and a real install that deploys and runs apps through both container engines. The gap is that enList was built as an internal tool, and its own requirements doc still calls it one. A paying customer measures it against a different checklist.</p>
+  </header>
+
+  <section class="section" aria-labelledby="wins-title">
+    <div class="section-head">
+      <h2 id="wins-title">Where we win</h2>
+      <p>What a Windows shop hears in the first ten minutes, and can check is real.</p>
+    </div>
+    <ul class="wins">
+      <li><strong>Legacy and modern side by side</strong><span>.NET Framework 4.7.2 apps and .NET 10 apps, run and watched from one portal.</span></li>
+      <li><strong>Outbound-only agents</strong><span>Managed machines never open an inbound port. Security teams like hearing that.</span></li>
+      <li><strong>Rules, not scripts</strong><span>Say what runs where by tag. A new server matching the tag picks up its apps on its own.</span></li>
+      <li><strong>Process or container, same package</strong><span>Nothing is rebuilt. Runs through wslc too, so no Docker Desktop license needed.</span></li>
+      <li><strong>Control inside an app</strong><span>Stop one service or job without restarting the whole application.</span></li>
+      <li><strong>An installer that works unattended</strong><span>Proven by real installs, not just demos.</span></li>
+    </ul>
+    <div class="rival">
+      <span class="label">Real rival</span>
+      <p>What customers already have: Task Scheduler, service wrappers, remote desktop and scripts. Kubernetes and Nomad are too heavy for these shops, and Octopus deploys well but doesn't supervise what it deployed. Keeping background work running on Windows fleets is a real, underserved niche.</p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="path-title">
+    <div class="section-head">
+      <h2 id="path-title">Where deals stall</h2>
+      <p>A buyer's path, in the order they walk it, and where each stage stops today.</p>
+    </div>
+    <ol class="track">
+      <li class="stage" data-status="blocked">
+        <div class="node" aria-hidden="true"></div>
+        <span class="label">Stage 1</span>
+        <div class="stage-top"><h3>Try it</h3><span class="chip">Blocked</span></div>
+        <p>enList only runs code written against our six attributes: <code>[EnlistService]</code>, <code>[EnlistJob]</code> and the rest. A prospect's existing services, console programs and scripts can't be managed without rewriting them, so every evaluation starts as a developer project.</p>
+      </li>
+      <li class="stage" data-status="fails">
+        <div class="node" aria-hidden="true"></div>
+        <span class="label">Stage 2</span>
+        <div class="stage-top"><h3>Security review</h3><span class="chip">Fails</span></div>
+        <ul class="gaps">
+          <li>Windows groups only, no Entra ID sign-in</li>
+          <li>Two roles: Operator and Viewer</li>
+          <li>No audit table, only log lines</li>
+          <li>No secrets store: settings are plain JSON</li>
+          <li>No alerts, no HA, no agent self-update</li>
+          <li>Installers aren't code-signed</li>
+        </ul>
+      </li>
+      <li class="stage" data-status="risk">
+        <div class="node" aria-hidden="true"></div>
+        <span class="label">Stage 3</span>
+        <div class="stage-top"><h3>Pilot</h3><span class="chip">At risk</span></div>
+        <ul class="gaps">
+          <li>A rollout hits every matching machine at once, with no health check</li>
+          <li>A service stopped in the portal starts again after a restart</li>
+          <li>Only a job's last run is kept, and there's no "run now"</li>
+        </ul>
+      </li>
+      <li class="stage" data-status="absent">
+        <div class="node" aria-hidden="true"></div>
+        <span class="label">Stage 4</span>
+        <div class="stage-top"><h3>Purchase</h3><span class="chip">Not built</span></div>
+        <ul class="gaps">
+          <li>No license key or EULA page in the installer</li>
+          <li>No pricing</li>
+          <li>No self-serve trial</li>
+          <li>No CI/CD examples</li>
+        </ul>
+      </li>
+    </ol>
+  </section>
+
+  <section class="next" aria-labelledby="next-title">
+    <div>
+      <span class="label">The next move</span>
+      <h2 id="next-title">Generic workload mode</h2>
+      <p class="pitch">Let enList run any existing program unchanged, whether an <code>.exe</code>, a console app or a PowerShell script, either kept alive as a service or run on a schedule as a job.</p>
+    </div>
+    <div class="next-side">
+      <div class="shift">
+        <span class="label">It changes the pitch</span>
+        <span class="from">"Rewrite your apps to try us."</span>
+        <span class="to">"Point us at what you already run."</span>
+      </div>
+      <div class="shift">
+        <span class="label">Everything we built applies at once</span>
+        <ul class="reuse">
+          <li>Tags and rules</li>
+          <li>Portal visibility</li>
+          <li>Restart with backoff</li>
+          <li>Process-tree cleanup</li>
+          <li>Log pipeline, from console output</li>
+          <li>Cron scheduling</li>
+        </ul>
+      </div>
+    </div>
+    <div class="next-note">
+      <p><strong>Why it's first:</strong> a trial becomes an afternoon instead of a project, and the market grows from teams willing to adopt our SDK to every Windows shop.</p>
+      <p><strong>What stays:</strong> the attribute SDK becomes the premium tier, since it gives per-service control and graceful stops. Container mode for arbitrary programs can wait; process mode is what these customers need first.</p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="along-title">
+    <div class="section-head">
+      <h2 id="along-title">Alongside it, not after it</h2>
+    </div>
+    <div class="alongside">
+      <div>
+        <span class="label">Sales</span>
+        <h3>Three to five design partners</h3>
+        <p>Windows-heavy companies in logistics, manufacturing and finance back offices, recruited on the promise of generic workload mode.</p>
+      </div>
+      <div>
+        <span class="label">Engineering, in order</span>
+        <h3>From pilot-safe to review-ready</h3>
+        <ol class="order">
+          <li>Portal stops that stick after a restart; job run history and "run now"</li>
+          <li>Alerts (email, Teams, webhook), Entra ID sign-in, an audit table</li>
+          <li>Gradual rollouts gated on health checks</li>
+          <li>Agent self-update, licensing, code signing (certificate still to buy)</li>
+        </ol>
+      </div>
+      <div>
+        <span class="label">Pricing hypothesis</span>
+        <h3>Per managed machine, per year</h3>
+        <p>The norm in this category, and it grows as their fleet grows.</p>
+        <span class="tbc">To validate with design partners</span>
+      </div>
+    </div>
+  </section>
+
+  <footer class="close">
+    <blockquote>We have a great engine behind a door most customers can't get through. <em>Generic workload mode opens the door</em>; the enterprise checklist is what gets us to a signed license.</blockquote>
+    <p class="basis">Basis: a code-level inventory of enList v3 on 15 Sep 2026, with the attribute requirement confirmed in the runner's plugin discovery; live installer runs on 14 Sep 2026 that deployed a sample app as a process and in a container through both wslc and Docker; 348 test methods across five test projects. Competitor positioning is general market knowledge, not a feature-by-feature audit.</p>
+  </footer>
+
+</main>
+</body>
+</html>

@@ -1,7 +1,14 @@
 # enList Program Workloads — Design
 
 **Product:** enList v3
-**Document status:** **Design proposal — nothing here is built.** Written 2026-09-15 against `main` at `56002e5`. This is the "generic workload mode" the sales-readiness brief of the same date names as the next move: letting enList run programs a customer already has, unchanged. Statements about *today* cite `src/` and are verifiable there; everything described as new is a proposal until §16's phases land. Sits alongside [`SAD.md`](SAD.md) (current components), [`Container-Story.md`](Container-Story.md) (the runner seam this builds on, and Design B), and [`enList-v3-Design.md`](enList-v3-Design.md) (why the attribute contract exists).
+**Document status:** **Design proposal — nothing here is built.** Written 2026-09-15 against `main` at `56002e5`, and **amended the same day after a review of the risk it poses to what already works** (§16.1). The amendments:
+- the agent accepts runner protocol 2 and 3, instead of requiring an upgrade in lockstep (§8);
+- agent shutdown stops applications in parallel, within explicit host and SCM time limits (§9 item 8);
+- program workloads can be switched off per agent and fleet-wide (§9.1, §10.7);
+- Ctrl+C is delivered by a helper process, so the runner never touches its own console (§7.5);
+- P0 starts with characterization tests and a minimum CI (§16, §17.4).
+
+This is the "generic workload mode" the sales-readiness brief of the same date names as the next move: letting enList run programs a customer already has, unchanged. Statements about *today* cite `src/` and are verifiable there; everything described as new is a proposal until §16's phases land. Sits alongside [`SAD.md`](SAD.md) (current components), [`Container-Story.md`](Container-Story.md) (the runner seam this builds on, and Design B), and [`enList-v3-Design.md`](enList-v3-Design.md) (why the attribute contract exists).
 
 ---
 
@@ -38,9 +45,10 @@ This document specifies **program workloads**: a way to describe an existing pro
 
 - **G1 — Unmodified programs.** Run an existing executable or script as a **service** (started with the application, kept alive) or a **job** (run on a cron schedule, or on demand), with process isolation, on agents that are already deployed.
 - **G2 — Everything already built applies.** Tag-selector rules, desired state, cron overrides, service Start/Stop and job Enable/Disable from the portal, restart with backoff, process-tree containment, log forwarding and retention, status reports, package versioning, digests, rollback by digest.
-- **G3 — The agent does not learn a new concept.** The invariant in [`Container-Story.md`](Container-Story.md) §6.4 — `AgentHost` never branches on which backend it holds — is kept, and extended: `AgentHost` does not branch on hosting kind either.
+- **G3 — The agent does not learn a new concept.** The invariant in [`Container-Story.md`](Container-Story.md) §6.4 — `AgentHost` never branches on which backend it holds — is kept, and extended: `AgentHost`'s lifecycle code does not branch on hosting kind either. The one flavor-aware rule is a row in the protocol compatibility table (§8), not a condition in start, stop or restart.
 - **G4 — One artifact, one tool.** A program workload is a zip, uploaded with `enlist-deploy` or the portal, stored and versioned exactly like today's packages.
 - **G5 — An afternoon, not a project.** From "we have a folder with a program in it" to "it is running under enList on a test agent" in under an hour, with no code changes.
+- **G6 — What already works keeps working.** Existing attribute applications, container runner images already distributed, and the agents already installed behave as they do today. Each shared path the design touches has a named control (§16.1), and program hosting can be switched off without touching a machine (§10.7).
 
 ### Non-goals for this design
 
@@ -113,7 +121,8 @@ The legacy runner (`src/Enlist.Runner.Legacy`) does not get this mode. A useful 
 ## 5. What does not change
 
 - **Agent:** reconciliation, crash backoff for the runner process, `JobScheduler` (the agent owns cron), overlap skipping (`AgentHost.RunJobDueAsync`), command routing, the container backend, orphan reaping, log files and forwarding, status reporting. §9 lists the handful of agent changes, none of which branch on hosting kind.
-- **Protocol framing:** newline-delimited JSON over the existing transports (`MessageChannel.cs`). §8 adds optional fields and bumps the version.
+- **Protocol framing:** newline-delimited JSON over the existing transports (`MessageChannel.cs`). §8 adds optional fields and bumps the version, and the agent goes on accepting version-2 runners, so existing container runner images keep working.
+- **The legacy runner:** `src/Enlist.Runner.Legacy` is not modified by this design at all (§8).
 - **Packages:** upload, SHA-256 digests, per-application version numbers, 30-day retention of unreferenced packages, deletion refused while referenced, agent-side cache and digest verification (`src/Enlist.Agent/Configuration/PackageCache.cs`).
 - **Rules:** tag selectors, the implicit `agent=<name>` tag, conflict detection, port-collision detection, scheduling on/off per agent.
 - **Authentication and authorization:** uploading a package and creating a rule remain Operator actions (`src/Enlist.ControlPlane/Authentication/EndpointPolicies.cs`).
@@ -426,14 +435,27 @@ Programs of one application are stopped in parallel, each on its own clock, as t
 
 | Method | Mechanism | Works for |
 |---|---|---|
-| `console` | Delivers **Ctrl+C** to the program's console: `FreeConsole` → `AttachConsole(pid)` → `SetConsoleCtrlHandler(NULL, TRUE)` so the runner ignores its own copy → `GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0)` → `FreeConsole` → restore the handler. A process can be attached to only one console at a time, so a runner-wide lock serialises deliveries; each takes milliseconds. **Launches take the same lock**, because the "ignore Ctrl+C" state set by `SetConsoleCtrlHandler(NULL, TRUE)` is inherited by any process created while it is set: a program launched mid-delivery would ignore Ctrl+C for its whole life. This is the technique NSSM has used for years, for the same reason. | .NET Generic Host workers (graceful shutdown), .NET Framework programs handling `Console.CancelKeyPress`, PowerShell (stops the pipeline and runs `finally` blocks), Python (`KeyboardInterrupt`), Node and Go (`SIGINT`) |
+| `console` | Delivers **Ctrl+C** to the program's console through a **signal helper**, so the runner never touches a console itself. The runner starts a short-lived copy of its own executable, `<runner> --signal-console <pid>`, created with `CREATE_NO_WINDOW`. The helper does `FreeConsole` → `AttachConsole(pid)` → `SetConsoleCtrlHandler(NULL, TRUE)` (so it ignores its own copy) → `GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0)`, then exits: 0 when the event was delivered, 1 with the Win32 error when attaching failed, which the runner logs before relying on the timeout. The event reaches every process attached to that console, so a batch file and the tool it is running both receive it. This is the attach-and-generate technique NSSM has used for years; the helper is what makes it safe here (see below). | .NET Generic Host workers (graceful shutdown), .NET Framework programs handling `Console.CancelKeyPress`, PowerShell (stops the pipeline and runs `finally` blocks), Python (`KeyboardInterrupt`), Node and Go (`SIGINT`) |
 | `stdin` | Closes the program's standard input | Programs that finish at end of input. **Required for `cmd.exe` batch files:** Ctrl+C makes `cmd.exe` ask *Terminate batch job (Y/N)?* and read the answer from stdin; end of input ends the batch. That is why `.cmd` and `.bat` default to `["console", "stdin"]`. |
 | `close` | Posts `WM_CLOSE` to every top-level window the process owns (`EnumWindows` filtered by `GetWindowThreadProcessId`) | Windowed programs: a WinForms or WPF tool that exits when its window closes. Session 0 has no visible desktop, but window messages are still delivered. |
 | `command` | Runs `stop.command` with `stop.arguments`, in its own job object, on the same clock; its output is logged with `Source` `<name> (stop)` | Programs with their own shutdown verb, such as `tool.exe --shutdown` or a `net stop`-style script |
 
 **Programs that ignore every signal** are still stopped — by step 3 — and the log says they were killed, so an operator can see which programs need a better stop method.
 
-**The agent's clock must not cut the program's short.** Today `AgentHost.StopApplicationAsync` gives the runner `AgentHostOptions.StopGracePeriod` — **10 seconds** by default (`AgentHostOptions.cs:8`, used at `AgentHost.cs:789`) — before killing it, and killing the runner kills every program through §7.3. A program whose descriptor asks for 30 seconds would be killed at 10. So `ready` carries `StopGraceMs` (§8), and the agent waits `max(StopGracePeriod, StopGraceMs)` for that application (§9 item 4). This is not specific to programs: an attribute application may report one too.
+**Why Ctrl+C goes through a helper process.** Doing the attach inside the runner, as first drafted, had two defects. Both were found in the regression-risk review of this design (§16.1):
+
+- **`--dev` would lose the developer's terminal.** `FreeConsole` detaches the calling process from its console, and under `enlist-runner --dev` that console is the developer's own terminal.
+- **Launches would race deliveries.** The "ignore Ctrl+C" state that `SetConsoleCtrlHandler(NULL, TRUE)` sets is inherited by every process created while it is set. A program launched mid-delivery would ignore Ctrl+C for its whole life, unless launches and deliveries shared a runner-wide lock.
+
+A helper process has neither problem. Its console state dies with it, and the runner's console — agent-launched or a developer's terminal — is never detached, attached or masked. The cost is one short process start per stop, a few tens of milliseconds, inside a timeout measured in seconds. The helper is the runner's own executable in another mode, like the existing `--log-sink`, so there is nothing extra to stage or ship.
+
+**The agent's clock must not cut the program's short.** Three things bound how long a program really gets, and the design fixes each:
+
+1. **The per-application grace.** Today `AgentHost.StopApplicationAsync` gives the runner `AgentHostOptions.StopGracePeriod` — **10 seconds** by default (`AgentHostOptions.cs:8`, used at `AgentHost.cs:789`) — before killing it, and killing the runner kills every program through §7.3. A program whose descriptor asks for 30 seconds would be killed at 10. So `ready` carries `StopGraceMs` (§8), and the agent waits `max(StopGracePeriod, StopGraceMs)` for that application (§9 item 4). This is not specific to programs: an attribute application may report one too.
+2. **Applications are stopped one after another at agent shutdown.** `AgentHost.StopAsync` awaits each application in turn (`AgentHost.cs:1443-1446`), so the total is the *sum* of their graces. The generic host bounds that total with `HostOptions.ShutdownTimeout`, which the agent never sets (`src/Enlist.Agent/Program.cs:250-260`), so .NET's default applies. Four applications at 10 seconds each already overrun a 30-second host timeout **today**; the host then stops waiting, the process exits, and the job object ends every runner mid-shutdown. §9 item 8 stops applications **in parallel** — each still under its own lifecycle gate — and sets the host timeout explicitly.
+3. **The Service Control Manager.** A service that takes long to stop must keep telling the SCM it is still stopping, or `sc stop`, an MSI upgrade and the Services console report that it did not respond in time. §9 item 8 requests additional time from the SCM while applications are stopping.
+
+**Machine shutdown remains a hard limit.** Windows bounds how long services may take while the machine itself shuts down, whatever a service asks for. Parallel stops make the most of that window. A program still running when Windows ends the agent is terminated through the job objects, and the Program Workload Guide says so plainly.
 
 ### 7.6 Services: lifecycle, restart and backoff
 
@@ -503,11 +525,34 @@ Both work on program workloads with no new flags, because both already sit on th
 - **`enlist-runner --check --app <dir>`** validates the descriptor, resolves every command and script *on this machine*, and prints the inventory: each entry's kind, name, resolved command line, working directory, cron and stop methods, plus every warning. Exit code 0 when at least one entry is valid, 1 otherwise — unchanged semantics, so it remains a CI gate (`src/Enlist.Runner/Dev/CheckReport.cs`).
 - **`enlist-runner --dev --app <dir>`** runs the real program host against the in-process dev driver (`src/Enlist.Runner/Dev/DevHost.cs`): services auto-start, `start`/`stop <service>`, `run <job> key=value` (arriving as `ENLIST_SETTING_KEY`), `cancel <job>`, Ctrl+C to shut down. An evaluator can watch their own program under enList's supervision in one terminal, before a control plane is involved.
 
+  The developer's terminal is safe in `--dev`: programs run in consoles of their own (`CREATE_NO_WINDOW`), so a Ctrl+C typed in the terminal reaches the dev host — which shuts down in order — and not the programs directly. And stop signals go through the signal helper (§7.5), so the runner never detaches from the terminal it is running in.
+
 ---
 
-## 8. Protocol version 3
+## 8. Protocol version 3 — accepted alongside version 2
 
-`RunnerProtocol.Version` goes from **2** to **3** (`src/Enlist.Runner/Protocol/RunnerProtocol.cs:39`). The rule in that file requires a bump for "adding a field the receiver must act on", and the agent must act on `StopGraceMs`. The version check is exact equality (`DescribeMismatch`), so the modern runner, the legacy runner's copy of the protocol, and the agent move to 3 together. They already ship together: an agent stages its runners from its own installation.
+`RunnerProtocol.Version` goes from **2** to **3** (`src/Enlist.Runner/Protocol/RunnerProtocol.cs:39`). The rule in that file requires a bump for "adding a field the receiver must act on", and the agent must act on `StopGraceMs`.
+
+**The agent accepts both 2 and 3. It does not require the two sides to move in lockstep.** Today the check is exact equality (`DescribeMismatch`, `RunnerProtocol.cs:54-64`). Keeping that, as this document first proposed, would have been the single largest regression risk in the whole design (§16.1). Process-mode runners are staged from the agent's own installation, so they would always match. But a **container** application's runner lives in an image built and distributed separately:
+
+- the side-loaded `enlist-runner-<version>.tar` a customer loaded last month;
+- the `enlist/runner:dev` image the container tests use, which is rebuilt by hand;
+- a demo's `enlist/runner:wslc`.
+
+With exact equality, a new agent meeting any of those images fails **every container application** with a protocol mismatch, while every process application goes on working and every test that does not rebuild the image goes on passing.
+
+So `DescribeMismatch` becomes a range check:
+
+| Runner reports | Agent response |
+|---|---|
+| `3` (`Version`) | Accepted. |
+| `2` (`MinimumSupported`) | **Accepted.** Every v3 field is optional, and absent means exactly today's behaviour: no `StopGraceMs` means the agent's default grace, no `HostingKind` means an attribute application, no per-service fields means the report carries none. |
+| `2`, for an application whose flavor is `program` | Refused, without retry: *this runner speaks protocol 2, which predates program workloads; use a runner from the same enList release as this agent.* A version-2 runner given a program package would discover no attribute types and report an empty application — the silent failure the version check exists to prevent. |
+| `0` (unreported), or anything above `3` | Refused, as today. |
+
+The one flavor-aware rule lives **inside the compatibility check** — `RunnerProtocol.DescribeMismatch(reported, runtimeFlavor)` answers "can this runner host this flavor?" as a table — not in `AgentHost`'s lifecycle code, which keeps G3.
+
+**The legacy runner does not change at all.** It stays at protocol 2: it never hosts programs, never needs `StopGraceMs`, and has no per-service fields to send. That removes a second risk — edits to the legacy runner's *copied* protocol source (`Enlist.Runner.Legacy.Protocol`) drifting from the modern runner's, which the 12 September review had already caught happening once.
 
 All changes are **additive, optional fields**:
 
@@ -522,21 +567,41 @@ All changes are **additive, optional fields**:
 
 No new message kinds and no new commands. Attribute applications send none of the new `StateChangedMessage` fields.
 
+**When exact matching can come back.** Once no supported release ships a version-2 container runner image, `MinimumSupported` rises to 3 in a release of its own. That release must say so in its notes, because it is the one that makes customers re-download the runner image.
+
 ---
 
 ## 9. Agent changes
 
-Seven changes, none of which make `AgentHost` branch on hosting kind or backend type:
+Nine changes, none of which make `AgentHost`'s lifecycle code branch on hosting kind or backend type:
 
-1. **Route the `program` flavor to the modern runner.** In the `AgentHost` constructor, register `RuntimeFlavors.Program` against the same runner-bin directory as `RuntimeFlavors.Default` (beside `AgentHost.cs:178`). This one line is the routing. An agent that predates it has no entry for `program` and fails the application with the existing, clear message — *requires runtime flavor 'program', but this agent has no runner-bin configured for it* (`AgentHost.cs:584-592`) — rather than running an empty application.
-2. **Advertise flavors.** `GetCapabilitiesAsync` (`AgentHost.cs:117`) adds the keys of its runner-bin directories to a new `AgentCapabilitiesDto.RuntimeFlavors` (§10.5).
-3. **Move the deps.json warning into the runner.** Delete `AgentHost.cs:699-705`. The runner adds the same warning to `ready.Warnings` when, and only when, it loaded plugins without a `.deps.json` (§7.1). Without this, every program workload would log a false "isolation did not engage" warning at each start.
+1. **Route the `program` flavor to the modern runner — behind a switch.** In the `AgentHost` constructor, register `RuntimeFlavors.Program` against the same runner-bin directory as `RuntimeFlavors.Default` (beside `AgentHost.cs:178`), **only when program workloads are enabled on this agent** (§9.1). This one line is the routing, and leaving it out is the whole of "disabled". Either way — switched off, or an agent that predates it — the application fails with the existing, clear message, *requires runtime flavor 'program', but this agent has no runner-bin configured for it* (`AgentHost.cs:584-592`), rather than running an empty application.
+2. **Advertise flavors.** `GetCapabilitiesAsync` (`AgentHost.cs:117`) adds the keys of its runner-bin directories to a new `AgentCapabilitiesDto.RuntimeFlavors` (§10.5). A switched-off agent therefore reports that it cannot host `program`, and the portal's matching-agents warning (§11) says so before a rule is saved.
+3. **Move the deps.json warning into the runner — for runners that take it over.** A version-3 runner adds the warning to `ready.Warnings` when, and only when, it loaded plugins without a `.deps.json` (§7.1). The agent keeps emitting it itself (`AgentHost.cs:699-705`) only for a runner that reports no `HostingKind` — a version-2 runner, including the unchanged legacy runner (§8) — so a net472 application logs exactly what it logs today. Without this, every program workload would log a false "isolation did not engage" warning at each start.
 4. **Honour the application's stop grace.** Keep `ready.StopGraceMs` on `AppTrackedState`; `StopApplicationAsync` waits `max(_options.StopGracePeriod, StopGraceMs)` (`AgentHost.cs:789`).
 5. **Carry the per-service fields.** In `HandleMessageAsync`'s `StateChangedMessage` case (`AgentHost.cs:1193-1200`), keep `Pid`, `ExitCode`, `RestartCount` and `Detail` beside the state, and append them to `ServiceStatusEntry` (`src/Enlist.Agent/Status/AgentStatusSnapshot.cs`) as optional fields. Pure pass-through.
 6. **Pass the directories.** `ProcessRunnerBackend` takes the application-data root in its constructor and adds `--work` and `--data` (§7.8).
 7. **Move `CrashBackoff`** into `src/Enlist.Runner/` (§7.6). The agent keeps using it, from its new namespace.
+8. **Shut down in parallel, within explicit bounds** (§7.5):
+   - **Parallel stops.** `AgentHost.StopAsync` stops all applications with `Task.WhenAll` over `WithLifecycleGateAsync(name, () => StopApplicationAsync(name))`, instead of awaiting each in turn (`AgentHost.cs:1443-1446`). Each application's own gate still serialises *its* lifecycle; applications never needed to wait for one another.
+   - **An explicit host timeout.** `Program.cs` sets `HostOptions.ShutdownTimeout` to the largest grace an application may report (`stop.timeoutSeconds` is capped at 600, §6.3), plus a margin. The host's default then no longer ends the process under a shutdown that is still progressing correctly.
+   - **Time from the SCM.** While applications are stopping, the service lifetime requests additional time from the Service Control Manager in regular increments, so `sc stop`, MSI upgrades (`ServiceControl Wait="yes"` in `Agent.wxs`) and the Services console wait instead of reporting a hung service. This is done by overriding the stop handling of the `WindowsServiceLifetime` that `AddWindowsService` registers (`Program.cs:251`); the exact extension point is confirmed against the `Microsoft.Extensions.Hosting.WindowsServices` version in use when P0 is built.
+
+   This is a fix for **today's** agent too: a host with four attribute applications already overruns the default host timeout at shutdown (§7.5).
+9. **Accept protocol 2 and 3** (§8). `StartApplicationAsync` passes the assignment's `RuntimeFlavor` to `RunnerProtocol.DescribeMismatch` (`AgentHost.cs:680`), which now answers from its compatibility table.
 
 Not changed: reconciliation, `JobScheduler`, command routing, crash backoff for runners, the container backend, orphan reaping, status and log reporting pipelines.
+
+### 9.1 The agent's switch
+
+**`--program-workloads enabled|disabled`**, on the agent's command line.
+- **Default:** `enabled` in a release. `disabled` on `main` until P1's exit criteria pass, so work in progress can merge without reaching any installed agent.
+- **Installer:** the `AGENT_PROGRAM_WORKLOADS` property (`1`/`0`) in `Enlist.Agent.msi`, added to the service arguments exactly as `AGENT_ENGINE` is today (`SetAgentArgsEngine` in `Agent.wxs`).
+- **Changing it without uninstalling:** run setup again in modify mode with the property, or `enlist-agent` with the flag when run by hand.
+
+Disabled means the flavor is never registered, so nothing program-specific in the agent runs. The flag is read once at startup, in `Program.cs`, and changes no other behaviour.
+
+This is the per-machine lever. The fleet-wide one, which needs no machine touched at all, is on the control plane (§10.7).
 
 ---
 
@@ -599,6 +664,31 @@ Attribute packages keep today's tolerant behaviour.
 
 **No migration.** Flavor is a string column (`Packages.RuntimeFlavor`, `ApplicationPolicies.RuntimeFlavor`); the manifest, capabilities, isolation and reports are JSON columns or raw JSON; the report is stored unparsed (`AgentReportEntity.SnapshotJson`). Production's refusal to start with pending migrations (`Program.cs:170-177`) is not triggered.
 
+### 10.7 The fleet-wide switch
+
+**`ProgramWorkloads:Enabled`** in the control plane's `appsettings.json`, default `true`. Read at startup.
+
+It exists so that program workloads can be turned off everywhere, at once, **without touching a single machine** — for a defect found in the field, or a customer who wants the feature unavailable. When `false`:
+
+| Surface | Behaviour |
+|---|---|
+| `POST /api/packages` | A package with a descriptor is refused: `400`, *program workloads are disabled on this control plane (ProgramWorkloads:Enabled)*. Attribute packages are unaffected. |
+| `POST` / `PUT /api/application-policies` | A rule pointing at a `program` package, or naming the `program` flavor for a path, is refused with the same message. Existing rules are kept, not deleted, so turning the switch back on restores them exactly. |
+| `GET /api/agents/{name}/policies` | Every `program` rule is delivered with `ConflictReason` set to that message — the field existing agents already act on — and with a new, append-only `ApplicationPolicyDto.DisabledReason` carrying the same text. The portal reads `DisabledReason` to tell a switched-off rule from a real conflict; nothing parses message text. `GET /api/application-policies` sets `DisabledReason` the same way. |
+| `GET /health` | `HealthDto` gains `ProgramWorkloads`, `"enabled"` or `"disabled"`, so a monitor or the portal can show it. |
+
+The agent side needs **no new code, and works on agents already deployed**. `ConflictReason` is part of `SameAssignment` (`AgentHost.cs:504-510`), so a reason appearing is a changed assignment:
+
+1. The agent stops the running application (`ReconcileAsync`, `AgentHost.cs:391-395`).
+2. It marks the application `Failed` without retry, through the configuration-failure path that policy conflicts already use (`AgentHost.cs:573-582`).
+3. Turning the switch back on clears the reason. That is another change, and the fresh intent starts the application again, even after a give-up (`AgentHost.cs:554-571`).
+
+Port collisions already reuse `ConflictReason` in the same way (`ApplyPortCollisions`, `Program.cs:1226-1285`).
+
+**How fast it acts.** At the control plane's restart, agents reconnect to the hub and fetch their policies, so a running program workload is stopped within seconds of the control plane coming back, and within one three-minute refetch at worst.
+
+**Wording in the portal.** The portal shows `ConflictReason` in a *conflict* chip. For this reason it shows *disabled* instead (§11), because telling an operator their rules conflict, when an administrator has switched the feature off, would send them looking for a problem that does not exist.
+
 ---
 
 ## 11. Portal changes
@@ -612,6 +702,7 @@ Attribute packages keep today's tolerant behaviour.
 | **Rule wizard** step "Confirm" | When some matching agents do not report the `program` flavor: *2 of 7 matching agents can't run program workloads yet — upgrade their enList agent.* The rule can still be saved (§10.5). |
 | **Rule edit dialog** (`ApplicationPolicyEditDialog.razor`) | The same job select and the same fixed *Runs as*. |
 | **Running instances table** (`RunningInstancesTable.razor`) | For a service with the new fields: pid, restart count, and the last exit code with `Detail` as a tooltip. For every job: last run time and outcome — already in `AgentJobStatusDto` and not shown anywhere today. |
+| **When program workloads are switched off** (§9.1, §10.7) | A rule with `DisabledReason` set shows a *Disabled* chip with the reason, instead of the *Conflict* chip its `ConflictReason` would otherwise produce. The Applications page shows one banner for the whole control plane when `/health` reports `ProgramWorkloads: disabled`. The upload dialog shows the refusal message as-is. |
 | **Portal DTO mirror** (`Services/ControlPlaneApiClient.cs:242-259`) | The appended fields from §8 and §10. |
 | Logs page | No change: `Source` already shows the service or job name. |
 
@@ -668,6 +759,7 @@ Done. Declare where this runs from the Applications tab, or with a rule.
 | Output | May contain anything a program prints, and is forwarded to the control plane and kept 3 days — as attribute applications' output is today. |
 | Absolute paths | Allowed, warned at upload, resolved and named at start. They add no capability: an attribute application can already start any executable on the machine. |
 | Denial of service by output | The rate guard (§7.4). |
+| Turning it off | An administrator can switch program workloads off fleet-wide from the control plane (§10.7), which stops every running program workload with no machine touched, or on one machine through the agent's own switch (§9.1). |
 
 ---
 
@@ -869,7 +961,8 @@ sequenceDiagram
     Op->>AH: Stop "Hourly Archive" (job)
     AH->>R: cancelJob("Hourly Archive")
     R-->>AH: stateChanged(Job, Stopping)
-    R->>C: Ctrl+C via AttachConsole
+    R->>R: start signal helper (--signal-console pid)
+    R->>C: Ctrl+C (helper attaches, generates, exits)
     R->>C: close stdin
     C->>C: "Terminate batch job (Y/N)?" reads end of input -> ends
     alt still running after timeoutSeconds
@@ -887,13 +980,55 @@ Sizes are rough, for one engineer who knows the codebase: **S** up to a week, **
 
 | Phase | Contents | Size | Exit criteria |
 |---|---|---|---|
-| **P0 — Prerequisites** | Lock `<data>\Packages`, `Runners`, `AppData` (installer, reusing the Images-folder component pattern: its own component, applied on every install); protocol v3 fields (§8); `ReadyMessage.StopGraceMs` honoured by `AgentHost` (§9.4); `CrashBackoff` moved into the runner assembly; the deps.json warning moved into the runner. | M | `verify.ps1` checks the three ACLs; `live-e2e.ps1` asserts them on a real install; every existing test passes at protocol 3; an attribute application reporting `StopGraceMs` is given it. |
-| **P1 — Program hosting** | `contracts/WorkloadDescriptor.cs` and validator; runner program host (§7.1–§7.8): launcher, job objects at creation, output capture, stop escalation, service restart, jobs, application copy and data directory; `program` flavor end to end (control plane detection, manifest, upload validation, rule validation; agent routing and capabilities); `enlist-runner --check`/`--dev` over programs; `enlist-deploy` validation, `check` and the "looks like a program" hint. | L | The §17 matrix passes. UC-1, UC-2 and UC-3 pass as automated agent end-to-end tests. `live-e2e.ps1` deploys a program workload (a console service and a PowerShell job) to an installed LocalSystem agent and proves: running as SYSTEM, logs arriving, stop, restart after a kill, the job's outcome. |
+| **P0 — Safety net, then prerequisites** | In this order (§16.1):<br>1. **Characterization tests** for the paths P0 and P1 touch that the suite does not cover today (§17.4).<br>2. **Minimum CI** (§16.1).<br>3. **Parallel agent shutdown** with explicit host and SCM time (§9 item 8).<br>4. **Protocol 3 fields**, accepted alongside protocol 2 (§8, §9 item 9), with `StopGraceMs` honoured (§9 item 4).<br>5. **Lock** `<data>\Packages`, `Runners` and `AppData`, reusing the Images-folder pattern: its own component, applied on every install, with a conditioned grant for a named agent account.<br>6. `CrashBackoff` moved into the runner; the deps.json warning taken over by version-3 runners. | M | CI green on every push, with container tests failing rather than skipping when Docker is missing. The characterization tests pass before and after P0. A current `enlist/runner:3.0.0` image (protocol 2) still runs its container applications under the P0 agent. `verify.ps1` checks the three ACLs and that their components are neither Permanent nor NeverOverwrite. `live-e2e.ps1` passes on a **fresh install**, on an **upgrade over the previous build**, and with the agent under a **named account**. An agent with four slow applications stops cleanly within the SCM's patience. |
+| **P1 — Program hosting** | `contracts/WorkloadDescriptor.cs` and validator; runner program host (§7.1–§7.8): launcher, job objects at creation, output capture, stop escalation with the signal helper, service restart, jobs, application copy and data directory; `program` flavor end to end (control plane detection, manifest, upload validation, rule validation; agent routing and capabilities); both switches (§9.1, §10.7); `enlist-runner --check`/`--dev` over programs; `enlist-deploy` validation, `check` and the "looks like a program" hint. Merged with the agent switch **disabled by default** until the exit criteria pass. | L | The §17 matrix passes. UC-1, UC-2 and UC-3 pass as automated agent end-to-end tests. `live-e2e.ps1` deploys a program workload (a console service and a PowerShell job) to an installed LocalSystem agent and proves: running as SYSTEM, logs arriving, stop, restart after a kill, the job's outcome — **and** that flipping `ProgramWorkloads:Enabled` off stops it on the agent with no agent action, and on again starts it. Only then does the agent switch default to enabled. |
 | **P2 — Portal and onboarding** | §11 in full; `enlist-deploy init`; a new `docs/02-building-applications/Program-Workload-Guide.md`; samples under `samples/`: a console service, a PowerShell job, a batch job with a success range, a descriptor-only adoption package; installer README "What to hand out" mentions `enlist-deploy`. | M | UC-5 performed literally by someone who has not seen enList, in under an hour, with the guide as their only help. |
 | **P3 — Enterprise hardening** | Run-as account per workload (gMSA first; `CreateProcessAsUser`/`LogonUser` with credentials stored DPAPI-protected like the agent credential); resource limits on the per-program job object (memory, CPU rate); HTTP/TCP readiness and liveness probes; "run now" with parameters from the portal. | L | Each with its own tests and a security review of the credential path. |
 | **P4 — Adjacent capabilities** (separate specs) | Adopting SCM-registered Windows services (status, start/stop and file deployment for services the SCM owns); programs in containers (Windows containers, or Design B images). | — | Own design documents. |
 
-**Ordering note.** P0 is small and independently valuable: the ACL fix closes a real gap for attribute applications too, and `StopGraceMs` fixes a 10-second ceiling every application lives under today.
+**Ordering note.** P0 is independently valuable, and would be worth shipping even if program workloads never were:
+- the ACL fix closes a real gap for attribute applications too;
+- parallel shutdown fixes a host-timeout overrun today's agent already has;
+- `StopGraceMs` lifts a 10-second ceiling every application lives under;
+- the characterization tests and CI protect everything that follows.
+
+### 16.1 Keeping what already works working
+
+Most of this design is new code that runs only when a package contains `enlist.workload.json`, a file no existing package has. The regression risk to today's system is concentrated in the shared paths the design also changes. This register is the result of reviewing each of them against the code, and every control in it is already written into the sections above.
+
+| # | Shared path | What could break for existing users | Control | Where |
+|---|---|---|---|---|
+| R1 | Protocol version 2 → 3 | A new agent refuses every container application whose runner image is older: customers' side-loaded tars, `enlist/runner:dev`, demo images | The agent accepts 2 and 3; only a `program` application requires 3; the legacy runner is not touched | §8, §9 item 9 |
+| R2 | Locking the agent data folders | A named-account agent loses write access to `Packages` or `Runners` after upgrade and every application fails. Installer ACL work has produced two surprises in a row (the Images lock skipped on reinstall, found only by a live run) | Its own ordinary component; a conditioned grant for the agent account; `verify.ps1` checks; live runs on a fresh install, an upgrade, and a named account before release | §13, §16 P0 |
+| R3 | Stop timing | Longer graces stacked sequentially overrun the host's shutdown timeout, ending runners mid-stop; `sc stop` and MSI upgrades see an unresponsive service | Parallel stops, an explicit `HostOptions.ShutdownTimeout`, additional time from the SCM | §7.5, §9 item 8 |
+| R4 | Runner discovery branch | A mistake in the new branch reaches attribute applications | The descriptor check is the first statement and returns early only when the file exists; runner lifecycle, check-mode and legacy tests run unchanged | §7.1, §17 |
+| R5 | Control plane detection, manifest, DTOs | A scan or detection defect affects every upload | Descriptor detection matches no existing package; appended record fields with defaults; the cron-reading addition runs inside the scan's existing tolerant failure path (a failed scan still stores the package) | §10.1, §10.2 |
+| R6 | Portal screens operators use most | Visual or behavioural regressions in the running-instances table and rule wizard | Changes are additive columns and a conditional path in the wizard; portal tests extended; a manual pass over every changed screen with an attribute application before merge | §11, §17.3 |
+| R7 | `CrashBackoff` move, deps.json warning | A namespace move; one log line relocated | Compile-checked; the warning is kept verbatim for version-2 runners; no test pins its text today, so one is added | §9 items 3 and 7 |
+| R8 | A defect in program hosting found in the field | Runaway or misbehaving programs across a fleet | The fleet-wide switch stops every program workload with no machine touched; the agent switch removes the flavor on one machine | §9.1, §10.7 |
+
+**Process controls — the larger risk than any one line of code:**
+
+- **Minimum CI before P0's code changes.** Today there is no pipeline: no `.github` workflows and no Azure Pipelines file. The ~350 test methods, `verify.ps1` and the live runs all happen by hand, and container tests skip silently when Docker is not running, which happened during the week this design was written. The pipeline:
+  - runs on a Windows runner with Docker;
+  - rebuilds `enlist/runner:dev` from the checked-out source before testing, since a stale image already produced green runs against an old runner;
+  - runs `dotnet test enList_v3.slnx` and `installer\verify.ps1`;
+  - **fails** when a container test skips.
+
+  `live-e2e.ps1` stays a manual gate before each release: it needs an elevated, disposable machine.
+- **Characterization tests before changing shared paths** (§17.4). The Test Plan already admits that imperative commands — the portal's Start and Stop — and the heartbeat have no automated tests, and §9 item 5 changes how service state messages are handled, which is part of that command path.
+- **Small commits, shared paths first.** In this order, each landing with CI green, so that any regression is traced to one change:
+  1. characterization tests
+  2. CI
+  3. parallel shutdown
+  4. protocol fields and the range check
+  5. the ACL lock
+  6. flavor routing and both switches
+  7. the runner's program host
+  8. control plane detection and validation
+  9. the portal
+- **Dark by default until proven.** The agent switch defaults to `disabled` on `main` through P1, so program-hosting work in progress can merge without reaching an installed agent.
+- **The agent runs on every machine and cannot update itself.** A regression there costs an MSI rollout to undo. That is why R2 and R3 are proven on real installs, not only in tests, before any release that contains them.
 
 ---
 
@@ -937,6 +1072,9 @@ Plus scripts under `tests/Enlist.TestPrograms/scripts/`: `graceful.ps1` (a `fina
 | S9 | Any program; **the runner process is killed** | — | Every program under it gone within a second |
 | S10 | Any program; **the agent process is killed** | — | Runner and every program gone (extends `AgentJobObjectTests`) |
 | S11 | Stop timeout 30 s under agent default grace 10 s | `console` on `--ignore-ctrl-c`, application stopped | The agent waits `StopGraceMs`; the program is killed by the runner at 30 s, not by the agent at 10 s |
+| S12 | **Agent shutdown with four applications**, each with a program that takes 20 s to stop gracefully | `console` | All four stop gracefully within about 20 s in total — in parallel, not 80 s — and none is killed by the host's shutdown timeout. Under the Windows service host, the SCM keeps waiting (no "did not respond" error from `sc stop`) |
+| S13 | `enlist-runner --dev` in an interactive terminal; `stop` a program service, then `start` it, then Ctrl+C in the terminal | `console` | The terminal is still attached and accepting commands after the stop; the program stops gracefully; Ctrl+C reaches the dev host, which shuts every program down in order |
+| S14 | The signal helper cannot attach (the program has exited in the instant before delivery) | `console` | The helper exits 1; the runner logs the reason once and does not wait out the full timeout for a process that is already gone |
 
 ### 17.3 By layer
 
@@ -944,11 +1082,25 @@ Plus scripts under `tests/Enlist.TestPrograms/scripts/`: `graceful.ps1` (a `fina
 |---|---|
 | **Descriptor** (shared source; tested in `Enlist.ControlPlane.Tests` and `Enlist.Deploy.Tests`) | Every §6.6 rule, one failing case each; every error reported at once; tokens; defaults merging; unknown fields warn; path escape refused; `{runId}` in a service refused |
 | **Runner** (`Enlist.Runner.Tests`, via `StubAgent`) | `ready` contents and `HostingKind`; each §17.2 row; output: stdout/stderr levels, prefixes, encodings (the `auto` heuristic on `.exe`, `cmd.exe`, Windows PowerShell and `pwsh` output), CR handling, truncation at 16,384, rate guard notice, final partial line before the exit report; service restart policies and backoff and give-up; Start clears the streak; `readiness.logPattern` success and timeout; job outcomes: success codes, failure with last stderr line, timeout, cancel, launch failure; concurrent runs; `appDirectory` copy is fresh per start and `shared` is not; data directory persists; `--check` output and exit codes; `--dev` start/stop/run with settings |
-| **Agent** (`Enlist.Agent.Tests`) | `program` flavor routes to the modern runner; an agent without the flavor fails with the existing message; capabilities list flavors; `StopGraceMs` honoured; service fields reach the report; no deps.json warning for programs, still present for attribute packages without one; UC-1–UC-3 end to end with real processes |
-| **Control plane** (`Enlist.ControlPlane.Tests`) | Detection precedence (descriptor beats `.deps.json`; scripts-only zip is `program`, not `net472`); manifest fields including attribute `DeclaredCron`; upload `400` with all errors and blob cleanup; warnings in the response; program × container refused; cron override names checked for program packages only |
+| **Agent** (`Enlist.Agent.Tests`) | `program` flavor routes to the modern runner; an agent without the flavor, **or with `--program-workloads disabled`**, fails the application with the existing message and does not advertise the flavor; capabilities list flavors; **a stub runner reporting protocol 2 is accepted for an attribute application and refused for a `program` one; 0 and 4 are refused**; `StopGraceMs` honoured; **parallel shutdown (S12)**; service fields reach the report; the deps.json warning absent for program workloads, emitted by a version-3 runner for attribute packages without one, and still emitted by the agent — verbatim — for a version-2 runner; **a `ConflictReason` appearing on a running program application stops it and fails it without retry, and clearing it starts it again**; UC-1–UC-3 end to end with real processes |
+| **Control plane** (`Enlist.ControlPlane.Tests`) | Detection precedence (descriptor beats `.deps.json`; scripts-only zip is `program`, not `net472`); manifest fields including attribute `DeclaredCron`; upload `400` with all errors and blob cleanup; warnings in the response; program × container refused; cron override names checked for program packages only; **with `ProgramWorkloads:Enabled=false`: program uploads and rules refused, attribute uploads and rules unaffected, existing program rules delivered with `ConflictReason` and `DisabledReason`, `/health` reports it** |
 | **Deploy** (`Enlist.Deploy.Tests`) | Validation before upload; nothing uploaded on error; `init` variants and refusal to overwrite; `check`; the "looks like a program" hint |
 | **Portal** (`Enlist.Portal.Tests`) | Kind column and manifest rows; wizard fixes *Runs as* and offers manifest jobs; incompatible-agent warning; service pid/restarts/exit shown |
-| **Installer** | `verify.ps1`: the P0 ACL components are neither Permanent nor NeverOverwrite and lock the three folders. `live-e2e.ps1`: the P1 exit criteria |
+| **Installer** | `verify.ps1`: the P0 ACL components are neither Permanent nor NeverOverwrite, lock the three folders, and grant a named agent account; `AGENT_PROGRAM_WORKLOADS` reaches the service arguments. `live-e2e.ps1`: fresh install, upgrade over the previous build, and a named-account agent (P0); the P1 exit criteria, including the fleet-wide switch |
+
+### 17.4 Characterization tests — written first, against today's code
+
+These pin behaviour that exists today and that P0 or P1 touch, but that no automated test covers. They are written and passing **before** the first P0 change, and they must pass unchanged after it. A failure then points at a regression, not at a test written to match new behaviour.
+
+| Test | Pins | Why now |
+|---|---|---|
+| Imperative service commands, end to end | A portal `POST /api/agents/{name}/commands` Stop reaches the runner through the hub and comes back as `Stopped` in the next report; Start likewise | The Test Plan lists imperative commands as untested (§5); §9 item 5 changes the `StateChangedMessage` handling on exactly this path |
+| Imperative job commands, end to end | Disable unregisters and cancels an in-flight run (reported `Cancelled`); Enable re-registers with the same cron | Same path; §7.7 relies on the existing `Cancelled` semantics |
+| Agent shutdown with several applications | Every application is stopped and the final report is sent; records today's timing as the baseline S12 improves on | §9 item 8 rewrites the shutdown loop |
+| The deps.json warning | The exact line an attribute package without a `.deps.json` logs today, for both runner builds | §9 item 3 moves it; nothing asserts it today |
+| Container application with the current runner image | An `enlist/runner` image built from `main` before P0 runs a container application under the agent | R1: the image is the peer that ships separately |
+| Protocol mismatch messages | Today's refusal text for unreported (0) and wrong versions | §9 item 9 turns the check into a table; the messages operators see must not regress |
+| Heartbeat | A quiet agent sends a report within `HeartbeatInterval` | The Test Plan lists it as untested; the P0 shutdown and reporting changes sit beside it |
 
 ---
 

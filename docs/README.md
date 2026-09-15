@@ -4,7 +4,7 @@ enList runs small programs (services and scheduled jobs) across many Windows mac
 from one web portal. You upload a package, write a rule saying *where* it should run, and agents on
 each machine make it so.
 
-There are 24 documents here. **You do not need most of them to be productive.** This page is the
+There are 25 documents here. **You do not need most of them to be productive.** This page is the
 map: a short path in, then tracks depending on what you actually came to do.
 
 ---
@@ -57,6 +57,7 @@ save you an afternoon of wondering why your cron job never fired locally.
 | [`04-requirements/`](04-requirements/) | Business, system and functional requirements. |
 | [`05-operations/`](05-operations/) | Deploying it, running it, and the test suite. |
 | [`06-background/`](06-background/) | Prior art and historical artefacts. Not needed to work on enList. |
+| [`Sales/`](Sales/) | Go-to-market material. [enList-Sales-Readiness.html](Sales/enList-Sales-Readiness.html) is the 15 September 2026 verdict on where enList stands for selling licenses — where it wins, where a buyer's evaluation stalls, and why program workloads ([Program-Workloads-Design.md](03-architecture/Program-Workloads-Design.md)) are the next move. A standalone page: open it in a browser. |
 
 Related, outside this folder: [`demo/sql-server/`](../demo/sql-server/README.md) runs SQL Server in a WSL
 container (`wslc`, no Docker) for demos, so demo data persists and is visible in SSMS. Day-to-day development and the
