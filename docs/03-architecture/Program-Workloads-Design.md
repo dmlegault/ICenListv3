@@ -416,6 +416,16 @@ On a machine with the default data directory, `C:\ProgramData\enList\Agent`, whe
 
 Every one of them also receives the `ENLIST_*` variables (§6.5), and `ORDERSYNC_ENV` and `ORDERSYNC_STATE` in Example A.
 
+#### 6.2.5 Three watch-outs the examples show
+
+*Label Printer Bridge* is a well-formed entry that still has three ways to surprise someone moving a real tool onto enList. None is a defect in the descriptor. Each is a property of Windows, or of the program, that enList cannot change, so the design **detects each one and says so**, and the Program Workload Guide (§16, P2) repeats them.
+
+| Watch-out | What happens | What to do | What enList does about it |
+|---|---|---|---|
+| **1. Files a program writes beside itself do not survive an application start** | Under `appDirectory: "copy"`, a settings file the tool saves next to `LabelBridge.exe` is written into the private copy. That copy is deleted and made again at the next **application** start: a rule change, an agent restart, a runner crash. A restart of the *service* alone keeps it. | Ship the settings in the package. Or point the program at `{dataDir}`, if it can be told where to write. Or use `appDirectory: "shared"` when the program genuinely needs its own writable folder and no second application uses the same package. | When the application shuts down, the runner logs every file its programs created or changed inside the copy, by name, so the loss is never silent (§7.8). |
+| **2. A token containing spaces changes how an argument is quoted** | `"/instance={name}"` becomes one argument, `/instance=Label Printer Bridge`, which Windows must quote to pass: `"/instance=Label Printer Bridge"`. Programs that use the standard C runtime or .NET argument parsing read that as intended. A program that parses its own command line may see `/instance="Label`, and act on the wrong instance or none. | Try the entry under `enlist-runner --dev` and read the tool's own log. Or use a value without spaces (`"/instance=label-bridge"`). Or pass the option and value as separate array elements if the program accepts that form. | Upload and `--check` warn when a token that can contain spaces — `{name}`, `{appDir}`, `{dataDir}` — is embedded inside a longer argument (§6.5, §6.6). |
+| **3. A program with a window cannot ask anyone anything** | The agent runs as a service, so every program it starts is on session 0's desktop, which no signed-in user can see. A modal dialog (*select a printer*, *licence expired*, *an update is available*) waits forever. The process is alive, so enList reports it **Running**. The tool usually prints nothing, so its log stays quiet too. | Configure the tool so it never prompts (most vendor tools have a silent or unattended switch). Use `readiness.logPattern` where the tool does log a *ready* line, so a start that stalls on a prompt fails visibly. Health probes (§16, P3) are the complete answer. | Upload and `--check` read the executable's header and warn that it is a windowed program (§7.2); they warn again if its stop methods include `console`, which cannot reach a program with no console. |
+
 ### 6.3 Field reference
 
 #### Top level
@@ -528,6 +538,13 @@ Precedence, lowest first: the runner's inherited environment → `defaults.envir
 
 `RunJobCommand.Settings` is empty when the agent's scheduler fires a job today (`AgentHost.cs:1161-1169`); it is populated by `enlist-runner --dev`'s `run <job> k=v`. Mapping it to environment variables gives programs the same per-run parameter path attribute jobs have, and a future "run now with parameters" button (§19) something to use.
 
+**Tokens and spaces.** Substitution happens *inside* an argument, before quoting. Three tokens can produce spaces:
+
+- `{name}` — `Label Printer Bridge`;
+- `{appDir}` and `{dataDir}` — a data directory under `C:\Program Files` or any other path with a space.
+
+An argument that then contains a space is passed quoted, one element per argument, by the C runtime's rules (`ProcessStartInfo.ArgumentList` semantics). A token that is a whole argument on its own (`"{dataDir}"`) is quoted as a whole and is safe for every parser. A token **embedded** in a longer argument (`"/instance={name}"`, `"--log={dataDir}\\x.log"`) is quoted around the whole argument, and programs that parse their own command line may split it. Upload and `--check` therefore warn on an embedded token that can contain spaces (§6.6), naming the entry and the argument; §6.2.5 says what to do about it.
+
 ### 6.6 Validation, and where each rule is enforced
 
 The descriptor model and its validator are **one source file**, `contracts/WorkloadDescriptor.cs`, shared by source inclusion exactly as `contracts/EnlistAttributes.cs` is (`Enlist.Contracts.props`). The runner has zero `PackageReference`s by rule and does not reference `Enlist.ControlPlane.Contracts`; a source-shared file compiled with in-box `System.Text.Json` keeps that true while guaranteeing the deploy tool, the control plane and the runner agree on every rule.
@@ -547,6 +564,9 @@ The descriptor model and its validator are **one source file**, `contracts/Workl
 | Tokens known; `{runId}` only in jobs | error | error | fault |
 | `environment` keys valid and not `ENLIST_`-prefixed | error | error | fault |
 | `readiness.logPattern` compiles as a .NET regular expression | error | error | fault |
+| An embedded `{name}`, `{appDir}` or `{dataDir}` inside a longer argument (§6.5) | warning | warning | warning |
+| A command that is a **windowed** (GUI-subsystem) executable (§7.2) | warning, when the file is in the package | warning, when the file is in the package | warning, for any resolved command |
+| A windowed executable whose stop methods include `console` | warning | warning | warning |
 | Unknown fields | warning | warning | warning |
 | Package also contains enList attribute types | warning | warning | — |
 
@@ -598,6 +618,15 @@ New code lives in `src/Enlist.Runner/Programs/`. Nothing in `Discovery/`, `Hosti
 `System.Diagnostics.Process` cannot create a process suspended or inside a job, and cannot choose `CREATE_NO_WINDOW` together with redirected handles and a custom console arrangement; §7.3 explains why "start, then assign" is not good enough for programs even though `ProcessRunnerBackend` does exactly that for the runner (`ProcessRunnerBackend.cs:79-90`). All of it is P/Invoke to in-box Windows APIs, so the runner's zero-`PackageReference` rule holds.
 
 The standard input pipe is **kept open and never written to**, so a program that reads stdin blocks rather than exiting at once; closing it is a stop method (§7.5).
+
+**Programs with a window.** A windowed program starts like any other, but four things differ, and the runner knows which kind it has. The executable's PE header says so: `IMAGE_OPTIONAL_HEADER.Subsystem` is `IMAGE_SUBSYSTEM_WINDOWS_GUI` (2) for a windowed program and `IMAGE_SUBSYSTEM_WINDOWS_CUI` (3) for a console one, readable from the first few kilobytes without running anything.
+
+- **Its window is on session 0.** The agent is a service, so the window is on a desktop no signed-in user can see or click. Anything the program asks of a person — a modal dialog, a first-run wizard, a licence prompt — waits forever. The process stays alive, so the entry reports `Running`.
+- **It has no console.** `CREATE_NO_WINDOW` is ignored for a windowed program, and Ctrl+C cannot reach it. Its stop methods should be `close`, `command` or both; `console` alone leaves only the timeout.
+- **It usually prints nothing.** Its standard handles are still redirected and read, but a windowed program rarely writes to them, so its log holds little beyond the runner's own start, exit and restart lines.
+- **It is warned about, not refused.** Many vendor tools are windowed and run unattended perfectly well. Upload and `--check` warn when the executable is windowed (§6.6), and again when its stop methods include `console`. The runner repeats the warning in `ready.Warnings` for a command resolved on the machine.
+
+§6.2.5 has the operator's side of this. The complete answer to a program stuck on a prompt it cannot show is a health probe (§16, P3), which could see that a service is alive but not doing its work.
 
 ### 7.3 Containment: one job object per program, assigned at creation
 
@@ -739,6 +768,16 @@ A run follows the same message sequence as an attribute job today — `stateChan
 **How the runner learns the directories.** `ProcessRunnerBackend.StartAsync` passes two new arguments, `--work <data>\Runners\<application>` and `--data <data>\AppData\<application>`, alongside `--pipe` and `--app` (`ProcessRunnerBackend.cs:53-60`). They are kind-agnostic — an attribute application could be given the data directory later — and the container backend does not pass them, because program workloads do not run in containers in this design.
 
 **Cost.** One directory copy per application start. For a 50 MB package that is well under a second on local disk. A 500 MB vendor payload is what `"shared"` is for.
+
+**What a program writes beside itself is discarded.** The copy is the point of `"copy"`, and also its trap. A setting a program saves next to its executable lives only until the next application start, then disappears without any error. Restarting a single service within the running application does not replace the copy. So the runner makes the loss visible:
+
+- **when it makes the copy,** it records the time;
+- **when it shuts the application down** (`shutdown`), after every program has exited, it lists the files inside the copy created or modified since then;
+- **it logs them once,** at `Warning`, with the application as `Source` — *programs wrote 2 files inside the application directory, which is discarded when this application next starts: tools\LabelBridge.ini, tools\printers.xml. Keep settings in the package, in {dataDir}, or use appDirectory "shared"*.
+
+The check happens at shutdown, while the runner is still connected to the agent, because that is the last moment the copy is certain to exist: the agent deletes `<data>\Runners\<application>\` itself once the application is torn down (`IRunnerBackend.Cleanup`). A runner that crashes skips the check. The files are no less gone, but that start is already reported as a crash. Log files a program keeps rewriting would make this noisy, so the list is capped at 20 names with a count of the rest.
+
+§6.2.5 has the operator's side.
 
 ### 7.9 `--check` and `--dev`
 
@@ -1204,7 +1243,7 @@ Sizes are rough, for one engineer who knows the codebase: **S** up to a week, **
 |---|---|---|---|
 | **P0 — Safety net, then prerequisites** | In this order (§16.1):<br>1. **Characterization tests** for the paths P0 and P1 touch that the suite does not cover today (§17.4).<br>2. **Minimum CI** (§16.1).<br>3. **Parallel agent shutdown** with explicit host and SCM time (§9 item 8).<br>4. **Protocol 3 fields**, accepted alongside protocol 2 (§8, §9 item 9), with `StopGraceMs` honoured (§9 item 4).<br>5. **Lock** `<data>\Packages`, `Runners` and `AppData`, reusing the Images-folder pattern: its own component, applied on every install, with a conditioned grant for a named agent account.<br>6. `CrashBackoff` moved into the runner; the deps.json warning taken over by version-3 runners. | M | CI green on every push, with container tests failing rather than skipping when Docker is missing. The characterization tests pass before and after P0. A current `enlist/runner:3.0.0` image (protocol 2) still runs its container applications under the P0 agent. `verify.ps1` checks the three ACLs and that their components are neither Permanent nor NeverOverwrite. `live-e2e.ps1` passes on a **fresh install**, on an **upgrade over the previous build**, and with the agent under a **named account**. An agent with four slow applications stops cleanly within the SCM's patience. |
 | **P1 — Program hosting** | `contracts/WorkloadDescriptor.cs` and validator; runner program host (§7.1–§7.8): launcher, job objects at creation, output capture, stop escalation with the signal helper, service restart, jobs, application copy and data directory; `program` flavor end to end (control plane detection, manifest, upload validation, rule validation; agent routing and capabilities); both switches (§9.1, §10.7); `enlist-runner --check`/`--dev` over programs; `enlist-deploy` validation, `check` and the "looks like a program" hint. Merged with the agent switch **disabled by default** until the exit criteria pass. | L | The §17 matrix passes. UC-1, UC-2 and UC-3 pass as automated agent end-to-end tests. `live-e2e.ps1` deploys a program workload (a console service and a PowerShell job) to an installed LocalSystem agent and proves: running as SYSTEM, logs arriving, stop, restart after a kill, the job's outcome — **and** that flipping `ProgramWorkloads:Enabled` off stops it on the agent with no agent action, and on again starts it. Only then does the agent switch default to enabled. |
-| **P2 — Portal and onboarding** | §11 in full; `enlist-deploy init`; a new `docs/02-building-applications/Program-Workload-Guide.md`; samples under `samples/`: a console service, a PowerShell job, a batch job with a success range, a descriptor-only adoption package; installer README "What to hand out" mentions `enlist-deploy`. | M | UC-5 performed literally by someone who has not seen enList, in under an hour, with the guide as their only help. |
+| **P2 — Portal and onboarding** | §11 in full; `enlist-deploy init`; a new `docs/02-building-applications/Program-Workload-Guide.md`, which carries §6.2.5's watch-outs as its own section; samples under `samples/`: a console service, a PowerShell job, a batch job with a success range, a descriptor-only adoption package; installer README "What to hand out" mentions `enlist-deploy`. | M | UC-5 performed literally by someone who has not seen enList, in under an hour, with the guide as their only help. |
 | **P3 — Enterprise hardening** | Run-as account per workload (gMSA first; `CreateProcessAsUser`/`LogonUser` with credentials stored DPAPI-protected like the agent credential); resource limits on the per-program job object (memory, CPU rate); HTTP/TCP readiness and liveness probes; "run now" with parameters from the portal. | L | Each with its own tests and a security review of the credential path. |
 | **P4 — Adjacent capabilities** (separate specs) | Adopting SCM-registered Windows services (status, start/stop and file deployment for services the SCM owns); programs in containers (Windows containers, or Design B images). | — | Own design documents. |
 
@@ -1274,7 +1313,9 @@ Most of this design is new code that runs only when a package contains `enlist.w
 | `--progress` | Redraws a progress line with CR 1,000 times, then writes `done` |
 | `--long-line N` | Writes one line of N characters |
 | `--crash` | Throws an unhandled exception |
-| `--window` | Creates a hidden top-level window and exits 0 on `WM_CLOSE` |
+| `--window` | Creates a hidden top-level window and exits 0 on `WM_CLOSE`. Built as a separate GUI-subsystem executable, `testprog-gui.exe`, so the windowed-program warnings have a real header to read |
+| `--modal` | (`testprog-gui.exe`) Shows a modal message box before doing anything else, and waits for an answer nobody can give |
+| `--write-beside-self` | Writes `testprog.ini` next to its own executable, then runs until Ctrl+C |
 | `--print-env` | Prints its `ENLIST_*` variables and working directory |
 
 Plus scripts under `tests/Enlist.TestPrograms/scripts/`: `graceful.ps1` (a `finally` block that writes `cleanup ran`), `warning.ps1` (`Write-Warning`, then `throw`), `wait.cmd` (loops with `timeout`), `exitcode.cmd`.
@@ -1297,12 +1338,14 @@ Plus scripts under `tests/Enlist.TestPrograms/scripts/`: `graceful.ps1` (a `fina
 | S12 | **Agent shutdown with four applications**, each with a program that takes 20 s to stop gracefully | `console` | All four stop gracefully within about 20 s in total — in parallel, not 80 s — and none is killed by the host's shutdown timeout. Under the Windows service host, the SCM keeps waiting (no "did not respond" error from `sc stop`) |
 | S13 | `enlist-runner --dev` in an interactive terminal; `stop` a program service, then `start` it, then Ctrl+C in the terminal | `console` | The terminal is still attached and accepting commands after the stop; the program stops gracefully; Ctrl+C reaches the dev host, which shuts every program down in order |
 | S14 | The signal helper cannot attach (the program has exited in the instant before delivery) | `console` | The helper exits 1; the runner logs the reason once and does not wait out the full timeout for a process that is already gone |
+| S15 | `testprog --window` given a modal dialog it cannot dismiss, with `readiness.logPattern` for a line it never prints | — | The entry fails its readiness timeout visibly (`Faulted`, *not ready within Ns*) instead of reporting `Running` indefinitely; without `readiness` it reports `Running`, which is the documented limit (§6.2.5) |
+| S16 | `testprog --write-beside-self`, which writes `testprog.ini` next to its executable, under `appDirectory: "copy"`; the application is then shut down | — | The shutdown log names `testprog.ini` as written inside the application directory; after the next application start the file is gone and the copy matches the package |
 
 ### 17.3 By layer
 
 | Layer | Tests |
 |---|---|
-| **Descriptor** (shared source; tested in `Enlist.ControlPlane.Tests` and `Enlist.Deploy.Tests`) | Every §6.6 rule, one failing case each; every error reported at once; tokens; defaults merging; unknown fields warn; path escape refused; `{runId}` in a service refused |
+| **Descriptor** (shared source; tested in `Enlist.ControlPlane.Tests` and `Enlist.Deploy.Tests`) | Every §6.6 rule, one failing case each; every error reported at once; tokens; defaults merging, including the precedence of built-in kind defaults; unknown fields warn; path escape refused; `{runId}` in a service refused; **both §6.2 examples validate clean apart from their expected warnings, so the documented examples cannot rot**; the embedded-token warning fires for `"/instance={name}"` and not for `"{dataDir}"` as a whole argument; the windowed-executable warnings fire from a GUI-subsystem test executable in the package, and the `console`-method warning only alongside them |
 | **Runner** (`Enlist.Runner.Tests`, via `StubAgent`) | `ready` contents and `HostingKind`; each §17.2 row; output: stdout/stderr levels, prefixes, encodings (the `auto` heuristic on `.exe`, `cmd.exe`, Windows PowerShell and `pwsh` output), CR handling, truncation at 16,384, rate guard notice, final partial line before the exit report; service restart policies and backoff and give-up; Start clears the streak; `readiness.logPattern` success and timeout; job outcomes: success codes, failure with last stderr line, timeout, cancel, launch failure; concurrent runs; `appDirectory` copy is fresh per start and `shared` is not; data directory persists; `--check` output and exit codes; `--dev` start/stop/run with settings |
 | **Agent** (`Enlist.Agent.Tests`) | `program` flavor routes to the modern runner; an agent without the flavor, **or with `--program-workloads disabled`**, fails the application with the existing message and does not advertise the flavor; capabilities list flavors; **a stub runner reporting protocol 2 is accepted for an attribute application and refused for a `program` one; 0 and 4 are refused**; `StopGraceMs` honoured; **parallel shutdown (S12)**; service fields reach the report; the deps.json warning absent for program workloads, emitted by a version-3 runner for attribute packages without one, and still emitted by the agent — verbatim — for a version-2 runner; **a `ConflictReason` appearing on a running program application stops it and fails it without retry, and clearing it starts it again**; UC-1–UC-3 end to end with real processes |
 | **Control plane** (`Enlist.ControlPlane.Tests`) | Detection precedence (descriptor beats `.deps.json`; scripts-only zip is `program`, not `net472`); manifest fields including attribute `DeclaredCron`; upload `400` with all errors and blob cleanup; warnings in the response; program × container refused; cron override names checked for program packages only; **with `ProgramWorkloads:Enabled=false`: program uploads and rules refused, attribute uploads and rules unaffected, existing program rules delivered with `ConflictReason` and `DisabledReason`, `/health` reports it** |
