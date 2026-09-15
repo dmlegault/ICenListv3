@@ -4,7 +4,7 @@ enList runs small programs (services and scheduled jobs) across many Windows mac
 from one web portal. You upload a package, write a rule saying *where* it should run, and agents on
 each machine make it so.
 
-There are 23 documents here. **You do not need most of them to be productive.** This page is the
+There are 24 documents here. **You do not need most of them to be productive.** This page is the
 map: a short path in, then tracks depending on what you actually came to do.
 
 ---
@@ -34,6 +34,7 @@ the code lives. **Stop there and pick a track below** rather than reading straig
 | **Work on the platform itself** | [HLD.md](03-architecture/HLD.md) for module decomposition and the key sequence diagrams, then [LLD.md](03-architecture/LLD.md) for the algorithms worth knowing exactly. Add [Database-Design.md](03-architecture/Database-Design.md), [API-Specification.md](03-architecture/API-Specification.md) and [UI-UX-Design-Spec.md](03-architecture/UI-UX-Design-Spec.md) as you touch those areas. The authentication design that closes review finding C2 is [Authentication-Design.md](03-architecture/Authentication-Design.md) (decided and built 2026-09-11; bearer scheme, fail-closed endpoint policies, Windows sign-in for the portal). |
 | **Deploy or operate it** | [Deployment-IaC.md](05-operations/Deployment-IaC.md), then [Runbook.md](05-operations/Runbook.md). The proposed installer that replaces the manual steps is designed, page by page, in [Installer-UI-Design.md](05-operations/Installer-UI-Design.md) (a draft — nothing built yet). The one-machine demo install, a fourth install type, is in [Demo-Install-Design.md](05-operations/Demo-Install-Design.md). |
 | **Understand containers** | [Container-Story.md](03-architecture/Container-Story.md) — the reasoning and the phased plan (C0–C5 shipped; only C6 remains a proposal). [Container-Developer-Guide.md](02-building-applications/Container-Developer-Guide.md) is the practical companion, and the one to read if you want to actually *run* any of it. |
+| **Run programs that were not written for enList** (a proposal — nothing built yet) | [Program-Workloads-Design.md](03-architecture/Program-Workloads-Design.md) — existing executables, PowerShell and batch scripts as supervised services and scheduled jobs, described by an `enlist.workload.json` beside them: the descriptor, how the runner hosts and stops a program on Windows, the protocol, agent, control plane, portal and deploy-tool changes, security, and a phased plan with its test matrix. |
 | **Know what the system must do**, formally | [BRD.md](04-requirements/BRD.md) → [SRS.md](04-requirements/SRS.md) → [FRS.md](04-requirements/FRS.md). Useful for scoping and review; not the fastest way to learn how anything works. |
 | **Change something and not break it** | [Test-Plan.md](05-operations/Test-Plan.md) — what the suite covers and, importantly, what it does not yet. |
 
@@ -52,7 +53,7 @@ save you an afternoon of wondering why your cron job never fired locally.
 |---|---|
 | [`01-start-here/`](01-start-here/) | Orientation and getting it running on your machine. |
 | [`02-building-applications/`](02-building-applications/) | For people writing *applications* that run on enList, rather than working on the platform. |
-| [`03-architecture/`](03-architecture/) | How it is built and why: the original design, architecture, module and class-level design, schema, API contract, UI conventions, and the container design. |
+| [`03-architecture/`](03-architecture/) | How it is built and why: the original design, architecture, module and class-level design, schema, API contract, UI conventions, the container design, and the program-workloads proposal. |
 | [`04-requirements/`](04-requirements/) | Business, system and functional requirements. |
 | [`05-operations/`](05-operations/) | Deploying it, running it, and the test suite. |
 | [`06-background/`](06-background/) | Prior art and historical artefacts. Not needed to work on enList. |
