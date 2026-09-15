@@ -1,0 +1,1663 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run What You Have</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Roboto:wght@400;500;700&display=swap">
+<style>
+  body { margin: 0; }
+  :root {
+    --ground: #F5F7FA;
+    --surface: #FFFFFF;
+    --ink: #171A2B;
+    --muted: #586076;
+    --rule: #D8DEE8;
+    --accent: #0088D0;
+    --accent-ink: #00679F;
+    --accent-tint: #E7F3FA;
+    --accent-line: #9CCFEA;
+    --marker: #FF7A1A;
+    --marker-ink: #1A1A27;
+    --paper-shadow: 0 1px 2px rgba(23, 26, 43, 0.08), 0 8px 24px rgba(23, 26, 43, 0.08);
+
+    --display: "Archivo", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+    --roboto: "Roboto", "Segoe UI", Arial, sans-serif;
+
+    /* The enList Portal's own palette (MainLayout.razor + MudBlazor dark defaults). Fixed in both
+       page themes, because the portal itself is dark-only. */
+    --p-bg: #1a1a27;
+    --p-surface: #242435;
+    --p-appbar: #1c1c28;
+    --p-primary: #0088D0;
+    --p-text: #f5f5f7;
+    --p-text2: #9a9ab0;
+    --p-success: #3dcb6c;
+    --p-error: #ff3f5f;
+    --p-warning: #ffb545;
+    --p-info: #5cadff;
+    --p-line: rgba(255, 255, 255, 0.10);
+    --p-chip: rgba(255, 255, 255, 0.12);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #15151F;
+      --surface: #1F1F2D;
+      --ink: #F2F2F6;
+      --muted: #A3A3B9;
+      --rule: #34344A;
+      --accent: #2FA6E8;
+      --accent-ink: #72C5F2;
+      --accent-tint: #1B2C3E;
+      --accent-line: #2C5A7A;
+      --paper-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #15151F;
+    --surface: #1F1F2D;
+    --ink: #F2F2F6;
+    --muted: #A3A3B9;
+    --rule: #34344A;
+    --accent: #2FA6E8;
+    --accent-ink: #72C5F2;
+    --accent-tint: #1B2C3E;
+    --accent-line: #2C5A7A;
+    --paper-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.55;
+    padding: 36px 20px 64px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 1140px;
+    margin: 0 auto;
+    display: grid;
+    gap: 72px;
+  }
+
+  h1, h2, h3 {
+    font-family: var(--display);
+    font-stretch: 80%;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  p { margin: 0; }
+
+  code, .mono {
+    font-family: var(--mono);
+    font-size: 0.88em;
+  }
+
+  .label {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .section { display: grid; gap: 28px; }
+
+  .section-head {
+    display: grid;
+    gap: 10px;
+    max-width: 760px;
+  }
+
+  h2 {
+    font-size: clamp(30px, 4.2vw, 44px);
+    font-weight: 780;
+    line-height: 1.04;
+    letter-spacing: -0.01em;
+  }
+
+  .section-head p {
+    color: var(--muted);
+    font-size: 17px;
+    max-width: 66ch;
+  }
+
+  /* ------------------------------------------------------------------ Masthead */
+  .masthead {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 40px;
+    align-items: center;
+  }
+
+  .memo-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    margin-bottom: 22px;
+  }
+
+  .memo-line strong { color: var(--ink); font-weight: 500; }
+
+  .concept {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 5px 12px 5px 8px;
+    border-radius: 999px;
+    border: 1px dashed var(--marker);
+    color: var(--ink);
+    margin-bottom: 20px;
+  }
+
+  .concept::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--marker);
+  }
+
+  h1 {
+    font-size: clamp(44px, 7.4vw, 88px);
+    font-weight: 850;
+    line-height: 0.94;
+    letter-spacing: -0.02em;
+    font-stretch: 72%;
+  }
+
+  h1 em {
+    font-style: normal;
+    color: var(--accent);
+  }
+
+  .lead {
+    margin-top: 22px;
+    font-size: 19px;
+    max-width: 52ch;
+  }
+
+  .lead strong { font-weight: 600; }
+
+  /* Hero art: the scattered estate, and the one list it becomes */
+  .sort {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 44px 1fr;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .pile {
+    position: relative;
+    height: 360px;
+  }
+
+  .tag {
+    position: absolute;
+    display: grid;
+    gap: 1px;
+    padding: 7px 10px 8px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    box-shadow: var(--paper-shadow);
+    transition: transform 0.35s ease;
+    white-space: nowrap;
+  }
+
+  .tag b {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .tag span {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+  }
+
+  .tag:hover { transform: rotate(0deg) scale(1.04); z-index: 5; }
+
+  .arrow {
+    font-family: var(--display);
+    font-size: 40px;
+    font-weight: 800;
+    color: var(--accent);
+    text-align: center;
+    line-height: 1;
+  }
+
+  .tidy {
+    display: grid;
+    gap: 6px;
+    padding: 14px;
+    background: var(--p-bg);
+    border-radius: 10px;
+    box-shadow: var(--paper-shadow);
+    font-family: var(--roboto);
+  }
+
+  .tidy .tidy-head {
+    font-size: 12px;
+    color: var(--p-text2);
+    padding: 0 4px 4px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .tidy-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    background: var(--p-surface);
+    border-radius: 8px;
+    color: var(--p-text);
+    font-size: 13px;
+  }
+
+  .tidy-row small {
+    display: block;
+    font-size: 11px;
+    color: var(--p-text2);
+    font-family: var(--mono);
+  }
+
+  /* ------------------------------------------------------------------ The estate today */
+  .estate {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .server {
+    display: grid;
+    gap: 10px;
+    align-content: start;
+    padding: 16px 16px 18px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+  }
+
+  .server-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .server-head b {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .how {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+  }
+
+  .how li {
+    display: grid;
+    grid-template-columns: 112px 1fr;
+    gap: 10px;
+    font-size: 14px;
+    align-items: baseline;
+  }
+
+  .how .via {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+  }
+
+  .how .what code { color: var(--ink); font-weight: 500; }
+
+  .how .note {
+    display: block;
+    font-size: 12.5px;
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  .estate-foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 28px;
+    padding-top: 6px;
+    color: var(--muted);
+    font-size: 15px;
+  }
+
+  .estate-foot strong { color: var(--ink); font-weight: 600; }
+
+  /* ------------------------------------------------------------------ The screen */
+  .screen-wrap {
+    display: grid;
+    gap: 26px;
+  }
+
+  .screen-scroll {
+    overflow-x: auto;
+    border-radius: 14px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.18), 0 30px 60px -20px rgba(10, 12, 30, 0.55);
+  }
+
+  .screen {
+    min-width: 1100px;
+    background: var(--p-bg);
+    color: var(--p-text);
+    font-family: var(--roboto);
+    font-size: 14px;
+    line-height: 1.43;
+    border-radius: 14px;
+    overflow: hidden;
+  }
+
+  .chrome {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 14px;
+    background: #101019;
+  }
+
+  .dots { display: flex; gap: 7px; }
+  .dots i { width: 11px; height: 11px; border-radius: 50%; background: #3a3a4d; display: block; }
+
+  .url {
+    flex: 1;
+    max-width: 560px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: #b9b9cc;
+    background: #1c1c28;
+    padding: 5px 12px;
+    border-radius: 6px;
+  }
+
+  .url b { color: #e8e8f0; font-weight: 500; }
+
+  .appbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 64px;
+    padding: 0 18px;
+    background: var(--p-appbar);
+    box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  }
+
+  .appbar img { height: 36px; width: 78px; object-fit: contain; }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: 0.0075em;
+  }
+
+  .brand .div { color: var(--p-text2); }
+  .brand .sec { color: var(--p-text2); font-weight: 400; }
+
+  .spacer { flex: 1; }
+
+  .who {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    margin-right: 18px;
+  }
+
+  .nav { display: flex; gap: 4px; }
+
+  .nav a {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    color: var(--p-text);
+    text-decoration: none;
+    font-size: 14px;
+  }
+
+  .nav a.on {
+    background: rgba(0, 136, 208, 0.16);
+    color: var(--p-primary);
+  }
+
+  .ic { width: 18px; height: 18px; fill: currentColor; flex: none; }
+  .ic.sm { width: 16px; height: 16px; }
+
+  .content { padding: 16px 20px 24px; }
+
+  .toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+
+  .search {
+    width: 320px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 12px;
+    color: var(--p-text2);
+  }
+
+  .fabs { display: flex; gap: 10px; }
+
+  .fab {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: #3a3a4f;
+    color: var(--p-text);
+    box-shadow: 0 3px 5px -1px rgba(0, 0, 0, 0.3);
+  }
+
+  .apps { display: grid; gap: 12px; }
+
+  .card {
+    background: var(--p-surface);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .card-row {
+    display: grid;
+    grid-template-columns: 48px 1fr 260px 120px;
+    align-items: center;
+    column-gap: 16px;
+    padding: 8px 12px 8px 8px;
+    min-height: 56px;
+  }
+
+  .iconbtn {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    color: var(--p-text2);
+  }
+
+  .name-line {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 15px;
+  }
+
+  .caption {
+    font-size: 12px;
+    color: var(--p-info);
+    letter-spacing: 0.03em;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    padding: 0 9px;
+    border-radius: 12px;
+    font-size: 12.5px;
+    line-height: 1;
+    background: var(--p-chip);
+    color: var(--p-text);
+    white-space: nowrap;
+  }
+
+  .chip.out { background: transparent; border: 1px solid rgba(255, 255, 255, 0.28); }
+  .chip.primary-out { background: transparent; border: 1px solid var(--p-primary); color: var(--p-primary); }
+  .chip.info-out { background: transparent; border: 1px solid var(--p-info); color: var(--p-info); }
+  .chip.primary { background: var(--p-primary); color: #fff; }
+  .chip.success { background: var(--p-success); color: rgba(0, 0, 0, 0.87); }
+  .chip.error { background: var(--p-error); color: #fff; }
+  .chip.warning { background: var(--p-warning); color: rgba(0, 0, 0, 0.87); }
+  .chip.kind-program { background: rgba(0, 136, 208, 0.18); color: #7cc8f0; border: 1px solid rgba(0, 136, 208, 0.55); }
+  .chip.kind-sdk { background: transparent; color: var(--p-text2); border: 1px solid rgba(255, 255, 255, 0.24); }
+  .chip .ic { width: 14px; height: 14px; }
+
+  .rules {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .warn-text { color: var(--p-warning); }
+  .warn-ic { color: var(--p-warning); }
+
+  .expanded { padding: 0 12px 14px; }
+
+  .logs-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin: 2px 0 10px;
+  }
+
+  .logtail {
+    background: #151520;
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    font-family: var(--roboto);
+    font-size: 13px;
+    display: grid;
+    gap: 5px;
+  }
+
+  .logtail .tail-head {
+    display: flex;
+    justify-content: space-between;
+    color: var(--p-text2);
+    font-size: 12px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--p-line);
+    margin-bottom: 2px;
+  }
+
+  .ll {
+    display: grid;
+    grid-template-columns: 64px 92px 1fr;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .ll time {
+    font-variant-numeric: tabular-nums;
+    color: var(--p-text2);
+    font-size: 12.5px;
+  }
+
+  .ll .chip { height: 20px; font-size: 11px; justify-self: start; }
+
+  .ll .txt { color: #dcdce6; word-break: break-word; }
+  .ll .txt b { color: var(--p-text); font-weight: 500; }
+
+  table.inst {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+
+  table.inst th {
+    text-align: left;
+    font-weight: 500;
+    color: var(--p-text);
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--p-line);
+    white-space: nowrap;
+  }
+
+  table.inst td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--p-line);
+    vertical-align: middle;
+  }
+
+  table.inst tr:last-child td { border-bottom: 0; }
+
+  .cell-name { display: grid; gap: 1px; }
+  .cell-name .n { display: flex; align-items: center; gap: 6px; }
+
+  .detail {
+    font-size: 12px;
+    color: var(--p-text2);
+    font-variant-numeric: tabular-nums;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+
+  .detail b { color: var(--p-text); font-weight: 500; }
+  .detail .bad { color: #ff7d92; }
+  .detail .good { color: #6fe39a; }
+
+  .btn {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 84px;
+    height: 30px;
+    border-radius: 12px;
+    font-size: 12.5px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    box-shadow: 0 3px 1px -2px rgba(0, 0, 0, 0.2), 0 2px 2px 0 rgba(0, 0, 0, 0.14);
+  }
+
+  .btn.stop { background: var(--p-error); color: #fff; }
+  .btn.start { background: var(--p-success); color: rgba(0, 0, 0, 0.87); }
+  .btn.disable { background: var(--p-warning); color: rgba(0, 0, 0, 0.87); }
+
+  .dash { color: var(--p-info); font-size: 12px; }
+
+  /* Annotation markers: marker-pen orange, deliberately outside the portal's palette */
+  .mk {
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--marker);
+    color: var(--marker-ink);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1;
+    flex: none;
+    box-shadow: 0 0 0 3px rgba(255, 122, 26, 0.28);
+    vertical-align: middle;
+  }
+
+  .notes {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px 28px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .notes li {
+    display: grid;
+    grid-template-columns: 24px 1fr;
+    gap: 10px;
+    align-items: start;
+  }
+
+  .notes li .mk { margin-top: 2px; }
+
+  .notes b {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+
+  .notes p { font-size: 14.5px; color: var(--muted); }
+
+  .screen-caption {
+    font-size: 13px;
+    color: var(--muted);
+    max-width: 90ch;
+  }
+
+  /* ------------------------------------------------------------------ The integration */
+  .integration {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: 22px;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    display: grid;
+    align-content: start;
+  }
+
+  .panel-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .panel pre {
+    margin: 0;
+    padding: 14px 16px 16px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--ink);
+  }
+
+  .tree .dim { color: var(--muted); }
+  .tree .hl { color: var(--accent-ink); font-weight: 600; }
+
+  .json .k { color: var(--accent-ink); }
+  .json .s { color: var(--ink); }
+  .json .p { color: var(--muted); }
+
+  .terminal {
+    grid-column: 1 / -1;
+    background: #101019;
+    color: #d6d6e2;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .terminal .panel-head { border-bottom-color: #26263a; }
+  .terminal .label { color: #8f8fa8; }
+
+  .terminal pre {
+    margin: 0;
+    padding: 14px 16px 18px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .terminal .cmd { color: #ffffff; }
+  .terminal .ok { color: #6fe39a; }
+  .terminal .w { color: #ffc46b; }
+  .terminal .d { color: #8f8fa8; }
+
+  .integration-note {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 30px;
+    font-size: 15px;
+    color: var(--muted);
+  }
+
+  .integration-note strong { color: var(--ink); font-weight: 600; }
+
+  /* ------------------------------------------------------------------ Benefits */
+  .benefits {
+    display: grid;
+    gap: 0;
+    border-top: 2px solid var(--ink);
+  }
+
+  .benefit {
+    display: grid;
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1fr) minmax(0, 1.15fr);
+    gap: 24px;
+    padding: 20px 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: start;
+  }
+
+  .benefit h3 {
+    font-size: 24px;
+    font-weight: 750;
+    line-height: 1.1;
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+  }
+
+  .benefit h3 .mk { transform: translateY(-2px); }
+
+  .today, .with {
+    display: grid;
+    gap: 4px;
+    font-size: 15px;
+  }
+
+  .today p { color: var(--muted); }
+
+  .today .label { text-decoration: line-through; text-decoration-color: var(--rule); }
+
+  .with .label { color: var(--accent-ink); }
+
+  .with p strong { font-weight: 600; }
+
+  /* ------------------------------------------------------------------ Scorecard */
+  .score-scroll { overflow-x: auto; }
+
+  table.score {
+    width: 100%;
+    min-width: 640px;
+    border-collapse: collapse;
+    font-size: 15px;
+  }
+
+  table.score th {
+    text-align: left;
+    padding: 12px 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 2px solid var(--ink);
+    vertical-align: bottom;
+  }
+
+  table.score th.us { color: var(--accent-ink); }
+
+  table.score td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+
+  table.score td:first-child { font-weight: 600; width: 22%; }
+  table.score td.them { color: var(--muted); width: 36%; }
+  table.score td.us {
+    background: var(--accent-tint);
+    border-bottom-color: var(--accent-line);
+  }
+
+  /* ------------------------------------------------------------------ Afternoon */
+  .steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0;
+    counter-reset: step;
+    position: relative;
+  }
+
+  .steps li {
+    counter-increment: step;
+    display: grid;
+    gap: 8px;
+    align-content: start;
+    padding: 0 16px 0 0;
+    position: relative;
+  }
+
+  .steps li::before {
+    content: counter(step);
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-family: var(--display);
+    font-stretch: 80%;
+    font-size: 20px;
+    font-weight: 800;
+    position: relative;
+    z-index: 1;
+  }
+
+  .steps li::after {
+    content: "";
+    position: absolute;
+    top: 18px;
+    left: 38px;
+    right: 0;
+    height: 2px;
+    background: var(--accent-line);
+  }
+
+  .steps li:last-child::after { display: none; }
+
+  .steps h3 { font-size: 20px; font-weight: 720; }
+  .steps p { font-size: 14.5px; color: var(--muted); }
+
+  .steps code {
+    display: block;
+    font-size: 12px;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 6px 8px;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .steps .time {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent-ink);
+  }
+
+  /* ------------------------------------------------------------------ Close */
+  .close {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+    gap: 36px;
+    padding-top: 36px;
+    border-top: 1px solid var(--rule);
+    align-items: end;
+  }
+
+  .close blockquote {
+    margin: 0;
+    font-family: var(--display);
+    font-stretch: 76%;
+    font-size: clamp(34px, 5vw, 58px);
+    font-weight: 850;
+    line-height: 0.98;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+
+  .close blockquote em { font-style: normal; color: var(--accent); }
+
+  .close-side { display: grid; gap: 16px; }
+
+  .status {
+    display: grid;
+    gap: 6px;
+    padding: 14px 16px;
+    border: 1px dashed var(--marker);
+    border-radius: 6px;
+    font-size: 14.5px;
+  }
+
+  .ask {
+    display: grid;
+    gap: 6px;
+    padding: 16px;
+    background: var(--accent-tint);
+    border: 1px solid var(--accent-line);
+    border-radius: 6px;
+  }
+
+  .ask strong { font-size: 17px; font-weight: 600; }
+  .ask p { font-size: 14.5px; }
+
+  .basis {
+    grid-column: 1 / -1;
+    font-size: 12.5px;
+    color: var(--muted);
+    max-width: 110ch;
+  }
+
+  /* ------------------------------------------------------------------ Responsive */
+  @media (max-width: 980px) {
+    .masthead { grid-template-columns: 1fr; }
+    .estate { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .notes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .integration { grid-template-columns: 1fr; }
+    .benefit { grid-template-columns: 1fr 1fr; }
+    .benefit h3 { grid-column: 1 / -1; }
+    .steps { grid-template-columns: 1fr; gap: 22px; }
+    .steps li { grid-template-columns: 38px 1fr; column-gap: 14px; padding: 0; }
+    .steps li::before { grid-row: span 4; }
+    .steps li::after { top: 38px; left: 18px; right: auto; width: 2px; height: calc(100% - 16px); }
+    .close { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 600px) {
+    body { padding-block: 24px 48px; }
+    .page { gap: 56px; }
+    .sort { grid-template-columns: 1fr; }
+    .arrow { transform: rotate(90deg); }
+    .pile { height: 300px; }
+    .estate { grid-template-columns: 1fr; }
+    .notes { grid-template-columns: 1fr; }
+    .benefit { grid-template-columns: 1fr; }
+    .how li { grid-template-columns: 1fr; gap: 2px; }
+    .lead { font-size: 17px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tag { transition: none; }
+  }
+
+  @media print {
+    :root, :root[data-theme="dark"] {
+      --ground: #FFFFFF; --surface: #FFFFFF; --ink: #171A2B; --muted: #586076; --rule: #D8DEE8;
+      --accent: #0088D0; --accent-ink: #00679F; --accent-tint: #EEF7FC; --accent-line: #9CCFEA;
+    }
+    body { padding: 0; }
+    .page { gap: 36px; }
+    .screen-scroll { overflow: visible; box-shadow: none; }
+    .screen { min-width: 0; }
+    .section, .benefit, .card, .panel { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Material icons used by the enList Portal (MudBlazor Icons.Material.Filled), as one sprite. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-apps" viewBox="0 0 24 24"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></symbol>
+  <symbol id="i-dns" viewBox="0 0 24 24"><path d="M20 13H4c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1v-6c0-.55-.45-1-1-1zM7 19c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM20 3H4c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1V4c0-.55-.45-1-1-1zM7 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></symbol>
+  <symbol id="i-article" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></symbol>
+  <symbol id="i-account" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></symbol>
+  <symbol id="i-less" viewBox="0 0 24 24"><path d="M12 8l-6 6 1.41 1.41L12 10.83l4.59 4.58L18 14z"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"/></symbol>
+  <symbol id="i-listalt" viewBox="0 0 24 24"><path d="M19 5v14H5V5h14m1.1-2H3.9c-.5 0-.9.4-.9.9v16.2c0 .4.4.9.9.9h16.2c.4 0 .9-.5.9-.9V3.9c0-.5-.5-.9-.9-.9zM11 7h6v2h-6V7zm0 4h6v2h-6v-2zm0 4h6v2h-6zM7 7h2v2H7zm0 4h2v2H7zm0 4h2v2H7z"/></symbol>
+  <symbol id="i-editnote" viewBox="0 0 24 24"><path d="M3 10h11v2H3zm0-2h11V6H3v2zm0 8h7v-2H3v2zm15.01-3.13.71-.71c.39-.39 1.02-.39 1.41 0l.71.71c.39.39.39 1.02 0 1.41l-.71.71-2.12-2.12zm-.71.71-5.3 5.3V21h2.12l5.3-5.3-2.12-2.12z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></symbol>
+  <symbol id="i-service" viewBox="0 0 24 24"><path d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8c-.45-.83-.7-1.79-.7-2.8 0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z"/></symbol>
+  <symbol id="i-job" viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 5.99L19.53 19H4.47L12 5.99M12 2L1 21h22L12 2zm1 14h-2v2h2v-2zm0-6h-2v4h2v-4z"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="M20 4H4c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.89-2-2-2zm0 14H4V8h16v10zm-2-1h-6v-2h6v2zM7.5 17l-1.41-1.41L8.67 13l-2.59-2.59L7.5 9l4 4-4 4z"/></symbol>
+  <symbol id="i-extension" viewBox="0 0 24 24"><path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7 1.49 0 2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/></symbol>
+  <symbol id="i-window" viewBox="0 0 24 24"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></symbol>
+</svg>
+
+<main class="page">
+
+  <!-- ================================================================ MASTHEAD -->
+  <header class="masthead">
+    <div>
+      <div class="memo-line label">
+        <span><strong>enList v3</strong></span>
+        <span>Pre-sales</span>
+        <span>Program workloads</span>
+        <span>15 Sep 2026</span>
+      </div>
+      <div class="concept">Concept mock-up · designed, not yet built</div>
+      <h1>Run what you <em>already have.</em></h1>
+      <p class="lead">PowerShell scripts, VB6 executables, VBScript, batch files, the vendor tool nobody dares touch. <strong>enList keeps all of it running across your Windows servers, from one screen, without rewriting a line of it.</strong> This page shows what that looks like in the portal, and why it beats the way it runs today.</p>
+    </div>
+
+    <div class="sort" aria-label="Legacy programs scattered across servers, gathered into one enList list">
+      <div class="pile" aria-hidden="true">
+        <div class="tag" style="left:2%;  top:2%;  transform:rotate(-7deg)"><b>INVPRINT.EXE</b><span>VB6 · Startup folder</span></div>
+        <div class="tag" style="left:30%; top:13%; transform:rotate(5deg)"><b>Export-Ledger.ps1</b><span>Task Scheduler · 0x1</span></div>
+        <div class="tag" style="left:6%;  top:27%; transform:rotate(3deg)"><b>MONTHEND.VBS</b><span>someone's RDP session</span></div>
+        <div class="tag" style="left:40%; top:36%; transform:rotate(-4deg)"><b>archive.cmd</b><span>robocopy · copied by hand</span></div>
+        <div class="tag" style="left:0%;  top:49%; transform:rotate(-3deg)"><b>OrderListener.exe</b><span>NSSM · 3 of 5 servers</span></div>
+        <div class="tag" style="left:33%; top:60%; transform:rotate(6deg)"><b>LabelBridge.exe</b><span>VB6 · Run registry key</span></div>
+        <div class="tag" style="left:8%;  top:73%; transform:rotate(-6deg)"><b>SyncAgent.exe</b><span>vendor · who restarts it?</span></div>
+        <div class="tag" style="left:44%; top:84%; transform:rotate(2deg)"><b>relay.bat</b><span>pause at the end</span></div>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="tidy">
+        <div class="tidy-head"><span>enList Portal · Applications</span><span>one list</span></div>
+        <div class="tidy-row"><div>INVPRINT<small>VB6 · 2 agents</small></div><span class="chip success">Running</span></div>
+        <div class="tidy-row"><div>Nightly Ledger Export<small>PowerShell 5.1</small></div><span class="chip success">Enabled</span></div>
+        <div class="tidy-row"><div>Month-End Close<small>VBScript</small></div><span class="chip success">Enabled</span></div>
+        <div class="tidy-row"><div>Hourly Archive<small>robocopy · exit 3 = ok</small></div><span class="chip success">Enabled</span></div>
+        <div class="tidy-row"><div>Order Listener<small>.NET 4.8 · 3 agents</small></div><span class="chip success">Running</span></div>
+        <div class="tidy-row"><div>Label Printer Bridge<small>VB6 · windowed</small></div><span class="chip error">Faulted</span></div>
+        <div class="tidy-row"><div>Vendor Sync Agent<small>already installed · 14</small></div><span class="chip success">Running</span></div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================================================================ THE ESTATE TODAY -->
+  <section class="section" aria-labelledby="today-title">
+    <div class="section-head">
+      <span class="label">The estate, today</span>
+      <h2 id="today-title">Every program runs a different way, on a different server, and nobody can see all of it.</h2>
+      <p>An illustrative Windows estate at a fictional distributor, Harbor &amp; Pine: not unusual, and not anyone's fault. Each program was set up by whoever needed it, with whatever was to hand, and still works — until the morning it doesn't.</p>
+    </div>
+
+    <div class="estate">
+      <div class="server">
+        <div class="server-head"><b>FIN-APP-01</b><span class="label">finance</span></div>
+        <ul class="how">
+          <li><span class="via">Startup folder</span><span class="what"><code>INVPRINT.EXE</code><span class="note">VB6, 2004. Starts when someone signs in.</span></span></li>
+          <li><span class="via">Task Scheduler</span><span class="what"><code>Export-Ledger.ps1</code><span class="note">Last Run Result: 0x1</span></span></li>
+          <li><span class="via">By hand</span><span class="what"><code>MONTHEND.VBS</code><span class="note">Run on the last day of the month, if Dana remembers.</span></span></li>
+        </ul>
+      </div>
+      <div class="server">
+        <div class="server-head"><b>WH-APP-01…05</b><span class="label">warehouse</span></div>
+        <ul class="how">
+          <li><span class="via">NSSM</span><span class="what"><code>OrderListener.exe</code><span class="note">Installed on three of the five.</span></span></li>
+          <li><span class="via">Run key</span><span class="what"><code>LabelBridge.exe</code><span class="note">VB6, windowed. Fails without an OCX.</span></span></li>
+          <li><span class="via">Task Scheduler</span><span class="what"><code>archive.cmd</code><span class="note">robocopy. Exit 3 reads as a failure.</span></span></li>
+        </ul>
+      </div>
+      <div class="server">
+        <div class="server-head"><b>14 servers</b><span class="label">vendor</span></div>
+        <ul class="how">
+          <li><span class="via">Vendor installer</span><span class="what"><code>SyncAgent.exe</code><span class="note">Stops after Windows Update. Nobody notices for a day.</span></span></li>
+          <li><span class="via">Remote desktop</span><span class="what"><code>relay.bat</code><span class="note">Ends with <code>pause</code>. Left open in a disconnected session.</span></span></li>
+          <li><span class="via">Copied by hand</span><span class="what"><code>PAYROLL.EXE</code><span class="note">Which version is on which box?</span></span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="estate-foot">
+      <span><strong>9 programs,</strong> started 7 different ways</span>
+      <span><strong>0 places</strong> that show whether they all ran last night</span>
+      <span><strong>1 person</strong> who knows where the VB6 source is</span>
+    </div>
+  </section>
+
+  <!-- ================================================================ THE SCREEN -->
+  <section class="section" aria-labelledby="screen-title">
+    <div class="section-head">
+      <span class="label">The same estate, in enList</span>
+      <h2 id="screen-title">One list. VB6 next to PowerShell next to .NET, each one watched.</h2>
+      <p>The enList Portal's Applications page, as it looks today, with the additions the program workloads design proposes. The lettered markers are explained below the screen.</p>
+    </div>
+
+    <div class="screen-wrap">
+      <div class="screen-scroll">
+        <div class="screen" role="img" aria-label="Mock-up of the enList Portal Applications page listing VB6, VBScript, PowerShell and .NET programs with their states">
+          <div class="chrome">
+            <div class="dots"><i></i><i></i><i></i></div>
+            <div class="url">https://<b>enlist.harborpine.example</b>:5231/applications</div>
+          </div>
+
+          <div class="appbar">
+            <img src="data:image/png;base64,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" alt="">
+            <div class="brand"><span>enList Portal</span><span class="div">/</span><span class="sec">Applications</span></div>
+            <div class="spacer"></div>
+            <div class="who">
+              <svg class="ic"><use href="#i-account"/></svg>
+              <span>HARBORPINE\j.okafor</span>
+              <span class="chip primary-out">Operator</span>
+            </div>
+            <nav class="nav">
+              <a class="on"><svg class="ic"><use href="#i-apps"/></svg>Applications</a>
+              <a><svg class="ic"><use href="#i-dns"/></svg>Agents</a>
+              <a><svg class="ic"><use href="#i-article"/></svg>Logs</a>
+              <a><svg class="ic"><use href="#i-key"/></svg>Access</a>
+            </nav>
+          </div>
+
+          <div class="content">
+            <div class="toolbar">
+              <div class="search"><svg class="ic"><use href="#i-search"/></svg>Search applications, services, jobs...</div>
+              <div class="fabs">
+                <div class="fab"><svg class="ic"><use href="#i-upload"/></svg></div>
+                <div class="fab"><svg class="ic"><use href="#i-refresh"/></svg></div>
+              </div>
+            </div>
+
+            <div class="apps">
+
+              <!-- CustomerPortalWorker: an SDK application, collapsed -->
+              <div class="card">
+                <div class="card-row">
+                  <div class="iconbtn"><svg class="ic"><use href="#i-more"/></svg></div>
+                  <div>
+                    <div class="name-line">
+                      CustomerPortalWorker
+                      <span class="chip">v12</span>
+                      <span class="chip kind-sdk"><svg class="ic"><use href="#i-extension"/></svg>SDK</span>
+                      <span class="iconbtn" style="width:26px;height:26px"><svg class="ic sm"><use href="#i-listalt"/></svg></span>
+                      <span class="mk">K</span>
+                    </div>
+                    <div class="caption">Customer portal background worker, built on the enList SDK</div>
+                  </div>
+                  <div class="rules">2 rules <span class="iconbtn" style="width:28px;height:28px"><svg class="ic sm"><use href="#i-editnote"/></svg></span></div>
+                  <div>4 agents</div>
+                </div>
+              </div>
+
+              <!-- LegacyInvoicing: expanded, with the log tail open -->
+              <div class="card">
+                <div class="card-row">
+                  <div class="iconbtn"><svg class="ic"><use href="#i-less"/></svg></div>
+                  <div>
+                    <div class="name-line">
+                      LegacyInvoicing
+                      <span class="chip">v7</span>
+                      <span class="chip kind-program"><svg class="ic"><use href="#i-terminal"/></svg>Program</span>
+                      <span class="mk">A</span>
+                      <span class="iconbtn" style="width:26px;height:26px"><svg class="ic sm"><use href="#i-listalt"/></svg></span>
+                    </div>
+                    <div class="caption">VB6 invoicing and month-end tools</div>
+                  </div>
+                  <div class="rules">1 rule <span class="iconbtn" style="width:28px;height:28px"><svg class="ic sm"><use href="#i-editnote"/></svg></span></div>
+                  <div>2 agents</div>
+                </div>
+
+                <div class="expanded">
+                  <div class="logs-line">
+                    <span class="caption" style="font-size:13px">Logs:</span>
+                    <span class="chip primary">FIN-APP-01</span>
+                    <span class="chip out">FIN-APP-02</span>
+                  </div>
+
+                  <div class="logtail">
+                    <div class="tail-head"><span>FIN-APP-01 · LegacyInvoicing · live tail</span><span>last 500 lines</span></div>
+                    <div class="ll"><time>02:00:03</time><span class="chip">Information</span><span class="txt"><b>Nightly Ledger Export:</b> started: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File …\Export-Ledger.ps1 -Share \\fin-share\ledger (pid 9120)</span></div>
+                    <div class="ll"><time>02:00:04</time><span class="chip warning">Warning</span><span class="txt"><b>Nightly Ledger Export:</b> WARNING: 12 invoices have no tax code and were skipped <span class="mk">G</span></span></div>
+                    <div class="ll"><time>02:00:41</time><span class="chip error">Error</span><span class="txt"><b>Nightly Ledger Export:</b> Export-Ledger.ps1 : Cannot find path '\\fin-share\ledger\2026-09-14.csv' because it does not exist.</span></div>
+                    <div class="ll"><time>02:00:41</time><span class="chip error">Error</span><span class="txt"><b>agent:</b> job 'Nightly Ledger Export' run 5f1c09a2 FAILED in 38412ms: exited with code 1; last error output: Cannot find path '\\fin-share\ledger\2026-09-14.csv'</span></div>
+                    <div class="ll"><time>09:14:22</time><span class="chip error">Error</span><span class="txt"><b>INVPRINT:</b> exited with code 3221225477 (0xC0000005, access violation) after 6d 04h 11m</span></div>
+                    <div class="ll"><time>09:14:24</time><span class="chip">Information</span><span class="txt"><b>INVPRINT:</b> restarted after 2s: pid 6120 <span class="mk">D</span></span></div>
+                  </div>
+
+                  <table class="inst">
+                    <thead>
+                      <tr><th>Name</th><th>Type</th><th>Agent</th><th>Qualified via</th><th>Process · last run</th><th>State</th><th style="width:100px"></th></tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td><div class="cell-name"><span class="n">INVPRINT <span class="chip">v7</span> <span class="mk">B</span></span><span class="caption">VB6 invoice print spooler</span></div></td>
+                        <td><span class="chip primary-out"><svg class="ic"><use href="#i-service"/></svg>Service</span></td>
+                        <td>FIN-APP-01</td>
+                        <td>role=finance</td>
+                        <td><div class="detail"><b>pid 6120</b> <span class="mk">C</span> · 1 restart · last exit <span class="bad">0xC0000005</span> <svg class="ic sm warn-ic"><use href="#i-window"/></svg> windowed <span class="mk">E</span></div></td>
+                        <td><span class="chip success">Running</span></td>
+                        <td><span class="btn stop">Stop</span></td>
+                      </tr>
+                      <tr>
+                        <td><div class="cell-name"><span class="n">INVPRINT <span class="chip">v7</span></span><span class="caption">VB6 invoice print spooler</span></div></td>
+                        <td><span class="chip primary-out"><svg class="ic"><use href="#i-service"/></svg>Service</span></td>
+                        <td>FIN-APP-02</td>
+                        <td>role=finance</td>
+                        <td><div class="detail"><b>pid 5536</b> · 0 restarts <svg class="ic sm warn-ic"><use href="#i-window"/></svg> windowed</div></td>
+                        <td><span class="chip success">Running</span></td>
+                        <td><span class="btn stop">Stop</span></td>
+                      </tr>
+                      <tr>
+                        <td><div class="cell-name"><span class="n">Month-End Close <span class="chip">v7</span></span><span class="caption">cscript //NoLogo MONTHEND.VBS</span></div></td>
+                        <td><span class="chip info-out"><svg class="ic"><use href="#i-job"/></svg>Job</span></td>
+                        <td>FIN-APP-01</td>
+                        <td>role=finance</td>
+                        <td><div class="detail">last run 31 Aug 23:30 · <span class="good">Succeeded</span> · 4m 12s · next 30 Sep 23:30</div></td>
+                        <td><span class="chip success">Enabled</span></td>
+                        <td><span class="btn disable">Disable</span></td>
+                      </tr>
+                      <tr>
+                        <td><div class="cell-name"><span class="n">Nightly Ledger Export <span class="chip">v7</span></span><span class="caption">Export-Ledger.ps1 · Windows PowerShell 5.1</span></div></td>
+                        <td><span class="chip info-out"><svg class="ic"><use href="#i-job"/></svg>Job</span></td>
+                        <td>FIN-APP-01</td>
+                        <td>role=finance</td>
+                        <td><div class="detail">last run 02:00 · <span class="bad">Failed</span> · exit 1 · 38s <span class="mk">F</span></div></td>
+                        <td><span class="chip success">Enabled</span></td>
+                        <td><span class="btn disable">Disable</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- OrderSync: expanded, no log tail -->
+              <div class="card">
+                <div class="card-row">
+                  <div class="iconbtn"><svg class="ic"><use href="#i-less"/></svg></div>
+                  <div>
+                    <div class="name-line">
+                      OrderSync
+                      <span class="chip">v4</span>
+                      <span class="chip kind-program"><svg class="ic"><use href="#i-terminal"/></svg>Program</span>
+                      <span class="iconbtn" style="width:26px;height:26px"><svg class="ic sm"><use href="#i-listalt"/></svg></span>
+                    </div>
+                    <div class="caption">Order sync tools, moved off Task Scheduler and NSSM</div>
+                  </div>
+                  <div class="rules">1 rule <span class="iconbtn" style="width:28px;height:28px"><svg class="ic sm"><use href="#i-editnote"/></svg></span></div>
+                  <div>5 agents</div>
+                </div>
+
+                <div class="expanded">
+                  <div class="logs-line">
+                    <span class="caption" style="font-size:13px">Logs:</span>
+                    <span class="chip out">WH-APP-01</span><span class="chip out">WH-APP-02</span><span class="chip out">WH-APP-03</span><span class="chip out">WH-APP-04</span><span class="chip out">WH-APP-05</span>
+                  </div>
+                  <table class="inst">
+                    <thead>
+                      <tr><th>Name</th><th>Type</th><th>Agent</th><th>Qualified via</th><th>Process · last run</th><th>State</th><th style="width:100px"></th></tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td><div class="cell-name"><span class="n">Order Listener <span class="chip">v4</span></span><span class="caption">.NET Framework 4.8 console service</span></div></td>
+                        <td><span class="chip primary-out"><svg class="ic"><use href="#i-service"/></svg>Service</span></td>
+                        <td>WH-APP-01</td>
+                        <td>role=orders <span class="mk">J</span></td>
+                        <td><div class="detail"><b>pid 7244</b> · 0 restarts</div></td>
+                        <td><span class="chip success">Running</span></td>
+                        <td><span class="btn stop">Stop</span></td>
+                      </tr>
+                      <tr>
+                        <td><div class="cell-name"><span class="n">Order Listener <span class="chip">v4</span></span><span class="caption">.NET Framework 4.8 console service</span></div></td>
+                        <td><span class="chip primary-out"><svg class="ic"><use href="#i-service"/></svg>Service</span></td>
+                        <td>WH-APP-02</td>
+                        <td>role=orders</td>
+                        <td><div class="detail"><b>pid 3908</b> · 2 restarts · last exit <span class="bad">1</span></div></td>
+                        <td><span class="chip success">Running</span></td>
+                        <td><span class="btn stop">Stop</span></td>
+                      </tr>
+                      <tr>
+                        <td><div class="cell-name"><span class="n">Label Printer Bridge <span class="chip">v4</span></span><span class="caption">VB6 label printer relay</span></div></td>
+                        <td><span class="chip primary-out"><svg class="ic"><use href="#i-service"/></svg>Service</span></td>
+                        <td>WH-APP-01</td>
+                        <td>role=orders</td>
+                        <td><div class="detail">gave up after 5 attempts · last exit <span class="bad">0xC0000135</span> (DLL not found) <span class="mk">H</span></div></td>
+                        <td><span class="chip error">Faulted</span></td>
+                        <td><span class="btn start">Start</span></td>
+                      </tr>
+                      <tr>
+                        <td><div class="cell-name"><span class="n">Hourly Archive <span class="chip">v4</span></span><span class="caption">archive.cmd · robocopy</span></div></td>
+                        <td><span class="chip info-out"><svg class="ic"><use href="#i-job"/></svg>Job</span></td>
+                        <td>WH-APP-01</td>
+                        <td>role=orders</td>
+                        <td><div class="detail">last run 14:00 · <span class="good">Succeeded</span> · exit 3 · 1m 51s <span class="mk">I</span></div></td>
+                        <td><span class="chip success">Enabled</span></td>
+                        <td><span class="btn disable">Disable</span></td>
+                      </tr>
+                      <tr>
+                        <td><div class="cell-name"><span class="n">Inbox Watcher <span class="chip">v4</span></span><span class="caption">Watch-Inbox.ps1 · PowerShell 7</span></div></td>
+                        <td><span class="chip primary-out"><svg class="ic"><use href="#i-service"/></svg>Service</span></td>
+                        <td>WH-APP-02</td>
+                        <td>role=orders</td>
+                        <td><div class="detail"><b>pid 8812</b> · 0 restarts</div></td>
+                        <td><span class="chip success">Running</span></td>
+                        <td><span class="btn stop">Stop</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- PayrollBridge: uploaded, not placed -->
+              <div class="card">
+                <div class="card-row">
+                  <div class="iconbtn"><svg class="ic"><use href="#i-more"/></svg></div>
+                  <div>
+                    <div class="name-line">
+                      PayrollBridge
+                      <span class="chip kind-program"><svg class="ic"><use href="#i-terminal"/></svg>Program</span>
+                      <span class="iconbtn" style="width:26px;height:26px"><svg class="ic sm"><use href="#i-listalt"/></svg></span>
+                      <span class="mk">L</span>
+                    </div>
+                    <div class="caption">PAYROLL.EXE and its file drop, uploaded Friday</div>
+                  </div>
+                  <div class="rules"><svg class="ic sm warn-ic"><use href="#i-warn"/></svg><span class="warn-text">0 rules</span> <span class="iconbtn" style="width:28px;height:28px"><svg class="ic sm"><use href="#i-editnote"/></svg></span></div>
+                  <div class="rules"><svg class="ic sm warn-ic"><use href="#i-warn"/></svg><span class="warn-text">0 agents</span></div>
+                </div>
+              </div>
+
+              <!-- VendorSyncAgent: adopted, installed software, collapsed -->
+              <div class="card">
+                <div class="card-row">
+                  <div class="iconbtn"><svg class="ic"><use href="#i-more"/></svg></div>
+                  <div>
+                    <div class="name-line">
+                      VendorSyncAgent
+                      <span class="chip">v1</span>
+                      <span class="chip kind-program"><svg class="ic"><use href="#i-terminal"/></svg>Program</span>
+                      <span class="iconbtn" style="width:26px;height:26px"><svg class="ic sm"><use href="#i-listalt"/></svg></span>
+                    </div>
+                    <div class="caption">Keeps SyncAgent.exe running where the vendor already installed it</div>
+                  </div>
+                  <div class="rules">1 rule <span class="iconbtn" style="width:28px;height:28px"><svg class="ic sm"><use href="#i-editnote"/></svg></span></div>
+                  <div>14 agents</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ol class="notes">
+        <li><span class="mk">A</span><div><b>A Program, not a rewrite</b><p>LegacyInvoicing is a folder of VB6, VBScript and PowerShell plus one small JSON file. It is versioned and deployed like any enList application — this is its seventh upload.</p></div></li>
+        <li><span class="mk">B</span><div><b>Services and jobs, whatever they are written in</b><p>A 2004 VB6 executable is listed per server as a service, and a VBScript and a PowerShell script as jobs — the same rows, badges and buttons as SDK code.</p></div></li>
+        <li><span class="mk">C</span><div><b>The real process id</b><p>6120 is <code>INVPRINT.EXE</code> itself, not a wrapper, so <code>Get-Process -Id 6120</code> on FIN-APP-01 finds exactly what the portal shows.</p></div></li>
+        <li><span class="mk">D</span><div><b>It came back on its own</b><p>After six days INVPRINT crashed with an access violation. enList wrote down the exit code in words and restarted it two seconds later. The restart count is on the row.</p></div></li>
+        <li><span class="mk">E</span><div><b>It knows what it's running</b><p>INVPRINT has a window. enList read that from the executable and says so, because a windowed program on a server can't show anyone a dialog — the kind of thing worth knowing before 2 a.m.</p></div></li>
+        <li><span class="mk">F</span><div><b>Failed means failed</b><p>Not <em>Last Run Result: 0x1</em>. The export failed at 02:00 with exit code 1, and the reason is one line away in the log.</p></div></li>
+        <li><span class="mk">G</span><div><b>Warnings arrive as warnings</b><p>PowerShell's <code>WARNING:</code> lines are logged at Warning, without the script changing — so twelve skipped invoices don't hide among the routine lines.</p></div></li>
+        <li><span class="mk">H</span><div><b>Knows when to stop trying</b><p>Label Printer Bridge can't load a DLL on WH-APP-01. After five quick failures enList stops restarting it, says why, and offers Start once the DLL is back.</p></div></li>
+        <li><span class="mk">I</span><div><b>Success, by the program's own rules</b><p><code>robocopy</code> exits 3 when it copied files. The package says codes 0–7 are success, so this run reads Succeeded, not Failed.</p></div></li>
+        <li><span class="mk">J</span><div><b>Placed by rule, not by hand</b><p>Order Listener runs wherever a server carries <code>role=orders</code>. Tag a sixth warehouse server, and it starts there too.</p></div></li>
+        <li><span class="mk">K</span><div><b>Old and new, side by side</b><p>An application built on the enList SDK sits in the same list, so modernising one program changes nothing about how the others are run.</p></div></li>
+        <li><span class="mk">L</span><div><b>Uploaded, not yet placed</b><p>PayrollBridge is in enList but runs nowhere until someone adds a rule. The warning says so rather than leaving it to be discovered.</p></div></li>
+      </ol>
+
+      <p class="screen-caption">A mock-up, not a screenshot. The frame — app bar, navigation, application cards, instance table, log tail, state colours — follows the enList Portal as it is built today. The <em>Program</em> chip, the process and last-run column, and the windowed-program warning are the additions §11 of the program workloads design proposes. Harbor &amp; Pine, its servers, people and every figure on this page are invented.</p>
+    </div>
+  </section>
+
+  <!-- ================================================================ THE INTEGRATION -->
+  <section class="section" aria-labelledby="int-title">
+    <div class="section-head">
+      <span class="label">The whole integration</span>
+      <h2 id="int-title">No SDK. No rewrite. One file beside the program.</h2>
+      <p>Everything enList needs to run LegacyInvoicing is below. The VB6 executable, the VBScript and the PowerShell script are untouched — enList describes them, then supervises them.</p>
+    </div>
+
+    <div class="integration">
+      <div class="panel">
+        <div class="panel-head"><span class="label">The package</span><span class="label">6.8 MB</span></div>
+<pre class="tree"><span class="hl">LegacyInvoicing\</span>
+  <span class="hl">enlist.workload.json</span>   <span class="dim">← the only new file</span>
+  INVPRINT.EXE           <span class="dim">VB6, 2004</span>
+  INVPRINT.INI
+  MONTHEND.VBS           <span class="dim">VBScript</span>
+  Export-Ledger.ps1      <span class="dim">Windows PowerShell 5.1</span>
+</pre>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><span class="label">enlist.workload.json</span><span class="label">24 lines</span></div>
+<pre class="json"><span class="p">{</span>
+  <span class="k">"schema"</span><span class="p">:</span> 1<span class="p">,</span>
+  <span class="k">"description"</span><span class="p">:</span> <span class="s">"VB6 invoicing and month-end tools"</span><span class="p">,</span>
+  <span class="k">"services"</span><span class="p">: [{</span>
+    <span class="k">"name"</span><span class="p">:</span> <span class="s">"INVPRINT"</span><span class="p">,</span>
+    <span class="k">"description"</span><span class="p">:</span> <span class="s">"VB6 invoice print spooler"</span><span class="p">,</span>
+    <span class="k">"command"</span><span class="p">:</span> <span class="s">"INVPRINT.EXE"</span><span class="p">,</span>
+    <span class="k">"arguments"</span><span class="p">: [</span><span class="s">"/queue"</span><span class="p">,</span> <span class="s">"FINANCE"</span><span class="p">],</span>
+    <span class="k">"stop"</span><span class="p">: {</span> <span class="k">"methods"</span><span class="p">: [</span><span class="s">"close"</span><span class="p">],</span> <span class="k">"timeoutSeconds"</span><span class="p">:</span> 20 <span class="p">},</span>
+    <span class="k">"output"</span><span class="p">: {</span> <span class="k">"encoding"</span><span class="p">:</span> <span class="s">"ansi"</span> <span class="p">}</span>
+  <span class="p">}],</span>
+  <span class="k">"jobs"</span><span class="p">: [{</span>
+    <span class="k">"name"</span><span class="p">:</span> <span class="s">"Month-End Close"</span><span class="p">,</span>
+    <span class="k">"description"</span><span class="p">:</span> <span class="s">"cscript //NoLogo MONTHEND.VBS"</span><span class="p">,</span>
+    <span class="k">"command"</span><span class="p">:</span> <span class="s">"cscript.exe"</span><span class="p">,</span>
+    <span class="k">"arguments"</span><span class="p">: [</span><span class="s">"//NoLogo"</span><span class="p">,</span> <span class="s">"{appDir}\\MONTHEND.VBS"</span><span class="p">],</span>
+    <span class="k">"cron"</span><span class="p">:</span> <span class="s">"30 23 L * *"</span>
+  <span class="p">}, {</span>
+    <span class="k">"name"</span><span class="p">:</span> <span class="s">"Nightly Ledger Export"</span><span class="p">,</span>
+    <span class="k">"script"</span><span class="p">:</span> <span class="s">"Export-Ledger.ps1"</span><span class="p">,</span>
+    <span class="k">"arguments"</span><span class="p">: [</span><span class="s">"-Share"</span><span class="p">,</span> <span class="s">"\\\\fin-share\\ledger"</span><span class="p">],</span>
+    <span class="k">"cron"</span><span class="p">:</span> <span class="s">"0 2 * * *"</span><span class="p">,</span> <span class="k">"timeoutMinutes"</span><span class="p">:</span> 60
+  <span class="p">}]</span>
+<span class="p">}</span></pre>
+      </div>
+
+      <div class="terminal">
+        <div class="panel-head"><span class="label">Deploying it</span><span class="label">PowerShell</span></div>
+<pre><span class="d">PS&gt;</span> <span class="cmd">enlist-deploy --control-plane https://enlist.harborpine.example:5293 --app LegacyInvoicing --source .\LegacyInvoicing</span>
+Program workload: 1 service, 2 jobs.
+  service  INVPRINT               INVPRINT.EXE
+  job      Month-End Close        cscript.exe               30 23 L * *
+  job      Nightly Ledger Export  Export-Ledger.ps1         0 2 * * *
+<span class="w">Warnings:</span>
+<span class="w">  INVPRINT: INVPRINT.EXE is a windowed program. It runs where no one can see or answer it.</span>
+<span class="w">  Month-End Close: cscript.exe is not in the package; it will be resolved on each machine's PATH.</span>
+Packaging... 6.8 MB
+<span class="ok">Uploaded.</span> digest: 9b41e2…c07e   version 7   runtime flavor: program
+<span class="ok">Done.</span> Declare where this runs from the Applications tab, or with a rule.</pre>
+      </div>
+
+      <div class="integration-note">
+        <span><strong>The VB6 runtime</strong> still ships with Windows. Controls a VB6 program uses (<code>.ocx</code> files) must still be registered on the server, which is exactly what Label Printer Bridge is missing (<span class="mk">H</span>).</span>
+        <span><strong><code>30 23 L * *</code></strong> — 23:30 on the last day of every month. Nobody has to remember.</span>
+        <span><strong>Every warning</strong> is raised before anything reaches a server, not discovered on one.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================ BENEFITS -->
+  <section class="section" aria-labelledby="why-title">
+    <div class="section-head">
+      <span class="label">Why run them through enList</span>
+      <h2 id="why-title">Your programs don't change. What you know about them does.</h2>
+      <p>Each of these is something an operator does by hand today, set against what enList does instead. The markers point back to where the mock-up shows it.</p>
+    </div>
+
+    <div class="benefits">
+      <div class="benefit">
+        <h3>Deploy once, not fourteen times <span class="mk">J</span></h3>
+        <div class="today"><span class="label">Today</span><p>Remote desktop into each server, copy the new build over the old one, and hope none of them was skipped.</p></div>
+        <div class="with"><span class="label">With enList</span><p><strong>One upload and one rule by tag.</strong> Every matching server picks it up, and a server added to the pool next month does too.</p></div>
+      </div>
+      <div class="benefit">
+        <h3>See that it's running <span class="mk">C</span></h3>
+        <div class="today"><span class="label">Today</span><p>Sign in to the server, open Task Manager, look for the process by name — on every server, one at a time.</p></div>
+        <div class="with"><span class="label">With enList</span><p><strong>Every program on every server, in one list,</strong> with its state and its real process id, refreshed every few seconds.</p></div>
+      </div>
+      <div class="benefit">
+        <h3>Know when it didn't work <span class="mk">F</span></h3>
+        <div class="today"><span class="label">Today</span><p>Task Scheduler says <em>0x1</em>. Nobody looks until the finance team asks where the export went.</p></div>
+        <div class="with"><span class="label">With enList</span><p><strong>Failed, exit code 1, and the line that caused it.</strong> Success is judged by the program's own exit codes, so robocopy's "3" isn't mistaken for a failure.</p></div>
+      </div>
+      <div class="benefit">
+        <h3>It comes back by itself <span class="mk">D</span></h3>
+        <div class="today"><span class="label">Today</span><p>NSSM restarts it on the servers where someone installed NSSM. Everywhere else, it stays down until someone notices.</p></div>
+        <div class="with"><span class="label">With enList</span><p><strong>Restarted with backoff on every server.</strong> After repeated failures it stops trying and says why, instead of spinning forever.</p></div>
+      </div>
+      <div class="benefit">
+        <h3>Logs in one place <span class="mk">G</span></h3>
+        <div class="today"><span class="label">Today</span><p>A text file on the C: drive of each server — if the program writes one at all.</p></div>
+        <div class="with"><span class="label">With enList</span><p><strong>Every line a program prints, from every server, in the portal,</strong> with warnings and errors marked as such, and a live tail.</p></div>
+      </div>
+      <div class="benefit">
+        <h3>Change a schedule without a server</h3>
+        <div class="today"><span class="label">Today</span><p>Edit the scheduled task on each server, and hope the trigger was set the same way on all of them.</p></div>
+        <div class="with"><span class="label">With enList</span><p><strong>Change the cron on the rule.</strong> enList checks the job exists and the schedule is valid, and every matching server follows.</p></div>
+      </div>
+      <div class="benefit">
+        <h3>Roll back in a minute <span class="mk">A</span></h3>
+        <div class="today"><span class="label">Today</span><p>Find the previous build — if anyone kept it — and copy it back to every server again.</p></div>
+        <div class="with"><span class="label">With enList</span><p><strong>Point the rule at the previous version.</strong> Every upload is numbered and fingerprinted, and kept for 30 days after nothing uses it, so last week's build is one click away.</p></div>
+      </div>
+      <div class="benefit">
+        <h3>Leave legacy code alone <span class="mk">K</span></h3>
+        <div class="today"><span class="label">Today</span><p>Modern operations seem to require modern code, so the VB6 tools wait for a rewrite that never gets funded.</p></div>
+        <div class="with"><span class="label">With enList</span><p><strong>VB6, VBScript, PowerShell 5.1 and .NET Framework run exactly as they are,</strong> each in its own process — and can be rewritten one at a time, later, on the SDK, in the same list.</p></div>
+      </div>
+      <div class="benefit">
+        <h3>Safer by design <span class="mk">E</span></h3>
+        <div class="today"><span class="label">Today</span><p>Scripts run under whatever account set them up, on servers people remote into for routine jobs.</p></div>
+        <div class="with"><span class="label">With enList</span><p><strong>Agents only dial out. Every process tree is contained,</strong> so nothing is left orphaned, and only Operators can deploy or change what runs. No remote desktop session is needed for any of it.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================ SCORECARD -->
+  <section class="section" aria-labelledby="score-title">
+    <div class="section-head">
+      <span class="label">Side by side</span>
+      <h2 id="score-title">The same nine questions, answered two ways.</h2>
+    </div>
+
+    <div class="score-scroll">
+      <table class="score">
+        <thead>
+          <tr>
+            <th>The question</th>
+            <th>Task Scheduler, NSSM and remote desktop</th>
+            <th class="us">enList program workloads</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Put it on 14 servers</td><td class="them">Copy by hand, 14 times</td><td class="us">One upload, one rule</td></tr>
+          <tr><td>Is it running?</td><td class="them">Sign in to each server and check</td><td class="us">One list, with real process ids</td></tr>
+          <tr><td>Why did it fail?</td><td class="them"><em>Last Run Result: 0x1</em></td><td class="us">Exit code, the error line, and the log</td></tr>
+          <tr><td>Did it come back?</td><td class="them">Only where NSSM is installed</td><td class="us">Restart with backoff, on every server</td></tr>
+          <tr><td>Where are its logs?</td><td class="them">A folder on each server, maybe</td><td class="us">In the portal, with levels, live</td></tr>
+          <tr><td>Change its schedule</td><td class="them">Edit each scheduled task</td><td class="us">One rule, validated</td></tr>
+          <tr><td>Roll back</td><td class="them">Find a copy, copy it everywhere</td><td class="us">Pick the previous version</td></tr>
+          <tr><td>A new server joins</td><td class="them">Repeat every step above</td><td class="us">Tag it; everything follows</td></tr>
+          <tr><td>Stop it everywhere, now</td><td class="them">Sign in to every server</td><td class="us">Set the rule to Stopped</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================================================================ AN AFTERNOON -->
+  <section class="section" aria-labelledby="steps-title">
+    <div class="section-head">
+      <span class="label">Getting there</span>
+      <h2 id="steps-title">From a folder of old programs to the fleet, in an afternoon.</h2>
+      <p>The same steps whether it is one script or fifty. Rough times, for someone who has installed enList and never packaged a program before.</p>
+    </div>
+
+    <ol class="steps">
+      <li>
+        <h3>Describe it</h3>
+        <span class="time">about 10 minutes</span>
+        <code>enlist-deploy init --source .\LegacyInvoicing --service INVPRINT.EXE</code>
+        <p>Writes the descriptor. Add the jobs and their schedules.</p>
+      </li>
+      <li>
+        <h3>Watch it locally</h3>
+        <span class="time">about 15 minutes</span>
+        <code>enlist-runner --dev --app .\LegacyInvoicing</code>
+        <p>Start it, stop it, run a job — under enList's supervision, on your own machine.</p>
+      </li>
+      <li>
+        <h3>Upload it</h3>
+        <span class="time">a minute</span>
+        <code>enlist-deploy --control-plane https://enlist… --app LegacyInvoicing --source .\LegacyInvoicing</code>
+        <p>Every warning appears here, before a server is touched.</p>
+      </li>
+      <li>
+        <h3>Place it</h3>
+        <span class="time">two minutes</span>
+        <code>Rule: role=finance · Running</code>
+        <p>From the portal. It starts on every matching server within seconds.</p>
+      </li>
+      <li>
+        <h3>Retire the old wiring</h3>
+        <span class="time">once per server</span>
+        <code>Disable the scheduled task; remove the NSSM service</code>
+        <p>The last time anyone needs to sign in to that server for it.</p>
+      </li>
+    </ol>
+  </section>
+
+  <!-- ================================================================ CLOSE -->
+  <footer class="close">
+    <blockquote>Nothing gets rewritten. <em>Everything gets watched.</em></blockquote>
+    <div class="close-side">
+      <div class="status">
+        <span class="label">Where this stands</span>
+        <p>Program workloads are fully designed and not yet built. The design, its phased plan and its test matrix are in the repository; the portal shown here exists today, minus the additions marked.</p>
+      </div>
+      <div class="ask">
+        <span class="label" style="color:var(--accent-ink)">What we're looking for</span>
+        <strong>Three to five design partners</strong>
+        <p>Windows-heavy teams with an estate like the one above — scripts, VB6, vendor tools, Task Scheduler — who want to be first to run it under enList.</p>
+      </div>
+    </div>
+    <p class="basis">Concept mock-up, 15 September 2026. Program workloads are specified in <code>docs/03-architecture/Program-Workloads-Design.md</code> and are not built; behaviour shown follows that design. The portal frame follows <code>src/Enlist.Portal</code> as built. Harbor &amp; Pine Distribution, its server names, people, domains (<code>.example</code>) and every figure are fictional and illustrative. Companion to <code>enList-Sales-Readiness.html</code> in the same folder.</p>
+  </footer>
+
+</main>
+</body>
+</html>
