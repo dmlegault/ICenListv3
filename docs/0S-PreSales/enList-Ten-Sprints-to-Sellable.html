@@ -1,0 +1,1143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ten Sprints to Sellable</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+  body { margin: 0; }
+  :root {
+    --ground: #F5F7FA;
+    --surface: #FFFFFF;
+    --ink: #171A2B;
+    --muted: #586076;
+    --rule: #D8DEE8;
+    --accent: #0088D0;
+    --accent-ink: #00679F;
+    --accent-tint: #E7F3FA;
+    --accent-line: #9CCFEA;
+    --marker: #FF7A1A;
+
+    /* The buyer's stages, as the sales brief names them, plus the foundation under them. */
+    --st-found: #5F667C;
+    --st-try: #0088D0;
+    --st-pilot: #0B8577;
+    --st-sec: #9A5B13;
+    --st-buy: #2D7A4B;
+    --st-found-tint: #ECEFF4;
+    --st-try-tint: #E7F3FA;
+    --st-pilot-tint: #E3F4F1;
+    --st-sec-tint: #F8EEDF;
+    --st-buy-tint: #E6F3EB;
+
+    --display: "Archivo", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #15151F;
+      --surface: #1F1F2D;
+      --ink: #F2F2F6;
+      --muted: #A3A3B9;
+      --rule: #34344A;
+      --accent: #2FA6E8;
+      --accent-ink: #72C5F2;
+      --accent-tint: #1B2C3E;
+      --accent-line: #2C5A7A;
+      --st-found: #A3A3B9;
+      --st-try: #4FB6EE;
+      --st-pilot: #3CC4B2;
+      --st-sec: #E3A55A;
+      --st-buy: #6FCB94;
+      --st-found-tint: #2A2A3C;
+      --st-try-tint: #1B2C3E;
+      --st-pilot-tint: #16302E;
+      --st-sec-tint: #342A1C;
+      --st-buy-tint: #1A3024;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #15151F;
+    --surface: #1F1F2D;
+    --ink: #F2F2F6;
+    --muted: #A3A3B9;
+    --rule: #34344A;
+    --accent: #2FA6E8;
+    --accent-ink: #72C5F2;
+    --accent-tint: #1B2C3E;
+    --accent-line: #2C5A7A;
+    --st-found: #A3A3B9;
+    --st-try: #4FB6EE;
+    --st-pilot: #3CC4B2;
+    --st-sec: #E3A55A;
+    --st-buy: #6FCB94;
+    --st-found-tint: #2A2A3C;
+    --st-try-tint: #1B2C3E;
+    --st-pilot-tint: #16302E;
+    --st-sec-tint: #342A1C;
+    --st-buy-tint: #1A3024;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.55;
+    padding: 36px 20px 64px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 1120px;
+    margin: 0 auto;
+    display: grid;
+    gap: 64px;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--display);
+    font-stretch: 80%;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  p { margin: 0; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    color: var(--accent-ink);
+  }
+
+  .label {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .section { display: grid; gap: 26px; }
+
+  .section-head { display: grid; gap: 10px; max-width: 760px; }
+
+  h2 {
+    font-size: clamp(28px, 3.8vw, 40px);
+    font-weight: 780;
+    line-height: 1.06;
+  }
+
+  .section-head p { color: var(--muted); font-size: 17px; max-width: 68ch; }
+
+  /* ------------------------------------------------------------------ Masthead */
+  .masthead { display: grid; gap: 20px; }
+
+  .memo-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .memo-line strong { color: var(--ink); font-weight: 500; }
+
+  h1 {
+    font-size: clamp(46px, 7.6vw, 92px);
+    font-weight: 860;
+    line-height: 0.92;
+    letter-spacing: -0.02em;
+    font-stretch: 70%;
+    max-width: 14ch;
+  }
+
+  h1 em { font-style: normal; color: var(--accent); }
+
+  .lead-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 36px;
+    align-items: start;
+  }
+
+  .lead { font-size: 19px; max-width: 58ch; }
+  .lead strong { font-weight: 600; }
+
+  .assume {
+    display: grid;
+    gap: 8px;
+    padding: 16px 18px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    font-size: 14.5px;
+  }
+
+  .assume ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+
+  /* ------------------------------------------------------------------ Track */
+  .track-scroll { overflow-x: auto; padding-bottom: 6px; }
+
+  .track {
+    min-width: 900px;
+    display: grid;
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .band {
+    grid-row: 1;
+    padding: 6px 10px;
+    border-radius: 4px 4px 0 0;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--st);
+    background: var(--st-tint);
+    border-top: 3px solid var(--st);
+  }
+
+  .tile {
+    grid-row: 2;
+    display: grid;
+    gap: 6px;
+    align-content: start;
+    padding: 12px 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-top: 0;
+    min-height: 132px;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .tile:hover, .tile:focus-visible { background: var(--st-tint); outline: none; }
+
+  .tile .n {
+    font-family: var(--display);
+    font-stretch: 70%;
+    font-size: 34px;
+    font-weight: 860;
+    line-height: 0.9;
+    color: var(--st);
+  }
+
+  .tile .t {
+    font-size: 13.5px;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+
+  .flags {
+    grid-row: 3;
+    display: flex;
+    align-items: flex-start;
+    min-height: 58px;
+    padding-top: 8px;
+  }
+
+  .flag {
+    display: grid;
+    gap: 2px;
+    padding-left: 10px;
+    border-left: 2px solid var(--marker);
+    font-size: 12.5px;
+    line-height: 1.3;
+  }
+
+  .flag b { font-family: var(--mono); font-size: 11px; color: var(--marker); letter-spacing: 0.04em; text-transform: uppercase; }
+
+  .s-found { --st: var(--st-found); --st-tint: var(--st-found-tint); }
+  .s-try { --st: var(--st-try); --st-tint: var(--st-try-tint); }
+  .s-pilot { --st: var(--st-pilot); --st-tint: var(--st-pilot-tint); }
+  .s-sec { --st: var(--st-sec); --st-tint: var(--st-sec-tint); }
+  .s-buy { --st: var(--st-buy); --st-tint: var(--st-buy-tint); }
+
+  .track-note { font-size: 14px; color: var(--muted); max-width: 90ch; }
+
+  /* ------------------------------------------------------------------ Start now */
+  .now {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0 20px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+
+  .now li {
+    display: grid;
+    gap: 6px;
+    align-content: start;
+    padding-top: 12px;
+    border-top: 2px solid var(--marker);
+    font-size: 14.5px;
+  }
+
+  .now li b { font-weight: 600; }
+  .now li span { color: var(--muted); }
+
+  /* ------------------------------------------------------------------ Sprint cards */
+  .sprints { display: grid; gap: 22px; }
+
+  .sprint {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.25fr);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    scroll-margin-top: 20px;
+  }
+
+  .sprint-left {
+    display: grid;
+    gap: 14px;
+    align-content: start;
+    padding: 24px 24px 26px;
+    background: var(--st-tint);
+    border-right: 1px solid var(--rule);
+  }
+
+  .sprint-top {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+  }
+
+  .big-n {
+    font-family: var(--display);
+    font-stretch: 66%;
+    font-size: 84px;
+    font-weight: 880;
+    line-height: 0.8;
+    color: var(--st);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stage-tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--st);
+    border: 1px solid var(--st);
+    border-radius: 999px;
+    padding: 2px 9px;
+  }
+
+  .sprint h3 {
+    font-size: 30px;
+    font-weight: 800;
+    line-height: 1.04;
+  }
+
+  .goal { font-size: 16.5px; font-weight: 500; }
+
+  .value {
+    display: grid;
+    gap: 4px;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+    font-size: 15px;
+  }
+
+  .milestone {
+    display: grid;
+    gap: 2px;
+    padding: 10px 12px;
+    border: 1px dashed var(--marker);
+    border-radius: 6px;
+    background: var(--surface);
+    font-size: 14px;
+  }
+
+  .milestone b { font-family: var(--mono); font-size: 11px; color: var(--marker); letter-spacing: 0.05em; text-transform: uppercase; }
+
+  .unlocks {
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    gap: 8px;
+    font-size: 14.5px;
+    color: var(--muted);
+  }
+
+  .unlocks::before {
+    content: "→";
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 20px;
+    line-height: 1;
+    color: var(--st);
+  }
+
+  .sprint-right {
+    display: grid;
+    gap: 18px;
+    align-content: start;
+    padding: 22px 24px 24px;
+  }
+
+  .block { display: grid; gap: 8px; }
+
+  .block ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 6px;
+    font-size: 14.5px;
+  }
+
+  .block li {
+    display: grid;
+    grid-template-columns: 14px 1fr;
+    gap: 8px;
+  }
+
+  .block li::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    margin-top: 9px;
+    border-radius: 50%;
+    background: var(--st);
+  }
+
+  .block li > ul { grid-column: 2; margin-top: 4px; gap: 4px; }
+
+  .value ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
+
+  .block.tests li::before {
+    width: 11px;
+    height: 11px;
+    margin-top: 5px;
+    border-radius: 2px;
+    background: transparent;
+    border: 1.5px solid var(--st);
+  }
+
+  .block.issues li::before { background: var(--muted); }
+
+  .out {
+    font-size: 13.5px;
+    color: var(--muted);
+    padding-top: 10px;
+    border-top: 1px solid var(--rule);
+  }
+
+  .out b { color: var(--ink); font-weight: 600; }
+
+  /* ------------------------------------------------------------------ After ten */
+  .after {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 14px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    counter-reset: after 10;
+  }
+
+  .after li {
+    counter-increment: after;
+    display: grid;
+    gap: 6px;
+    align-content: start;
+    padding: 14px 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    font-size: 14px;
+  }
+
+  .after li::before {
+    content: counter(after);
+    font-family: var(--display);
+    font-stretch: 70%;
+    font-size: 28px;
+    font-weight: 850;
+    line-height: 0.9;
+    color: var(--muted);
+  }
+
+  .after b { font-weight: 600; font-size: 15px; }
+  .after span { color: var(--muted); }
+
+  .basis {
+    font-size: 12.5px;
+    color: var(--muted);
+    max-width: 110ch;
+    padding-top: 22px;
+    border-top: 1px solid var(--rule);
+  }
+
+  /* ------------------------------------------------------------------ Responsive */
+  @media (max-width: 960px) {
+    .lead-grid { grid-template-columns: 1fr; }
+    .now { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 20px; }
+    .sprint { grid-template-columns: 1fr; }
+    .sprint-left { border-right: 0; border-bottom: 1px solid var(--rule); }
+    .after { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  @media (max-width: 560px) {
+    body { padding-block: 24px 48px; }
+    .page { gap: 52px; }
+    .now { grid-template-columns: 1fr; }
+    .after { grid-template-columns: 1fr; }
+    .big-n { font-size: 64px; }
+    .sprint h3 { font-size: 26px; }
+    .lead { font-size: 17px; }
+  }
+
+  @media print {
+    :root, :root[data-theme="dark"] {
+      --ground: #FFFFFF; --surface: #FFFFFF; --ink: #171A2B; --muted: #586076; --rule: #D8DEE8;
+      --accent: #0088D0; --accent-ink: #00679F; --accent-tint: #EEF7FC; --accent-line: #9CCFEA;
+      --st-found: #5F667C; --st-try: #0088D0; --st-pilot: #0B8577; --st-sec: #9A5B13; --st-buy: #2D7A4B;
+      --st-found-tint: #F4F6F9; --st-try-tint: #F1F8FC; --st-pilot-tint: #F0F9F7; --st-sec-tint: #FBF5EC; --st-buy-tint: #F0F8F3;
+    }
+    body { padding: 0; }
+    .page { gap: 32px; }
+    .sprint { break-inside: avoid; }
+    .track-scroll { overflow: visible; }
+    .track { min-width: 0; }
+  }
+</style>
+</head>
+<body>
+
+<main class="page">
+
+  <!-- ================================================================ MASTHEAD -->
+  <header class="masthead">
+    <div class="memo-line label">
+      <span><strong>enList v3</strong></span>
+      <span>Pre-sales roadmap</span>
+      <span>To <strong>the enList team</strong></span>
+      <span>15 Sep 2026</span>
+    </div>
+    <h1>Ten sprints to <em>sellable.</em></h1>
+    <div class="lead-grid">
+      <p class="lead">The sales brief found enList a strong engine that a buyer can't get through: they can't try it on what they already run, it fails a security review, a pilot finds gaps, and there is nothing to buy. <strong>These ten sprints clear those four stages in order.</strong> Each ends with automated tests that prove it is done, and each makes the next one possible. The first two make the codebase safe to change; the last one makes it possible to invoice.</p>
+      <div class="assume">
+        <span class="label">Assumptions</span>
+        <ul>
+          <li><b>Two-week sprints</b>, three engineers who know the codebase.</li>
+          <li><b>Done</b> means the acceptance tests are automated and green in CI, plus the live checks named.</li>
+          <li>Every sprint ends in a demo someone outside the team could follow.</li>
+          <li>Sizing is judgement, not measurement. Sprints 3, 4 and 9 are the fullest: when one runs long, cut its last scope item, never its tests.</li>
+        </ul>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================================================================ TRACK -->
+  <section class="section" aria-labelledby="track-title">
+    <div class="section-head">
+      <span class="label">The sequence</span>
+      <h2 id="track-title">Foundation first, then the buyer's path, in the order they walk it.</h2>
+    </div>
+
+    <div class="track-scroll">
+      <div class="track">
+        <div class="band s-found" style="grid-column:1 / span 2">Foundation</div>
+        <div class="band s-try" style="grid-column:3 / span 3">Try it</div>
+        <div class="band s-pilot" style="grid-column:6 / span 2">Pilot</div>
+        <div class="band s-sec" style="grid-column:8 / span 2">Security review</div>
+        <div class="band s-buy" style="grid-column:10 / span 1">Purchase</div>
+
+        <a class="tile s-found" href="#s1"><span class="n">1</span><span class="t">The safety net</span></a>
+        <a class="tile s-found" href="#s2"><span class="n">2</span><span class="t">Harden the foundation</span></a>
+        <a class="tile s-try" href="#s3"><span class="n">3</span><span class="t">Programs run: services</span></a>
+        <a class="tile s-try" href="#s4"><span class="n">4</span><span class="t">Programs run: jobs, control plane, CLI</span></a>
+        <a class="tile s-try" href="#s5"><span class="n">5</span><span class="t">Evaluate in an afternoon</span></a>
+        <a class="tile s-pilot" href="#s6"><span class="n">6</span><span class="t">Control that sticks, history that stays</span></a>
+        <a class="tile s-pilot" href="#s7"><span class="n">7</span><span class="t">Alerts</span></a>
+        <a class="tile s-sec" href="#s8"><span class="n">8</span><span class="t">SSO, roles and audit</span></a>
+        <a class="tile s-sec" href="#s9"><span class="n">9</span><span class="t">Secrets and run-as</span></a>
+        <a class="tile s-buy" href="#s10"><span class="n">10</span><span class="t">Licensing, trial, signed installer</span></a>
+
+        <div class="flags" style="grid-column:5 / span 2"><div class="flag"><b>After 5</b>Design-partner pilots start</div></div>
+        <div class="flags" style="grid-column:7 / span 2"><div class="flag"><b>After 7</b>Pilots run unattended</div></div>
+        <div class="flags" style="grid-column:9 / span 1"><div class="flag"><b>After 9</b>Security review passable</div></div>
+        <div class="flags" style="grid-column:10 / span 1"><div class="flag"><b>After 10</b>First paid license</div></div>
+      </div>
+    </div>
+
+    <p class="track-note">Twenty weeks. The order is the buyer's path from the sales brief: they <em>try</em> it, <em>pilot</em> it, send it through a <em>security review</em>, then <em>purchase</em>. The two foundation sprints come first because every sprint after them changes code that runs on every managed machine.</p>
+  </section>
+
+  <!-- ================================================================ START NOW -->
+  <section class="section" aria-labelledby="now-title">
+    <div class="section-head">
+      <span class="label">Start now, outside the sprints</span>
+      <h2 id="now-title">Five things with long lead times that no sprint can hurry.</h2>
+    </div>
+    <ul class="now">
+      <li><b>Buy the code-signing certificate</b><span>Sprint 10 signs every file. Validation of the organisation can take weeks.</span></li>
+      <li><b>Recruit three to five design partners</b><span>They start at the end of sprint 5, and their pilots shape sprints 6 to 9.</span></li>
+      <li><b>Validate the pricing hypothesis</b><span>Per managed machine, per year — tested with those partners before sprint 10 builds it in.</span></li>
+      <li><b>Draft the EULA and trial terms</b><span>Legal work, needed as text by the start of sprint 10.</span></li>
+      <li><b>Settle the design's open questions</b><span>Program-Workloads-Design §18, before sprint 3 writes the code that depends on them.</span></li>
+    </ul>
+  </section>
+
+  <!-- ================================================================ SPRINTS -->
+  <section class="section" aria-labelledby="sprints-title">
+    <div class="section-head">
+      <span class="label">The ten sprints</span>
+      <h2 id="sprints-title">What each one builds, what it fixes, how we know it's done, and why it comes next.</h2>
+    </div>
+
+    <div class="sprints">
+
+      <!-- 1 -->
+      <article class="sprint s-found" id="s1">
+        <div class="sprint-left">
+          <div class="sprint-top"><span class="big-n">1</span><span class="stage-tag">Foundation</span></div>
+          <h3>The safety net</h3>
+          <p class="goal">Every change after this one lands on an automatic gate, and a shutdown defect in today's agent is fixed.</p>
+          <div class="value">
+            <span class="label">Value</span>
+            <p>Sprints 2 to 10 all touch code that runs on every customer machine, and the agent can't update itself. This turns a regression from something a customer finds into something CI finds in minutes. The shutdown fix removes a defect the very first customer upgrade would hit.</p>
+          </div>
+          <p class="unlocks">Sprint 2 changes the runner protocol and the installer's permissions. Both are exactly the kind of change that needs this gate first.</p>
+        </div>
+        <div class="sprint-right">
+          <div class="block">
+            <span class="label">Scope</span>
+            <ul>
+              <li><b>Minimum CI</b> on a Windows runner with Docker. It rebuilds <code>enlist/runner:dev</code> from source, runs <code>dotnet test enList_v3.slnx</code> and <code>verify.ps1</code>, and <b>fails when a container test skips</b>.</li>
+              <li><b>Characterization tests</b> for paths nobody tests today:
+                <ul>
+                  <li>portal Start/Stop through the hub, to the runner and back;</li>
+                  <li>job Enable/Disable with an in-flight cancel;</li>
+                  <li>agent shutdown with several applications;</li>
+                  <li>the protocol-mismatch messages;</li>
+                  <li>the heartbeat.</li>
+                </ul>
+              </li>
+              <li><b>Fix agent shutdown:</b> stop applications in parallel, set <code>HostOptions.ShutdownTimeout</code> explicitly, and request more time from the Service Control Manager while stopping.</li>
+              <li>Bring <code>Test-Plan.md</code> up to date: it still says 273 tests.</li>
+            </ul>
+          </div>
+          <div class="block issues">
+            <span class="label">Issues it solves</span>
+            <ul>
+              <li><b>No CI.</b> Every test, check and live run is manual, and container tests silently skip without Docker.</li>
+              <li><b>Untested paths.</b> The Test Plan admits imperative commands and the heartbeat have no automated tests.</li>
+              <li><b>Shutdown overruns.</b> The agent stops applications one at a time, 10 s each, with no host timeout set, so <code>sc stop</code> or an MSI upgrade can kill runners mid-stop.</li>
+            </ul>
+          </div>
+          <div class="block tests">
+            <span class="label">Done when</span>
+            <ul>
+              <li>CI runs on every push and blocks a red merge; a run without Docker fails instead of skipping.</li>
+              <li>The characterization tests pass on <code>main</code> both before and after the shutdown fix.</li>
+              <li>Four applications, each needing 20 s to stop gracefully, all stop in about 20 s with none killed, and <code>sc stop enlist-agent</code> reports no timeout.</li>
+            </ul>
+          </div>
+          <p class="out"><b>Not in this sprint:</b> <code>live-e2e.ps1</code> in CI — it needs a disposable, elevated machine and stays a release gate.</p>
+        </div>
+      </article>
+
+      <!-- 2 -->
+      <article class="sprint s-found" id="s2">
+        <div class="sprint-left">
+          <div class="sprint-top"><span class="big-n">2</span><span class="stage-tag">Foundation</span></div>
+          <h3>Harden the foundation</h3>
+          <p class="goal">Close the agent's known permission gap, and let the runner protocol grow without breaking container images already in the field.</p>
+          <div class="value">
+            <span class="label">Value</span>
+            <p>A security reviewer who runs <code>icacls</code> on the agent's folder finds nothing to write up. Program hosting in sprint 3 is built on folders and a protocol that are already safe, not fixed after the fact.</p>
+          </div>
+          <p class="unlocks">Sprint 3 runs arbitrary customer programs, as SYSTEM, out of these folders. It must not start until they are locked.</p>
+        </div>
+        <div class="sprint-right">
+          <div class="block">
+            <span class="label">Scope</span>
+            <ul>
+              <li><b>Installer:</b> lock <code>Packages\</code>, <code>Runners\</code> and <code>AppData\</code> under the agent data folder to SYSTEM, Administrators and the agent's account, each in its own component so reinstalls and upgrades apply it; <code>verify.ps1</code> checks it.</li>
+              <li><b>Runner protocol 3</b>, with optional fields: <code>HostingKind</code>, <code>StopGraceMs</code>, and per-service pid, exit code, restart count and detail. The agent accepts <b>both 2 and 3</b>, and the legacy runner is not touched.</li>
+              <li>The agent honours an application's <code>StopGraceMs</code>; <code>CrashBackoff</code> moves into the runner assembly.</li>
+              <li><code>live-e2e.ps1</code> on a <b>fresh install</b>, an <b>upgrade over the previous build</b>, and an agent under a <b>named account</b>.</li>
+            </ul>
+          </div>
+          <div class="block issues">
+            <span class="label">Issues it solves</span>
+            <ul>
+              <li><b>DLL planting.</b> Ordinary users can create files where the agent stages executables that run as SYSTEM (confirmed with <code>icacls</code>).</li>
+              <li><b>A 10-second ceiling</b> on every application's shutdown.</li>
+              <li><b>Exact protocol matching</b> would fail every container application whose runner image shipped separately.</li>
+              <li><b>Named-account agents</b> have never been run for real.</li>
+            </ul>
+          </div>
+          <div class="block tests">
+            <span class="label">Done when</span>
+            <ul>
+              <li><code>verify.ps1</code> shows the three folders protected, by components that are neither Permanent nor NeverOverwrite.</li>
+              <li><code>live-e2e.ps1</code> passes on a fresh install, an upgrade, and a named-account agent.</li>
+              <li>A container application on today's <code>enlist/runner:3.0.0</code> image (protocol 2) still runs under the new agent.</li>
+              <li>An application reporting a 30 s grace period is given 30 s, not 10.</li>
+            </ul>
+          </div>
+          <p class="out"><b>Design:</b> Program-Workloads-Design §8, §9 and §16 phase P0; its risk register is §16.1.</p>
+        </div>
+      </article>
+
+      <!-- 3 -->
+      <article class="sprint s-try" id="s3">
+        <div class="sprint-left">
+          <div class="sprint-top"><span class="big-n">3</span><span class="stage-tag">Try it</span></div>
+          <h3>Programs run: services</h3>
+          <p class="goal">The runner keeps an unmodified program running as a service, on real Windows behaviour, proven rather than assumed.</p>
+          <div class="value">
+            <span class="label">Value</span>
+            <p>This is the technical heart of the sales plan. The riskiest questions come first:</p>
+            <ul>
+              <li>Does Ctrl+C reach a program with no console window?</li>
+              <li>Does a batch file end cleanly?</li>
+              <li>Are grandchild processes contained?</li>
+            </ul>
+            <p>The demo: a .NET 4.8 console service, a PowerShell 7 loop and a windowed program, kept alive by an agent. Kill them in Task Manager and they come back.</p>
+          </div>
+          <p class="unlocks">Sprint 4 adds jobs, and puts program packages behind the control plane and the deploy tool.</p>
+        </div>
+        <div class="sprint-right">
+          <div class="block">
+            <span class="label">Scope</span>
+            <ul>
+              <li><code>contracts/WorkloadDescriptor.cs</code>: the <code>enlist.workload.json</code> model and one validator, shared by the runner, control plane and deploy tool.</li>
+              <li>The runner's <b>program host</b>:
+                <ul>
+                  <li>processes created inside their job object;</li>
+                  <li>stdout and stderr turned into logs, with the UTF-8/OEM heuristic, CR handling, truncation and a rate guard;</li>
+                  <li>stop escalation: Ctrl+C through a signal helper, then stdin, then <code>WM_CLOSE</code>, then a stop command, then terminate the tree;</li>
+                  <li>restart policies with backoff and give-up;</li>
+                  <li>a readiness pattern;</li>
+                  <li>windowed-program detection;</li>
+                  <li>a private app copy, a data directory, and a warning naming files written beside the program.</li>
+                </ul>
+              </li>
+              <li>The agent routes the <code>program</code> flavor to the modern runner, behind <code>--program-workloads</code>, <b>off by default</b> until sprint 4.</li>
+              <li><code>enlist-runner --check</code> and <code>--dev</code> work on descriptors.</li>
+              <li><code>tests/Enlist.TestPrograms</code>: console and GUI test programs, plus test scripts.</li>
+            </ul>
+          </div>
+          <div class="block issues">
+            <span class="label">Issues it solves</span>
+            <ul>
+              <li><b>The number one deal blocker:</b> only code written against enList's attributes can run.</li>
+              <li><b>Windows behaviours the design only assumes</b>, proven or disproven while there is time to change course.</li>
+            </ul>
+          </div>
+          <div class="block tests">
+            <span class="label">Done when</span>
+            <ul>
+              <li>The stop-and-containment matrix passes for services (S1–S16).</li>
+              <li>Use case UC-1 passes end to end through a real agent, driven by a local <code>--assignments</code> file, with no control plane changes needed yet.</li>
+              <li>The full existing suite is unchanged and green.</li>
+            </ul>
+          </div>
+          <p class="out"><b>Not in this sprint:</b> jobs, control plane detection, the portal. <b>Design:</b> §6, §7, §9.1.</p>
+        </div>
+      </article>
+
+      <!-- 4 -->
+      <article class="sprint s-try" id="s4">
+        <div class="sprint-left">
+          <div class="sprint-top"><span class="big-n">4</span><span class="stage-tag">Try it</span></div>
+          <h3>Programs run: jobs, the control plane and the CLI</h3>
+          <p class="goal">Package a folder of scripts, upload it, place it by rule, and watch it run and fire on schedule, end to end.</p>
+          <div class="value">
+            <span class="label">Value</span>
+            <p>A design partner's engineers can run a real evaluation from the command line. The fleet-wide off switch exists <em>before</em> anyone outside the team runs a program under enList, so there is a way back from any surprise.</p>
+          </div>
+          <p class="unlocks">Sprint 5 gives it a face in the portal and an onboarding path someone new can follow on their own.</p>
+        </div>
+        <div class="sprint-right">
+          <div class="block">
+            <span class="label">Scope</span>
+            <ul>
+              <li><b>Jobs:</b> cron, <code>timeoutMinutes</code>, <code>successExitCodes</code>, cancellation, <code>{runId}</code>, per-run settings as <code>ENLIST_SETTING_*</code>.</li>
+              <li><b>Control plane:</b>
+                <ul>
+                  <li>the descriptor is detected before <code>.deps.json</code>;</li>
+                  <li>the manifest gains kind, declared cron, command and warnings, and cron from attribute packages too;</li>
+                  <li>an upload returns <code>400</code> listing every error;</li>
+                  <li>rules refuse containers for programs and check cron-override job names;</li>
+                  <li>capabilities list runtime flavors.</li>
+                </ul>
+              </li>
+              <li><b>The fleet-wide switch:</b> <code>ProgramWorkloads:Enabled</code>.</li>
+              <li><b><code>enlist-deploy</code>:</b> validates before uploading, adds <code>check</code>, and hints "this looks like a program".</li>
+              <li><code>live-e2e.ps1</code> deploys a PowerShell job and a console service to an installed agent. The agent switch then defaults to <b>on</b>.</li>
+            </ul>
+          </div>
+          <div class="block issues">
+            <span class="label">Issues it solves</span>
+            <ul>
+              <li><b>The try-it blocker</b>, removed at the API and CLI.</li>
+              <li><b>Scripts-only zips labelled <code>net472</code>.</b></li>
+              <li><b>Cron overrides never checked</b> against real job names.</li>
+              <li><b>Capabilities never used</b> by the control plane.</li>
+            </ul>
+          </div>
+          <div class="block tests">
+            <span class="label">Done when</span>
+            <ul>
+              <li>Use cases UC-2 and UC-3 pass as automated agent tests.</li>
+              <li>The control plane tests pass: detection order, all errors at once, program-in-container refused, switch behaviour.</li>
+              <li>The live run's program phase passes on an installed agent.</li>
+              <li>Switching <code>ProgramWorkloads:Enabled</code> off stops program workloads on installed agents with no agent action, and on again restarts them.</li>
+            </ul>
+          </div>
+          <p class="out"><b>Design:</b> §6.6, §7.7, §10, §12. <b>Watch:</b> the fullest sprint so far. If it runs long, cut the <code>check</code> subcommand, not the switch.</p>
+        </div>
+      </article>
+
+      <!-- 5 -->
+      <article class="sprint s-try" id="s5">
+        <div class="sprint-left">
+          <div class="sprint-top"><span class="big-n">5</span><span class="stage-tag">Try it</span></div>
+          <h3>Evaluate in an afternoon</h3>
+          <p class="goal">Someone who has never seen enList runs one of their own programs under it, in under an hour, with only the guide to help.</p>
+          <div class="value">
+            <span class="label">Value</span>
+            <p>The try-it stage is open. The mock-up on the "Run What You Have" page becomes a screenshot.</p>
+          </div>
+          <div class="milestone"><b>Sales milestone</b>Design-partner pilots start.</div>
+          <p class="unlocks">Pilots on real estates will surface the operational gaps sprint 6 exists to close.</p>
+        </div>
+        <div class="sprint-right">
+          <div class="block">
+            <span class="label">Scope</span>
+            <ul>
+              <li><b>Portal:</b>
+                <ul>
+                  <li>Program and SDK chips;</li>
+                  <li>the Packages page shows manifest and kind;</li>
+                  <li>the rule wizard fixes process isolation and picks jobs from the manifest;</li>
+                  <li>the instance table shows pid, restarts, last exit code and detail;</li>
+                  <li>jobs show last run and outcome;</li>
+                  <li>a Disabled chip;</li>
+                  <li>a warning for matching agents that can't host programs;</li>
+                  <li>the upload dialog shows warnings and errors.</li>
+                </ul>
+              </li>
+              <li><code>enlist-deploy init</code> writes a starter descriptor.</li>
+              <li>A <b>Program Workload Guide</b> in <code>docs/02-building-applications</code>, including the three watch-outs.</li>
+              <li><b>Samples:</b> a console service, a PowerShell job, a batch file with a success range, and a descriptor-only package adopting installed software.</li>
+            </ul>
+          </div>
+          <div class="block issues">
+            <span class="label">Issues it solves</span>
+            <ul>
+              <li><b>The Packages page shows no manifest</b> and no flavor today.</li>
+              <li><b>A job's last run</b> is reported but shown nowhere.</li>
+              <li><b>Onboarding means reading a design document.</b></li>
+            </ul>
+          </div>
+          <div class="block tests">
+            <span class="label">Done when</span>
+            <ul>
+              <li>Portal tests cover the new chips, columns, wizard behaviour and warnings.</li>
+              <li>Every sample passes <code>enlist-runner --check</code> in CI.</li>
+              <li><b>A moderated test:</b> a person new to enList completes UC-5 in under 60 minutes using only the guide, with the time and every place they got stuck recorded.</li>
+            </ul>
+          </div>
+          <p class="out"><b>Design:</b> §11, §12, §16 phase P2.</p>
+        </div>
+      </article>
+
+      <!-- 6 -->
+      <article class="sprint s-pilot" id="s6">
+        <div class="sprint-left">
+          <div class="sprint-top"><span class="big-n">6</span><span class="stage-tag">Pilot</span></div>
+          <h3>Control that sticks, history that stays</h3>
+          <p class="goal">What an operator does in the portal holds across restarts, and what a job did last week can be looked up.</p>
+          <div class="value">
+            <span class="label">Value</span>
+            <p>Operators stop reaching for remote desktop to double-check. Task Scheduler has a History tab, and without one enList looks weaker than what it replaces. The run records this sprint creates are what sprint 7 alerts on.</p>
+          </div>
+          <p class="unlocks">Sprint 7 turns the failures now recorded into notifications.</p>
+        </div>
+        <div class="sprint-right">
+          <div class="block">
+            <span class="label">Scope</span>
+            <ul>
+              <li><b>Operator overrides that last:</b> a portal Stop of a service or Disable of a job is stored centrally with who and when. It survives application restarts, agent restarts and redeploys, until someone clears it.</li>
+              <li><b>Job run history:</b>
+                <ul>
+                  <li>a <code>JobRuns</code> table: application, agent, job, run id, start, end, outcome, exit code, duration, error line, trigger;</li>
+                  <li>a retention setting;</li>
+                  <li>a per-job history view with an outcome filter.</li>
+                </ul>
+              </li>
+              <li><b>Run now</b>, and run now with parameters, from the portal and the API. Jobs with no schedule become usable.</li>
+              <li>The first database migration since <code>InitialCreate</code>, with its upgrade path.</li>
+            </ul>
+          </div>
+          <div class="block issues">
+            <span class="label">Issues it solves</span>
+            <ul>
+              <li><b>A stopped service comes back</b> after an application restart (SAD §9.1).</li>
+              <li><b>Only a job's last run is kept.</b></li>
+              <li><b>No way to run a job on demand.</b></li>
+            </ul>
+          </div>
+          <div class="block tests">
+            <span class="label">Done when</span>
+            <ul>
+              <li>Stop a service, restart the agent and redeploy: it stays stopped, and the portal says who stopped it and when.</li>
+              <li>A hundred runs are recorded with correct outcomes and exit codes, and the retention sweep removes the old ones.</li>
+              <li>Run now with <code>k=v</code> reaches the program as <code>ENLIST_SETTING_K</code>, and an overlapping tick is still skipped.</li>
+              <li>The migration applies to an upgraded database in the live run.</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <!-- 7 -->
+      <article class="sprint s-pilot" id="s7">
+        <div class="sprint-left">
+          <div class="sprint-top"><span class="big-n">7</span><span class="stage-tag">Pilot</span></div>
+          <h3>Alerts: know before the customer calls</h3>
+          <p class="goal">Failures reach a person, not just a screen someone has to be looking at.</p>
+          <div class="value">
+            <span class="label">Value</span>
+            <p>This turns enList from a dashboard into an operations tool. Alerts are one of the strongest reasons to buy over Task Scheduler, and they are on every security checklist.</p>
+          </div>
+          <div class="milestone"><b>Sales milestone</b>Pilots run unattended.</div>
+          <p class="unlocks">With failures recorded and routed, sprint 8 answers the security review's "who did this?" and "who can do this?".</p>
+        </div>
+        <div class="sprint-right">
+          <div class="block">
+            <span class="label">Scope</span>
+            <ul>
+              <li><b>Alert conditions:</b>
+                <ul>
+                  <li>a service Faulted or given up;</li>
+                  <li>a job Failed, timed out, or missed its schedule;</li>
+                  <li>an agent offline;</li>
+                  <li>an application Failed (conflict, disabled);</li>
+                  <li>program workloads switched off.</li>
+                </ul>
+              </li>
+              <li><b>Channels:</b> email (SMTP), Microsoft Teams (a webhook URL), and a generic webhook with a JSON body and HMAC signature.</li>
+              <li>Scoped by application and tag; deduplicated and throttled; a <b>resolved</b> notice on recovery.</li>
+              <li><b>Portal:</b> alert rules and channels, a test-send button, alert history.</li>
+            </ul>
+          </div>
+          <div class="block issues">
+            <span class="label">Issues it solves</span>
+            <ul>
+              <li><b>No alerts of any kind</b> (sales brief, pilot and security stages).</li>
+              <li><b>The story every prospect tells:</b> it stopped after Windows Update, and nobody noticed for a day.</li>
+            </ul>
+          </div>
+          <div class="block tests">
+            <span class="label">Done when</span>
+            <ul>
+              <li>An injected fault produces an email, a Teams message and a webhook call within 60 seconds.</li>
+              <li>A flapping service raises one notification per incident, not one per restart.</li>
+              <li>Recovery sends a resolved notice, and a missed schedule raises an alert.</li>
+              <li>Webhook signatures verify against a published algorithm.</li>
+            </ul>
+          </div>
+          <p class="out"><b>Not in this sprint:</b> PagerDuty or Opsgenie integrations — a generic webhook covers them until customers ask.</p>
+        </div>
+      </article>
+
+      <!-- 8 -->
+      <article class="sprint s-sec" id="s8">
+        <div class="sprint-left">
+          <div class="sprint-top"><span class="big-n">8</span><span class="stage-tag">Security review</span></div>
+          <h3>SSO, roles and audit</h3>
+          <p class="goal">A security reviewer's identity and accountability questions get a straight "yes".</p>
+          <div class="value">
+            <span class="label">Value</span>
+            <p>Required for cloud-first organisations with no on-premises Active Directory. It answers "who changed this rule, and when?" — the first question after an incident, and the one regulated customers must be able to answer.</p>
+          </div>
+          <p class="unlocks">Sprint 9 builds secrets on this base: who may read or set a secret has to be role-controlled and audited from the first line.</p>
+        </div>
+        <div class="sprint-right">
+          <div class="block">
+            <span class="label">Scope</span>
+            <ul>
+              <li><b>Entra ID / OIDC sign-in</b> for the portal, alongside Windows sign-in, with group claims mapped to roles.</li>
+              <li><b>Three roles</b> — Viewer, Operator, Administrator; keys, join tokens, switches and alert channels move to Administrator.</li>
+              <li><b>Optional per-application scope by tag:</b> the finance team operates finance applications only.</li>
+              <li><b>An audit table</b> recording every change: who (person or key), what, a before-and-after summary, when, from where. A portal page with filters, CSV export and retention.</li>
+              <li><b>API keys</b> show their role, scope and expiry.</li>
+            </ul>
+          </div>
+          <div class="block issues">
+            <span class="label">Issues it solves</span>
+            <ul>
+              <li><b>Sign-in by on-premises Windows groups only.</b></li>
+              <li><b>Only two roles.</b></li>
+              <li><b>Audit is log lines, not records</b>, a gap Authentication-Design §16 deliberately deferred.</li>
+            </ul>
+          </div>
+          <div class="block tests">
+            <span class="label">Done when</span>
+            <ul>
+              <li>OIDC sign-in works against a test identity provider running in CI.</li>
+              <li>A test walks the endpoint policy table and asserts every endpoint's role.</li>
+              <li>A test asserts <b>every</b> changing endpoint writes an audit record.</li>
+              <li>A scoped operator cannot command an application outside their scope.</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <!-- 9 -->
+      <article class="sprint s-sec" id="s9">
+        <div class="sprint-left">
+          <div class="sprint-top"><span class="big-n">9</span><span class="stage-tag">Security review</span></div>
+          <h3>Secrets and run-as</h3>
+          <p class="goal">Programs get their credentials without anyone putting them in a package, and don't have to run as LocalSystem.</p>
+          <div class="value">
+            <span class="label">Value</span>
+            <p>The security review's two hardest questions get answers. It is also a pitch of its own for legacy estates: <b>take the passwords out of your scripts.</b></p>
+          </div>
+          <div class="milestone"><b>Sales milestone</b>Security questionnaire passable.</div>
+          <p class="unlocks">With the security review clear, sprint 10 makes enList something a customer can actually buy.</p>
+        </div>
+        <div class="sprint-right">
+          <div class="block">
+            <span class="label">Scope</span>
+            <ul>
+              <li><b>Secret store</b> in the control plane:
+                <ul>
+                  <li>encrypted at rest with a certificate, not machine-only encryption, so it survives a move to more than one control-plane node;</li>
+                  <li>versioned;</li>
+                  <li>never returned in plain text;</li>
+                  <li>managed by Administrators, with every read and write audited.</li>
+                </ul>
+              </li>
+              <li><b>Delivery:</b> a descriptor or rule refers to a secret by name, and it reaches the program as an environment variable at start, or SDK applications as a setting. Known secret values are redacted from logs.</li>
+              <li><b>Run-as for programs:</b> group-managed service accounts first (no password to store), then a stored credential.</li>
+            </ul>
+          </div>
+          <div class="block issues">
+            <span class="label">Issues it solves</span>
+            <ul>
+              <li><b>No secrets store:</b> settings are plain JSON.</li>
+              <li><b>Every program runs as the agent's account</b>, the largest remaining risk in the program workloads design (§13).</li>
+              <li><b>Hard-coded passwords</b> in legacy scripts.</li>
+            </ul>
+          </div>
+          <div class="block tests">
+            <span class="label">Done when</span>
+            <ul>
+              <li>A secret's value appears in none of these:
+                <ul>
+                  <li>the package;</li>
+                  <li>the logs (a redaction test);</li>
+                  <li>the process command line;</li>
+                  <li>the status report;</li>
+                  <li>any API response.</li>
+                </ul>
+              </li>
+              <li>A program runs as the configured managed service account, proven by the process owner.</li>
+              <li>A rotated secret reaches the program at its next start.</li>
+              <li>Every secret read and write has an audit record.</li>
+            </ul>
+          </div>
+          <p class="out"><b>Watch:</b> a full sprint. Azure Key Vault references and stored-password run-as are the first things to move to sprint 11 if it runs long.</p>
+        </div>
+      </article>
+
+      <!-- 10 -->
+      <article class="sprint s-buy" id="s10">
+        <div class="sprint-left">
+          <div class="sprint-top"><span class="big-n">10</span><span class="stage-tag">Purchase</span></div>
+          <h3>Licensing, trial and a signed installer</h3>
+          <p class="goal">A customer downloads a signed installer, trials it, and buys a license that enList enforces fairly.</p>
+          <div class="value">
+            <span class="label">Value</span>
+            <p>The purchase stage exists. An unsigned installer draws a SmartScreen warning, which ends most trials before they begin; a signed one looks like software a business can buy.</p>
+          </div>
+          <div class="milestone"><b>Sales milestone</b>First paid license.</div>
+          <p class="unlocks">The sales motion begins. Everything after this is driven by what paying customers ask for first.</p>
+        </div>
+        <div class="sprint-right">
+          <div class="block">
+            <span class="label">Scope</span>
+            <ul>
+              <li><b>License keys:</b>
+                <ul>
+                  <li>signed and checkable offline;</li>
+                  <li>edition, managed-machine count, expiry;</li>
+                  <li>enforced at enrollment with a grace period and portal banners;</li>
+                  <li><b>never stops an application that is already running.</b></li>
+                </ul>
+              </li>
+              <li>A <b>30-day trial</b> license at install, and a portal page showing usage against entitlement.</li>
+              <li><b>Installer:</b> the license-agreement page in the wizard (Installer-UI-Design §6.2); Authenticode signing of the setup, the MSIs and every executable in <code>build.ps1</code>; <code>verify.ps1</code> checks the signatures.</li>
+              <li><b>Release kit:</b> versioned downloads (setup, runner image, READMEs), a release-notes template, and <b>CI/CD examples</b> for GitHub Actions and Azure DevOps using <code>enlist-deploy</code>.</li>
+            </ul>
+          </div>
+          <div class="block issues">
+            <span class="label">Issues it solves</span>
+            <ul>
+              <li><b>Purchase: nothing built.</b> No license key, EULA, pricing, trial or CI/CD examples.</li>
+              <li><b>Unsigned installers</b> (Installer-UI-Design §12 item 7).</li>
+            </ul>
+          </div>
+          <div class="block tests">
+            <span class="label">Done when</span>
+            <ul>
+              <li>Tampered, expired and over-count licenses are each refused or put into grace, as specified, in tests.</li>
+              <li>A simulated trial expiry leaves running applications running.</li>
+              <li><code>verify.ps1</code> and <code>Get-AuthenticodeSignature</code> confirm every shipped file is signed.</li>
+              <li>The license page renders and must be accepted in the wizard.</li>
+              <li>The example pipelines deploy a sample to a test control plane in CI.</li>
+            </ul>
+          </div>
+          <p class="out"><b>Depends on</b> the certificate, EULA text and pricing decision started at the top of this page.</p>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ================================================================ AFTER TEN -->
+  <section class="section" aria-labelledby="after-title">
+    <div class="section-head">
+      <span class="label">Deliberately after sprint 10</span>
+      <h2 id="after-title">Next in line — and why each one waits.</h2>
+      <p>All real, all worth building. None of them stops a first sale, and each is better shaped by what paying customers ask for.</p>
+    </div>
+    <ol class="after">
+      <li><b>Gradual rollouts</b><span>Canary by tag with a health gate and automatic rollback. Two rules on different tags cover it until then.</span></li>
+      <li><b>Agent self-update</b><span>Fleet upgrades without a per-machine MSI. Until then, customers already push MSIs with SCCM, Intune or Group Policy.</span></li>
+      <li><b>A highly available control plane</b><span>A SignalR backplane and a shared package store. Running agents keep working while the control plane is down.</span></li>
+      <li><b>Health probes and resource limits</b><span>Program workloads phase P3: HTTP/TCP liveness, and memory and CPU caps on the job object.</span></li>
+      <li><b>Wider reach</b><span>Adopting services the Windows Service Control Manager owns, programs in containers, and Linux agents.</span></li>
+    </ol>
+  </section>
+
+  <p class="basis">Roadmap, 15 September 2026. Built on the <em>enList Sales Readiness</em> brief (the buyer's four stages), <code>docs/03-architecture/Program-Workloads-Design.md</code> (sprints 2–5 follow its phases P0–P2, §16.1 risk controls and §17 test plan), the code-level inventory behind that brief, and the defects found while designing it. Sizing assumes two-week sprints and three engineers who know the codebase, and is judgement, not measurement. Companion to <code>enList-Sales-Readiness.html</code> and <code>enList-Run-What-You-Have.html</code> in the same folder.</p>
+
+</main>
+</body>
+</html>

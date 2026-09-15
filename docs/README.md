@@ -4,7 +4,7 @@ enList runs small programs (services and scheduled jobs) across many Windows mac
 from one web portal. You upload a package, write a rule saying *where* it should run, and agents on
 each machine make it so.
 
-There are 26 documents here. **You do not need most of them to be productive.** This page is the
+There are 27 documents here. **You do not need most of them to be productive.** This page is the
 map: a short path in, then tracks depending on what you actually came to do.
 
 ---
@@ -57,7 +57,7 @@ save you an afternoon of wondering why your cron job never fired locally.
 | [`04-requirements/`](04-requirements/) | Business, system and functional requirements. |
 | [`05-operations/`](05-operations/) | Deploying it, running it, and the test suite. |
 | [`06-background/`](06-background/) | Prior art and historical artefacts. Not needed to work on enList. |
-| [`0S-PreSales/`](0S-PreSales/) | Go-to-market material; each is a standalone page to open in a browser. [enList-Sales-Readiness.html](0S-PreSales/enList-Sales-Readiness.html) is the 15 September 2026 verdict on where enList stands for selling licenses — where it wins, where a buyer's evaluation stalls, and why program workloads ([Program-Workloads-Design.md](03-architecture/Program-Workloads-Design.md)) are the next move. [enList-Run-What-You-Have.html](0S-PreSales/enList-Run-What-You-Have.html) is the customer-facing story for that move: an annotated mock-up of the portal running VB6, VBScript, PowerShell and batch programs unchanged, the whole integration for one of them, and the case against Task Scheduler, NSSM and remote desktop. A concept — the feature is designed, not built — with a fictional customer. |
+| [`0S-PreSales/`](0S-PreSales/) | Go-to-market material; each is a standalone page to open in a browser. [enList-Sales-Readiness.html](0S-PreSales/enList-Sales-Readiness.html) is the 15 September 2026 verdict on where enList stands for selling licenses — where it wins, where a buyer's evaluation stalls, and why program workloads ([Program-Workloads-Design.md](03-architecture/Program-Workloads-Design.md)) are the next move. [enList-Run-What-You-Have.html](0S-PreSales/enList-Run-What-You-Have.html) is the customer-facing story for that move: an annotated mock-up of the portal running VB6, VBScript, PowerShell and batch programs unchanged, the whole integration for one of them, and the case against Task Scheduler, NSSM and remote desktop. A concept — the feature is designed, not built — with a fictional customer. [enList-Ten-Sprints-to-Sellable.html](0S-PreSales/enList-Ten-Sprints-to-Sellable.html) is the roadmap between the two: ten ordered two-week sprints, each with its scope, the issues it solves, its value, the tests that prove it done, and what it unlocks next. Sprints 2–5 follow the program workloads design's phases. |
 
 Related, outside this folder: [`demo/sql-server/`](../demo/sql-server/README.md) runs SQL Server in a WSL
 container (`wslc`, no Docker) for demos, so demo data persists and is visible in SSMS. Day-to-day development and the
