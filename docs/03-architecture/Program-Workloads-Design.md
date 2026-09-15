@@ -315,7 +315,7 @@ Every field in §6.3, in the same order. *Example A* unless marked **B**.
 |---|---|---|
 | `schema` | both | `1`, the only schema that exists. |
 | `description` | both | Shown on the application in the portal: *Order sync tools, moved off Task Scheduler and NSSM*. |
-| `appDirectory` = `"copy"` | A | Every application start gets a fresh copy of the package under `Runners\OrderSync\app\`. *Label Printer Bridge* saves its settings file next to its own executable, as a lot of older Windows software does; the copy keeps that write out of the shared package cache, and every start begins from the package as uploaded. State that must survive a restart goes in `{dataDir}` instead, as *Order Listener*'s logs do. |
+| `appDirectory` = `"copy"` | A | Every application start gets a fresh copy of the package under `Runners\OrderSync\app\`. *Label Printer Bridge* saves its settings file next to its own executable, as a lot of older Windows software does; the copy keeps that write out of the shared package cache, and every start begins from the package as uploaded. That cuts both ways: a setting the tool saves there is **gone at the next application start** (not at a restart of the service alone), so its printer mapping ships in the package rather than being set on each machine. State that must survive goes in `{dataDir}`, as *Order Listener*'s logs do. |
 | `appDirectory` = `"shared"` | **B** | Runs straight from the package cache; nothing is copied. |
 | `defaults.workingDirectory` | A | `{appDir}` — every entry starts in the package root unless it says otherwise. *Order Listener* and *Supplier Sync* say otherwise. |
 | `defaults.environment` | A | `ORDERSYNC_ENV` and `ORDERSYNC_STATE` reach every program. *Order Listener* adds `DOTNET_gcServer` on top of them, and *Rebuild Search Index* adds `PYTHONIOENCODING`; neither loses the two defaults, because `environment` merges key by key. |
@@ -350,7 +350,7 @@ Every field in §6.3, in the same order. *Example A* unless marked **B**.
 | Property | Used in | What it does there |
 |---|---|---|
 | `restart` = `"always"` | *Order Listener*, *Inbox Watcher* | Restarted whenever the program exits unasked, including with exit code 0. |
-| `restart` = `"on-failure"` | *Label Printer Bridge* | A warehouse supervisor closing the tool normally (exit 0) leaves it `Stopped`; a crash restarts it. |
+| `restart` = `"on-failure"` | *Label Printer Bridge* | The tool exits with code 0 by itself when it finds no label printers configured. That is left `Stopped`, instead of being restarted every few seconds into the same answer; a crash (non-zero exit) restarts it. (Nobody closes it by hand: running under the agent's service account, its window is on session 0's desktop, which no signed-in user can see.) |
 | `restart` = `"never"` | *Queue Relay* | The old batch loop is never restarted automatically: exit 0 leaves it `Stopped`, anything else `Faulted`, and someone starts it from the portal. |
 | `readiness.logPattern` | *Order Listener* | Stays `Starting` until a line matches `Listening on queue \w+`. Until then, a rule's service shows *Starting*, not a misleading *Running*. |
 | `readiness.timeoutSeconds` | *Order Listener* | 90 seconds. The listener connects to its database first, and a cold database is slow; after 90 seconds the start counts as failed and is retried with backoff. |
@@ -370,7 +370,7 @@ Every field in §6.3, in the same order. *Example A* unless marked **B**.
 | `methods` = `"console"` | *Order Listener*; *Queue Relay* | Ctrl+C through the signal helper (§7.5). The .NET Framework listener handles `Console.CancelKeyPress` and drains its queue. |
 | `methods` = `"stdin"` | *Queue Relay* | Closes standard input right after Ctrl+C, so `cmd.exe`'s *Terminate batch job (Y/N)?* reads end of input and ends the batch. |
 | `methods` = `"close"` | *Label Printer Bridge* | `WM_CLOSE` to the tool's window, the same as clicking its close button. |
-| `methods` = `"command"` | *Label Printer Bridge* | Also runs the tool's own `/shutdown` verb, for the case where it is minimised to the tray with no top-level window. |
+| `methods` = `"command"` | *Label Printer Bridge* | Also runs the tool's own `/shutdown` verb, sent at the same moment as `close`, for when `WM_CLOSE` does not end it — like many tray tools, closing its window only hides it. |
 | `timeoutSeconds` | `defaults`; *Order Listener*, *Label Printer Bridge*, *Queue Relay* | 30 by default for the application; 45, 20 and 15 where set. After that the whole process tree is terminated. |
 | `command` | *Label Printer Bridge* | `tools\LabelBridge.exe`: the stop command resolves exactly like an entry's `command`. |
 | `arguments` | *Label Printer Bridge* | `/shutdown /instance=Label Printer Bridge`, with `{name}` substituted. |
