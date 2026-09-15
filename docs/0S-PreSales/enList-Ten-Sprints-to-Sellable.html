@@ -403,35 +403,53 @@
     font-size: 14.5px;
   }
 
+  /* A plain block with the marker positioned in its padding. Not a grid: a grid makes every text run
+     and every <b> or <code> inside the item a cell of its own, which shreds the sentence. */
   .block li {
-    display: grid;
-    grid-template-columns: 14px 1fr;
-    gap: 8px;
+    position: relative;
+    padding-left: 22px;
   }
 
   .block li::before {
     content: "";
+    position: absolute;
+    left: 3px;
+    top: 0.62em;
     width: 6px;
     height: 6px;
-    margin-top: 9px;
     border-radius: 50%;
     background: var(--st);
   }
 
-  .block li > ul { grid-column: 2; margin-top: 4px; gap: 4px; }
+  .block li > ul { margin-top: 6px; gap: 4px; }
 
   .value ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
 
   .block.tests li::before {
+    left: 0;
+    top: 0.34em;
     width: 11px;
     height: 11px;
-    margin-top: 5px;
     border-radius: 2px;
     background: transparent;
     border: 1.5px solid var(--st);
   }
 
   .block.issues li::before { background: var(--muted); }
+
+  /* Nested items, in any block: a small muted dot, whatever marker their parent uses. */
+  .block li li { padding-left: 16px; }
+
+  .block li li::before,
+  .block.tests li li::before {
+    left: 2px;
+    top: 0.66em;
+    width: 5px;
+    height: 5px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--muted);
+  }
 
   .out {
     font-size: 13.5px;

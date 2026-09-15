@@ -642,14 +642,18 @@
   .cell-name { display: grid; gap: 1px; }
   .cell-name .n { display: flex; align-items: center; gap: 6px; }
 
+  /* Inline text, not flex: flex would make each text run and each <b>/<span> a separate item. */
   .detail {
     font-size: 12px;
+    line-height: 1.7;
     color: var(--p-text2);
     font-variant-numeric: tabular-nums;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    flex-wrap: wrap;
+  }
+
+  .detail .ic,
+  .detail .mk {
+    vertical-align: middle;
+    margin: 0 2px;
   }
 
   .detail b { color: var(--p-text); font-weight: 500; }
