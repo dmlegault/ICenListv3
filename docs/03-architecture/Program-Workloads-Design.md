@@ -139,9 +139,18 @@ The legacy runner (`src/Enlist.Runner.Legacy`) does not get this mode. A useful 
 - **Presence decides the hosting kind.** If it is there, the package is a program workload: the control plane labels it (§10.1), and the runner reads the descriptor and loads no assemblies — even if the package also contains `.dll` files or `.deps.json` files belonging to the programs.
 - **No mixing in one package.** A package is one kind or the other. A package with a descriptor that *also* contains types marked with enList attributes uploads with a warning saying they will be ignored (§6.6). Mixing both kinds in one application is §18's open question 2.
 
-### 6.2 A complete example
+### 6.2 Complete examples
 
-A company moving three things off Task Scheduler and NSSM: a .NET Framework console service, a nightly PowerShell export, and an hourly batch clean-up that uses `robocopy`.
+Two descriptors, which between them use **every property §6.3 lists**, and every value of every property that has a fixed set of values. The first is a realistic package that exercises almost all of it. The second exists for the one value a single descriptor cannot also show: `appDirectory: "shared"`. §6.2.3 maps each property to where it appears and what it does there, and §6.2.4 shows what the runner actually launches.
+
+#### 6.2.1 Example A — `OrderSync`, a mixed estate moved off Task Scheduler and NSSM
+
+A warehouse company's order tools, of every kind a real estate contains:
+
+| Kind | What it is |
+|---|---|
+| Services | A .NET Framework console service; a windowed vendor tool; a PowerShell 7 script that runs forever; a legacy batch loop |
+| Jobs | A nightly Windows PowerShell export; an hourly `robocopy` batch file; a Python script run only on demand; a vendor command-line tool already installed on every server |
 
 ```json
 {
@@ -149,17 +158,67 @@ A company moving three things off Task Scheduler and NSSM: a .NET Framework cons
   "description": "Order sync tools, moved off Task Scheduler and NSSM",
   "appDirectory": "copy",
   "defaults": {
-    "environment": { "ORDERSYNC_ENV": "production" },
-    "stop": { "timeoutSeconds": 20 }
+    "workingDirectory": "{appDir}",
+    "environment": {
+      "ORDERSYNC_ENV": "production",
+      "ORDERSYNC_STATE": "{dataDir}\\state"
+    },
+    "stop": { "timeoutSeconds": 30 },
+    "output": { "stderr": "Error", "encoding": "auto" }
   },
   "services": [
     {
       "name": "Order Listener",
       "description": "Watches the orders queue and writes to the ledger database",
       "command": "bin\\OrderListener.exe",
-      "arguments": ["--queue", "orders", "--log-dir", "{dataDir}\\logs"],
+      "arguments": ["--queue", "orders", "--instance", "{name}", "--log-dir", "{dataDir}\\logs"],
+      "workingDirectory": "bin",
+      "environment": { "DOTNET_gcServer": "1" },
       "restart": "always",
-      "readiness": { "logPattern": "Listening on queue", "timeoutSeconds": 60 }
+      "readiness": { "logPattern": "Listening on queue \\w+", "timeoutSeconds": 90 },
+      "stop": { "methods": ["console"], "timeoutSeconds": 45 },
+      "output": {
+        "stdout": "Information",
+        "stderr": "Warning",
+        "encoding": "utf-8",
+        "prefixes": {
+          "TRACE ": "Trace",
+          "DEBUG ": "Debug",
+          "INFO ": "Information",
+          "WARN ": "Warning",
+          "ERROR ": "Error",
+          "FATAL ": "Critical"
+        }
+      }
+    },
+    {
+      "name": "Label Printer Bridge",
+      "description": "Windowed vendor tool that relays print jobs to the warehouse label printers",
+      "command": "tools\\LabelBridge.exe",
+      "restart": "on-failure",
+      "stop": {
+        "methods": ["close", "command"],
+        "command": "tools\\LabelBridge.exe",
+        "arguments": ["/shutdown", "/instance={name}"],
+        "timeoutSeconds": 20
+      },
+      "output": { "encoding": "ansi" }
+    },
+    {
+      "name": "Inbox Watcher",
+      "description": "Files supplier documents dropped on the share",
+      "script": "scripts\\Watch-Inbox.ps1",
+      "shell": "pwsh",
+      "arguments": ["-Share", "\\\\files01\\supplier-inbox"],
+      "restart": "always"
+    },
+    {
+      "name": "Queue Relay",
+      "description": "Legacy batch loop that moves files between two queue folders",
+      "script": "scripts\\relay.bat",
+      "restart": "never",
+      "stop": { "methods": ["console", "stdin"], "timeoutSeconds": 15 },
+      "output": { "encoding": "oem" }
     }
   ],
   "jobs": [
@@ -167,16 +226,36 @@ A company moving three things off Task Scheduler and NSSM: a .NET Framework cons
       "name": "Nightly Export",
       "description": "Exports yesterday's orders to the finance share",
       "script": "scripts\\Export-Orders.ps1",
+      "shell": "powershell",
       "arguments": ["-Since", "yesterday", "-RunId", "{runId}"],
       "cron": "0 2 * * *",
-      "timeoutMinutes": 60
+      "timeoutMinutes": 90
     },
     {
       "name": "Hourly Archive",
-      "description": "Moves processed files to the archive share",
+      "description": "Moves processed files to the archive share with robocopy",
       "script": "scripts\\archive.cmd",
       "cron": "0 * * * *",
       "successExitCodes": [0, 1, 2, 3, 4, 5, 6, 7]
+    },
+    {
+      "name": "Rebuild Search Index",
+      "description": "Run on demand after a bulk import",
+      "command": "python.exe",
+      "arguments": ["{appDir}\\indexer\\rebuild.py", "--stamp-format", "{{yyyy-MM-dd}}"],
+      "environment": { "PYTHONIOENCODING": "utf-8" },
+      "timeoutMinutes": 30
+    },
+    {
+      "name": "Supplier Sync",
+      "description": "Vendor command-line tool already installed on every warehouse server",
+      "command": "C:\\Program Files\\Vendor\\Sync\\SyncCli.exe",
+      "arguments": ["sync", "--all"],
+      "workingDirectory": "C:\\Program Files\\Vendor\\Sync",
+      "cron": "*/15 6-20 * * 1-5",
+      "timeoutMinutes": 10,
+      "successExitCodes": [0, 2],
+      "output": { "stdout": "Debug", "encoding": "utf-16le" }
     }
   ]
 }
@@ -190,9 +269,152 @@ OrderSync\
   bin\OrderListener.exe
   bin\OrderListener.exe.config
   bin\*.dll
+  tools\LabelBridge.exe
+  scripts\Watch-Inbox.ps1
+  scripts\relay.bat
   scripts\Export-Orders.ps1
   scripts\archive.cmd
+  indexer\rebuild.py
 ```
+
+`python.exe` and `SyncCli.exe` are not in it, on purpose.
+
+**Uploading it succeeds with three warnings** (§6.4):
+- `python.exe` will be resolved on each machine's `PATH`;
+- *Supplier Sync*'s `command` is an absolute path;
+- *Supplier Sync*'s `workingDirectory` is an absolute path.
+
+#### 6.2.2 Example B — `VendorSyncAgent`, adopting what is already installed
+
+The only property value Example A cannot also show is `appDirectory: "shared"`, because a descriptor has one `appDirectory`. This descriptor-only package adopts a vendor's agent that is already installed; §14 UC-4 is the same case with a stop command added.
+
+```json
+{
+  "schema": 1,
+  "description": "Keeps the vendor sync agent running on every warehouse server",
+  "appDirectory": "shared",
+  "services": [
+    {
+      "name": "Vendor Sync Agent",
+      "command": "C:\\Program Files\\Vendor\\Sync\\SyncAgent.exe",
+      "arguments": ["/service"]
+    }
+  ]
+}
+```
+
+The zip holds nothing but `enlist.workload.json`. `"shared"` runs it without first copying a one-file package into a private directory. Nothing in the package would be written to anyway, since the program lives in its own install folder.
+
+#### 6.2.3 Where each property is used
+
+Every field in §6.3, in the same order. *Example A* unless marked **B**.
+
+**Top level**
+
+| Property | Used in | What it does there |
+|---|---|---|
+| `schema` | both | `1`, the only schema that exists. |
+| `description` | both | Shown on the application in the portal: *Order sync tools, moved off Task Scheduler and NSSM*. |
+| `appDirectory` = `"copy"` | A | Every application start gets a fresh copy of the package under `Runners\OrderSync\app\`. *Label Printer Bridge* saves its settings file next to its own executable, as a lot of older Windows software does; the copy keeps that write out of the shared package cache, and every start begins from the package as uploaded. State that must survive a restart goes in `{dataDir}` instead, as *Order Listener*'s logs do. |
+| `appDirectory` = `"shared"` | **B** | Runs straight from the package cache; nothing is copied. |
+| `defaults.workingDirectory` | A | `{appDir}` — every entry starts in the package root unless it says otherwise. *Order Listener* and *Supplier Sync* say otherwise. |
+| `defaults.environment` | A | `ORDERSYNC_ENV` and `ORDERSYNC_STATE` reach every program. *Order Listener* adds `DOTNET_gcServer` on top of them, and *Rebuild Search Index* adds `PYTHONIOENCODING`; neither loses the two defaults, because `environment` merges key by key. |
+| `defaults.stop` | A | Gives every entry a 30-second stop timeout, but sets no `methods`. So each entry keeps the built-in methods for its kind: *Hourly Archive*, a `.cmd`, still gets `["console", "stdin"]`. Precedence, lowest first: built-in defaults for the entry's kind → `defaults` → the entry. |
+| `defaults.output` | A | `stderr` is `Error` and `encoding` is `auto` for every entry that does not override them. *Order Listener* overrides both; *Queue Relay* overrides only `encoding`, and keeps `stderr: Error`. |
+| `services` | both | Four services in A, one in B. |
+| `jobs` | A | Four jobs. B has none; `jobs` can be omitted when `services` has entries. |
+
+**Every entry**
+
+| Property | Used in | What it does there |
+|---|---|---|
+| `name` | every entry | `Order Listener`, `Label Printer Bridge`, `Inbox Watcher` and the rest: what the portal lists, what Start/Stop and Enable/Disable target, and the `Source` of each log line. Unique across services and jobs. |
+| `description` | every entry of A | Shown beside the name in the portal. *Vendor Sync Agent* in B has none; it is optional. |
+| `command` — relative path | *Order Listener*, *Label Printer Bridge* | `bin\OrderListener.exe` and `tools\LabelBridge.exe`, inside the package. |
+| `command` — bare name | *Rebuild Search Index* | `python.exe`: not in the package, so resolved on the machine's `PATH` (upload warning). |
+| `command` — absolute path | *Supplier Sync*; B's *Vendor Sync Agent* | Software already installed on the machine (upload warning). |
+| `script` — `.ps1` | *Inbox Watcher*, *Nightly Export* | Launched through PowerShell; which one is `shell`. |
+| `script` — `.bat` | *Queue Relay* | Launched through `%SystemRoot%\System32\cmd.exe`. |
+| `script` — `.cmd` | *Hourly Archive* | Launched through `cmd.exe`. |
+| `shell` = `"pwsh"` | *Inbox Watcher* | PowerShell 7, resolved on `PATH`. |
+| `shell` = `"powershell"` | *Nightly Export* | Windows PowerShell 5.1, from `%SystemRoot%`. Also what an omitted `shell` means. |
+| `arguments` | *Order Listener*, *Label Printer Bridge* (under `stop`), *Inbox Watcher*, *Nightly Export*, *Rebuild Search Index*, *Supplier Sync*; B | One array element per argument, never re-split: `\\files01\supplier-inbox` arrives as one argument. |
+| `workingDirectory` — relative | *Order Listener* | `bin`, so `OrderListener.exe` finds `OrderListener.exe.config` and its DLLs as it always has. |
+| `workingDirectory` — absolute | *Supplier Sync* | The vendor tool expects to start in its own install folder. |
+| `environment` | *Order Listener*, *Rebuild Search Index* | Added to `defaults.environment` for that entry only. |
+| `stop` | *Order Listener*, *Label Printer Bridge*, *Queue Relay* | See `stop` below. |
+| `output` | *Order Listener*, *Label Printer Bridge*, *Queue Relay*, *Supplier Sync* | See `output` below. |
+
+**Services only**
+
+| Property | Used in | What it does there |
+|---|---|---|
+| `restart` = `"always"` | *Order Listener*, *Inbox Watcher* | Restarted whenever the program exits unasked, including with exit code 0. |
+| `restart` = `"on-failure"` | *Label Printer Bridge* | A warehouse supervisor closing the tool normally (exit 0) leaves it `Stopped`; a crash restarts it. |
+| `restart` = `"never"` | *Queue Relay* | The old batch loop is never restarted automatically: exit 0 leaves it `Stopped`, anything else `Faulted`, and someone starts it from the portal. |
+| `readiness.logPattern` | *Order Listener* | Stays `Starting` until a line matches `Listening on queue \w+`. Until then, a rule's service shows *Starting*, not a misleading *Running*. |
+| `readiness.timeoutSeconds` | *Order Listener* | 90 seconds. The listener connects to its database first, and a cold database is slow; after 90 seconds the start counts as failed and is retried with backoff. |
+
+**Jobs only**
+
+| Property | Used in | What it does there |
+|---|---|---|
+| `cron` | *Nightly Export*, *Hourly Archive*, *Supplier Sync* | `0 2 * * *` (02:00 daily), `0 * * * *` (hourly), and `*/15 6-20 * * 1-5` (every 15 minutes, 06:00–20:59, Monday to Friday). *Rebuild Search Index* has no `cron`, so it never fires on a schedule and runs only when triggered. |
+| `timeoutMinutes` | *Nightly Export*, *Rebuild Search Index*, *Supplier Sync* | 90, 30 and 10 minutes; a run still going then is stopped and reported **Failed**, *timed out*. |
+| `successExitCodes` | *Hourly Archive*, *Supplier Sync* | `robocopy`'s 0–7 all mean success. The vendor tool's 2 means *nothing to sync* and must not be reported as a failure. |
+
+**`stop`**
+
+| Property | Used in | What it does there |
+|---|---|---|
+| `methods` = `"console"` | *Order Listener*; *Queue Relay* | Ctrl+C through the signal helper (§7.5). The .NET Framework listener handles `Console.CancelKeyPress` and drains its queue. |
+| `methods` = `"stdin"` | *Queue Relay* | Closes standard input right after Ctrl+C, so `cmd.exe`'s *Terminate batch job (Y/N)?* reads end of input and ends the batch. |
+| `methods` = `"close"` | *Label Printer Bridge* | `WM_CLOSE` to the tool's window, the same as clicking its close button. |
+| `methods` = `"command"` | *Label Printer Bridge* | Also runs the tool's own `/shutdown` verb, for the case where it is minimised to the tray with no top-level window. |
+| `timeoutSeconds` | `defaults`; *Order Listener*, *Label Printer Bridge*, *Queue Relay* | 30 by default for the application; 45, 20 and 15 where set. After that the whole process tree is terminated. |
+| `command` | *Label Printer Bridge* | `tools\LabelBridge.exe`: the stop command resolves exactly like an entry's `command`. |
+| `arguments` | *Label Printer Bridge* | `/shutdown /instance=Label Printer Bridge`, with `{name}` substituted. |
+
+**`output`**
+
+| Property | Used in | What it does there |
+|---|---|---|
+| `stdout` | *Order Listener*, *Supplier Sync* | `Information` for the listener. `Debug` for the vendor tool, whose chatter should not fill the portal at `Information`. |
+| `stderr` | `defaults`; *Order Listener* | `Error` for every entry. The listener sets `Warning`, because it writes its retry notices to stderr. |
+| `encoding` = `"auto"` | `defaults` | Per-line UTF-8, falling back to the OEM code page (§7.4). Used by every entry that does not name an encoding. |
+| `encoding` = `"utf-8"` | *Order Listener* | The listener sets `Console.OutputEncoding` to UTF-8 itself, so no guessing is needed. |
+| `encoding` = `"ansi"` | *Label Printer Bridge* | An old native tool that prints in the ANSI code page. |
+| `encoding` = `"oem"` | *Queue Relay* | `cmd.exe` output, pinned rather than detected. |
+| `encoding` = `"utf-16le"` | *Supplier Sync* | The vendor tool writes UTF-16. |
+| `prefixes` | *Order Listener* | Maps its `TRACE `, `DEBUG `, `INFO `, `WARN `, `ERROR ` and `FATAL ` line prefixes to all six log levels — `Trace`, `Debug`, `Information`, `Warning`, `Error`, `Critical` — so the portal colours its lines properly. *Nightly Export* uses the built-in PowerShell prefixes (`WARNING: `, `VERBOSE: `, `DEBUG: `) without declaring any. |
+
+**Tokens** (§6.5)
+
+| Token | Used in | Becomes |
+|---|---|---|
+| `{appDir}` | `defaults.workingDirectory`; *Rebuild Search Index*'s first argument | `C:\ProgramData\enList\Agent\Runners\OrderSync\app` |
+| `{dataDir}` | `defaults.environment.ORDERSYNC_STATE`; *Order Listener*'s `--log-dir` | `C:\ProgramData\enList\Agent\AppData\OrderSync` |
+| `{name}` | *Order Listener*'s `--instance`; *Label Printer Bridge*'s stop arguments | The entry's own name |
+| `{runId}` | *Nightly Export*'s `-RunId` | The run's id, e.g. `7f3c9a1e…`, so the script's own log can be matched to enList's |
+| `{{` / `}}` | *Rebuild Search Index*'s `--stamp-format` | A literal `{yyyy-MM-dd}`, passed to Python unchanged |
+
+#### 6.2.4 What the runner launches
+
+On a machine with the default data directory, `C:\ProgramData\enList\Agent`, where `{appDir}` is `C:\ProgramData\enList\Agent\Runners\OrderSync\app`:
+
+| Entry | Process created (§7.2) | Working directory |
+|---|---|---|
+| Order Listener | `{appDir}\bin\OrderListener.exe --queue orders --instance "Order Listener" --log-dir C:\ProgramData\enList\Agent\AppData\OrderSync\logs` | `{appDir}\bin` |
+| Label Printer Bridge | `{appDir}\tools\LabelBridge.exe` | `{appDir}` |
+| Inbox Watcher | `C:\Program Files\PowerShell\7\pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {appDir}\scripts\Watch-Inbox.ps1 -Share \\files01\supplier-inbox` (wherever `pwsh.exe` resolves) | `{appDir}` |
+| Queue Relay | `C:\Windows\System32\cmd.exe /d /s /c ""{appDir}\scripts\relay.bat""` | `{appDir}` |
+| Nightly Export | `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {appDir}\scripts\Export-Orders.ps1 -Since yesterday -RunId 7f3c9a1e…` | `{appDir}` |
+| Hourly Archive | `C:\Windows\System32\cmd.exe /d /s /c ""{appDir}\scripts\archive.cmd""` | `{appDir}` |
+| Rebuild Search Index | `python.exe`, as resolved on `PATH`, e.g. `C:\Python312\python.exe {appDir}\indexer\rebuild.py --stamp-format {yyyy-MM-dd}` | `{appDir}` |
+| Supplier Sync | `"C:\Program Files\Vendor\Sync\SyncCli.exe" sync --all` | `C:\Program Files\Vendor\Sync` |
+| Vendor Sync Agent (**B**) | `"C:\Program Files\Vendor\Sync\SyncAgent.exe" /service` | `C:\Program Files\Vendor\Sync` (the command's own directory, since B sets no working directory) |
+
+Every one of them also receives the `ENLIST_*` variables (§6.5), and `ORDERSYNC_ENV` and `ORDERSYNC_STATE` in Example A.
 
 ### 6.3 Field reference
 
@@ -203,7 +425,7 @@ OrderSync\
 | `schema` | integer | **yes** | — | Must be `1`. A runner or control plane that does not know the number refuses the descriptor rather than guessing at fields it does not understand. |
 | `description` | string | no | none | The application description: `ReadyMessage.ApplicationDescription` and `PackageManifestDto.ApplicationDescription`. |
 | `appDirectory` | `"copy"` \| `"shared"` | no | `"copy"` | Whether programs run from a fresh private copy of the package or directly from the shared package cache. §7.8. |
-| `defaults` | object | no | none | Any of `workingDirectory`, `environment`, `stop`, `output`, applied to every entry that does not set its own. `environment` merges key by key; `stop` and `output` merge field by field. |
+| `defaults` | object | no | none | Any of `workingDirectory`, `environment`, `stop`, `output`, applied to every entry that does not set its own. `environment` merges key by key; `stop` and `output` merge field by field. Precedence, lowest first: built-in defaults for the entry's kind (for example a batch file's stop methods, §6.3 `stop`) → `defaults` → the entry. |
 | `services` | array of entries | at least one entry in `services` or `jobs` | `[]` | §6.3 entries and service fields. |
 | `jobs` | array of entries | | `[]` | §6.3 entries and job fields. |
 
