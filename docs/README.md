@@ -34,7 +34,7 @@ the code lives. **Stop there and pick a track below** rather than reading straig
 | **Work on the platform itself** | [HLD.md](03-architecture/HLD.md) for module decomposition and the key sequence diagrams, then [LLD.md](03-architecture/LLD.md) for the algorithms worth knowing exactly. Add [Database-Design.md](03-architecture/Database-Design.md), [API-Specification.md](03-architecture/API-Specification.md) and [UI-UX-Design-Spec.md](03-architecture/UI-UX-Design-Spec.md) as you touch those areas. The authentication design that closes review finding C2 is [Authentication-Design.md](03-architecture/Authentication-Design.md) (decided and built 2026-09-11; bearer scheme, fail-closed endpoint policies, Windows sign-in for the portal). |
 | **Deploy or operate it** | [Deployment-IaC.md](05-operations/Deployment-IaC.md), then [Runbook.md](05-operations/Runbook.md). The proposed installer that replaces the manual steps is designed, page by page, in [Installer-UI-Design.md](05-operations/Installer-UI-Design.md) (a draft — nothing built yet). The one-machine demo install, a fourth install type, is in [Demo-Install-Design.md](05-operations/Demo-Install-Design.md). |
 | **Understand containers** | [Container-Story.md](03-architecture/Container-Story.md) — the reasoning and the phased plan (C0–C5 shipped; only C6 remains a proposal). [Container-Developer-Guide.md](02-building-applications/Container-Developer-Guide.md) is the practical companion, and the one to read if you want to actually *run* any of it. |
-| **Run programs that were not written for enList** (a proposal — nothing built yet) | [Program-Workloads-Design.md](03-architecture/Program-Workloads-Design.md) — existing executables, PowerShell and batch scripts as supervised services and scheduled jobs, described by an `enlist.workload.json` beside them: the descriptor, how the runner hosts and stops a program on Windows, the protocol, agent, control plane, portal and deploy-tool changes, security, and a phased plan with its test matrix. |
+| **Run programs that were not written for enList** (a proposal — nothing built yet) | [Program-Workloads-Design.md](03-architecture/Program-Workloads-Design.md) — existing executables, PowerShell and batch scripts as supervised services and scheduled jobs, described by an `enlist.workload.json` beside them. Start at §6.2: two example descriptors that use every property, what each does, and what the runner launches, then §6.2.5's three watch-outs. After that: how the runner hosts and stops a program on Windows, the protocol, agent, control plane, portal and deploy-tool changes, the per-agent and fleet-wide off switches, security, and a phased plan. §16.1 is the register of what implementing it could break in today's system and the control for each. |
 | **Know what the system must do**, formally | [BRD.md](04-requirements/BRD.md) → [SRS.md](04-requirements/SRS.md) → [FRS.md](04-requirements/FRS.md). Useful for scoping and review; not the fastest way to learn how anything works. |
 | **Change something and not break it** | [Test-Plan.md](05-operations/Test-Plan.md) — what the suite covers and, importantly, what it does not yet. |
 
@@ -73,7 +73,7 @@ what the code does, not what someone once intended it to do. Several were revise
 2026-09-07/08 after audits found them describing a portal structure and CLI flags that no longer
 existed — each says so in its own header.
 
-Four documents are different in kind, and it matters:
+Six documents are different in kind, and it matters:
 
 - [**enList-v3-Design.md**](03-architecture/enList-v3-Design.md) is the **real original design
   document**, not reverse-documented. Every "design doc section N" reference in the source code
@@ -87,6 +87,15 @@ Four documents are different in kind, and it matters:
   architecture and code review — 30 ranked findings with file and line, verified against the running
   demo fleet, and the order to fix them in. Line numbers there are as of that date and will drift; the
   finding IDs (C1, H1, …) are what later commits and Runbook entries refer to.
+- [**Program-Workloads-Design.md**](03-architecture/Program-Workloads-Design.md) is a **proposal
+  with nothing built**, written 2026-09-15 against the code as it was that day. Its statements
+  about *today* cite `src/` and can be checked; everything it calls new is intent until its phases
+  land. It found two things wrong in today's system, and records them as its phase P0:
+  - agent shutdown stops applications one at a time without a host timeout set;
+  - the agent data folder inherits `%ProgramData%`'s permissions.
+- [**enList-Sales-Readiness.html**](0S-PreSales/enList-Sales-Readiness.html) is a **point-in-time
+  commercial assessment**, not a technical document: where enList stood for selling licenses on
+  2026-09-15. Its figures (test counts, what a buyer finds missing) are as of that date.
 
 Where the shipped system deviates from the original design, that is called out rather than smoothed
 over — chiefly in [SAD.md §9](03-architecture/SAD.md#9-design-vs-implementation) and
@@ -109,6 +118,7 @@ These are not auto-generated and will drift. When you make a change that touches
 | A new page, component, or visual convention in Enlist.Portal | [UI-UX-Design-Spec.md](03-architecture/UI-UX-Design-Spec.md) |
 | A new or changed CLI flag, launch command, or setup step | [Developer-Setup-Guide.md](01-start-here/Developer-Setup-Guide.md) |
 | A new test, or a newly discovered coverage gap | [Test-Plan.md](05-operations/Test-Plan.md) |
+| A field of the program workload descriptor (`enlist.workload.json`) | [Program-Workloads-Design.md](03-architecture/Program-Workloads-Design.md) §6.3 — and §6.2's examples and coverage table, which use every property and must go on doing so |
 | A real incident worth remembering — a subtle bug, a footgun, a "this looked fine but wasn't" | [Runbook.md](05-operations/Runbook.md) §3, in the same postmortem format as the existing entries: symptom, root cause, fix, how to recognise it if it recurs |
 
 If you move or rename a document, note that **source comments reference these paths** — around 40
