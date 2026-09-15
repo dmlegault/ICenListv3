@@ -1329,7 +1329,7 @@ Plus scripts under `tests/Enlist.TestPrograms/scripts/`: `graceful.ps1` (a `fina
 | S3 | `testprog --spawn-grandchild` | `console` | Parent and grandchild both gone after stop; no process left with that image name |
 | S4 | `testprog --launcher` | — (entry stops) | The grandchild the launcher left behind is killed when the service stops |
 | S5 | `testprog --stdin-eof` | `stdin` | Exit 0 without a kill |
-| S6 | `testprog --window` | `close` | Exit 0 without a kill |
+| S6 | `testprog-gui --window` | `close` | Exit 0 without a kill |
 | S7 | `graceful.ps1` via `powershell` and via `pwsh` | `console` | `cleanup ran` logged |
 | S8 | `wait.cmd` | `console`, `stdin` (defaults) | Batch ends without a kill; no *Terminate batch job* hang |
 | S9 | Any program; **the runner process is killed** | — | Every program under it gone within a second |
@@ -1338,7 +1338,7 @@ Plus scripts under `tests/Enlist.TestPrograms/scripts/`: `graceful.ps1` (a `fina
 | S12 | **Agent shutdown with four applications**, each with a program that takes 20 s to stop gracefully | `console` | All four stop gracefully within about 20 s in total — in parallel, not 80 s — and none is killed by the host's shutdown timeout. Under the Windows service host, the SCM keeps waiting (no "did not respond" error from `sc stop`) |
 | S13 | `enlist-runner --dev` in an interactive terminal; `stop` a program service, then `start` it, then Ctrl+C in the terminal | `console` | The terminal is still attached and accepting commands after the stop; the program stops gracefully; Ctrl+C reaches the dev host, which shuts every program down in order |
 | S14 | The signal helper cannot attach (the program has exited in the instant before delivery) | `console` | The helper exits 1; the runner logs the reason once and does not wait out the full timeout for a process that is already gone |
-| S15 | `testprog --window` given a modal dialog it cannot dismiss, with `readiness.logPattern` for a line it never prints | — | The entry fails its readiness timeout visibly (`Faulted`, *not ready within Ns*) instead of reporting `Running` indefinitely; without `readiness` it reports `Running`, which is the documented limit (§6.2.5) |
+| S15 | `testprog-gui --modal`, a modal dialog it cannot dismiss, with `readiness.logPattern` for a line it never prints | — | The entry fails its readiness timeout visibly (`Faulted`, *not ready within Ns*) instead of reporting `Running` indefinitely; without `readiness` it reports `Running`, which is the documented limit (§6.2.5) |
 | S16 | `testprog --write-beside-self`, which writes `testprog.ini` next to its executable, under `appDirectory: "copy"`; the application is then shut down | — | The shutdown log names `testprog.ini` as written inside the application directory; after the next application start the file is gone and the copy matches the package |
 
 ### 17.3 By layer
